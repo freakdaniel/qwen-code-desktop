@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="QwenCode.App/QwenCode.App.csproj" />
+  <Project Path="QwenCode.IpcGen/QwenCode.IpcGen.csproj" />
+  <Project Path="QwenCode.Tests/QwenCode.Tests.csproj" />
+</Solution>

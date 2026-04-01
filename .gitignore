@@ -1,0 +1,8 @@
+bin/
+obj/
+node_modules/
+dist/
+src/QwenCode.Desktop.Host/wwwroot/
+!.gitkeep
+wwwroot/
+research/

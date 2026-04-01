@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>QwenCode.App</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ElectronNET.Core" Version="0.4.1" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <ElectronPackageId>io.github.freakdaniel.QwenCodeDesktop</ElectronPackageId>
+    <Title>Qwen Code Desktop</Title>
+    <Version>0.1.0</Version>
+    <Description>Desktop shell for qwen-code with Claude-inspired UX patterns.</Description>
+    <Company>freakdaniel</Company>
+    <ElectronVersion>34.2.0</ElectronVersion>
+    <ElectronSkipMigrationChecks>true</ElectronSkipMigrationChecks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="electron\preload.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include=".electron\custom_main.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target
+    Name="NpmInstall"
+    BeforeTargets="BuildFrontend"
+    Inputs="Frontend\package.json;Frontend\package-lock.json"
+    Outputs="Frontend\node_modules\.package-lock.json"
+    Condition="Exists('Frontend\package.json') AND Exists('Frontend\package-lock.json')">
+    <Message Importance="high" Text="-> npm ci (Frontend)" />
+    <Exec Command="npm ci --prefer-offline" WorkingDirectory="Frontend" />
+  </Target>
+
+  <Target
+    Name="BuildFrontend"
+    BeforeTargets="Build"
+    Inputs="Frontend\src\**\*;Frontend\index.html;Frontend\vite.config.ts;Frontend\tsconfig.json;Frontend\tsconfig.app.json"
+    Outputs="wwwroot\index.html"
+    Condition="Exists('Frontend\package.json') AND '$(SkipFrontend)' != 'true'">
+    <Message Importance="high" Text="-> Building Frontend (Vite)" />
+    <Exec Command="npm run build" WorkingDirectory="Frontend" />
+  </Target>
+
+  <Target Name="CopyFrontendDist" AfterTargets="Build" Condition="Exists('wwwroot/index.html')">
+    <ItemGroup>
+      <FrontendFiles Include="wwwroot\**\*" />
+    </ItemGroup>
+    <Copy
+      SourceFiles="@(FrontendFiles)"
+      DestinationFiles="@(FrontendFiles->'$(OutputPath)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
