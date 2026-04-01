@@ -2,9 +2,10 @@ using System.Runtime;
 using ElectronNET;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using QwenCode.App.Ipc;
-using QwenCode.App.Options;
-using QwenCode.App.Services;
+using Microsoft.Extensions.Logging;
+using QwenCode.App.AppHost;
+using Serilog;
+using Serilog.Events;
 
 namespace QwenCode.App;
 
@@ -25,35 +26,71 @@ internal static class Program
             .AddEnvironmentVariables()
             .Build();
 
+        Log.Logger = CreateLogger(configuration);
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
-        services.AddOptions<DesktopShellOptions>()
-            .Bind(configuration.GetSection(DesktopShellOptions.SectionName));
-        services.AddSingleton<DesktopAppService>();
-        services.AddSingleton<DesktopIpcService>();
+        services.AddLogging(builder =>
+        {
+            builder.ClearProviders();
+            builder.AddSerilog(Log.Logger, dispose: true);
+        });
+        services.AddDesktopShellServices(configuration);
 
         using var serviceProvider = services.BuildServiceProvider();
         var runtimeController = ElectronNetRuntime.RuntimeController;
+        var logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("QwenCode.App");
 
         try
         {
+            logger.LogInformation("Starting Qwen Code Desktop host");
+            logger.LogInformation("Content root: {ContentRoot}", AppContext.BaseDirectory);
+            logger.LogInformation("Environment: {EnvironmentName}", Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production");
+
             ElectronNetRuntime.ElectronExtraArguments = string.Join(
                 " ",
                 "--disable-background-networking",
                 "--disable-dev-shm-usage",
                 "--disable-renderer-backgrounding");
 
+            logger.LogInformation("Starting Electron.NET runtime");
             await runtimeController.Start();
             await runtimeController.WaitReadyTask;
+            logger.LogInformation("Electron.NET runtime ready");
 
             await Bootstrapper.StartAsync(serviceProvider, configuration);
+            logger.LogInformation("Bootstrap completed; waiting for runtime stop");
 
             await runtimeController.WaitStoppedTask;
+            logger.LogInformation("Electron.NET runtime stopped");
         }
-        catch
+        catch (Exception exception)
         {
+            logger.LogError(exception, "Fatal error while running desktop host");
             await runtimeController.Stop().ConfigureAwait(false);
             throw;
         }
+        finally
+        {
+            Log.CloseAndFlush();
+        }
+    }
+
+    private static Serilog.ILogger CreateLogger(IConfiguration configuration)
+    {
+        var logsDirectory = Path.Combine(AppContext.BaseDirectory, "logs");
+        Directory.CreateDirectory(logsDirectory);
+
+        return new LoggerConfiguration()
+            .ReadFrom.Configuration(configuration)
+            .MinimumLevel.Information()
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+            .Enrich.FromLogContext()
+            .WriteTo.Console()
+            .WriteTo.File(
+                Path.Combine(logsDirectory, "qwen-desktop-.log"),
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 7,
+                shared: true)
+            .CreateLogger();
     }
 }

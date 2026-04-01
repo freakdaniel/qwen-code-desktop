@@ -1,17 +1,17 @@
 :root {
-  font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+  font-family: 'Segoe UI', 'Inter', sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;
-  color: #f5f5fb;
-  background-color: #111117;
+  color: #f4efe3;
+  background-color: #262522;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --text: #f5f5fb;
-  --muted: #9a98b2;
-  --muted-strong: #b8b6cc;
+  --text: #f4efe3;
+  --muted: #9f9789;
+  --muted-strong: #b9af9c;
 }
 
 * {
@@ -27,6 +27,7 @@ body,
 
 body {
   min-height: 100vh;
+  background: #262522;
 }
 
 button,

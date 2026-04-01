@@ -1,6 +1,6 @@
 const sharedTranslations = {
   app: { workspace: 'Desktop shell' },
-  modes: { title: 'Mode selector', chat: 'Chat', code: 'Code' },
+  modes: { title: 'Code mode', code: 'Code' },
   status: { connected: 'IPC attached', local: 'Local preview' },
   top: { locale: 'Locale' },
   content: {
@@ -25,18 +25,18 @@ export const resources = {
       },
       hero: {
         kicker: 'Qwen-first desktop architecture',
-        chatTitle: 'A conversation shell over the qwen runtime.',
+        chatTitle: 'A code-first shell over the qwen runtime.',
         chatSubtitle:
-          'Keep qwen compatibility intact while making session, context, and history navigation feel native on desktop.',
+          'Keep qwen compatibility intact while making sessions, context, and history navigation feel native on desktop.',
         codeTitle: 'A coding cockpit shaped by qwen core and Claude-grade ergonomics.',
         codeSubtitle: 'Use Claude as the UX reference for tool orchestration, not as the runtime authority.',
       },
       composer: {
-        currentMode: 'Current mode',
-        chatPlaceholder: 'Describe the session, migration, or research task you want to tackle.',
+        currentMode: 'Current surface',
+        chatPlaceholder: 'Describe the implementation, migration, or session task you want to tackle.',
         codePlaceholder:
           'Ask for runtime integration, IPC work, renderer implementation, or qwen compatibility hardening.',
-        chatAction: 'Start research thread',
+        chatAction: 'Start code session',
         codeAction: 'Open code workflow',
       },
     },
@@ -53,18 +53,18 @@ export const resources = {
       },
       hero: {
         kicker: 'Qwen-first desktop architecture',
-        chatTitle: 'Диалоговая оболочка поверх qwen runtime.',
+        chatTitle: 'Code-first оболочка поверх qwen runtime.',
         chatSubtitle:
-          'Сохраняем совместимость qwen и делаем работу с контекстом, памятью и историей естественной для десктопа.',
+          'Сохраняем совместимость qwen и делаем работу с сессиями, контекстом, памятью и историей естественной для десктопа.',
         codeTitle: 'Кодовый cockpit на qwen core с эргономикой уровня Claude.',
         codeSubtitle: 'Claude используем как референс UX и tool-flow, а не как источник runtime-логики.',
       },
       composer: {
-        currentMode: 'Текущий режим',
-        chatPlaceholder: 'Опиши исследовательскую задачу, миграцию или сценарий сессии.',
+        currentMode: 'Текущая поверхность',
+        chatPlaceholder: 'Опиши реализацию, миграцию или задачу для кодовой сессии.',
         codePlaceholder:
           'Спроси про IPC, интеграцию qwen runtime, реализацию renderer или compatibility hardening.',
-        chatAction: 'Открыть исследование',
+        chatAction: 'Открыть кодовую сессию',
         codeAction: 'Открыть code workflow',
       },
     },

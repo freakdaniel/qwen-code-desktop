@@ -19,8 +19,11 @@ const invoke = (channel, payload) =>
 
 contextBridge.exposeInMainWorld('qwenDesktop', {
   bootstrap: () => invoke('qwen-desktop:app:bootstrap', {}),
-  setMode: (mode) => invoke('qwen-desktop:app:set-mode', { mode }),
+  getSession: (request) => invoke('qwen-desktop:sessions:get', request),
   setLocale: (locale) => invoke('qwen-desktop:app:set-locale', { locale }),
+  startSessionTurn: (request) => invoke('qwen-desktop:sessions:start-turn', request),
+  approvePendingTool: (request) => invoke('qwen-desktop:sessions:approve-tool', request),
+  executeNativeTool: (request) => invoke('qwen-desktop:tools:execute-native', request),
   subscribeStateChanged: (callback) => {
     const channel = 'qwen-desktop:app:state-changed';
     const handler = (_event, raw) => {

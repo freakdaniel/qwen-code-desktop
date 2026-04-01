@@ -7,7 +7,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         var outputPath = ResolveOutputPath(args);
-        var assembly = typeof(QwenCode.App.Bootstrapper).Assembly;
+        var assembly = typeof(QwenCode.App.AppHost.Bootstrapper).Assembly;
         var collector = new IpcMethodCollector();
         var methods = collector.Collect(assembly);
 
