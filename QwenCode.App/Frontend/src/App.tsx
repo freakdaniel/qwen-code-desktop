@@ -15,6 +15,26 @@ import type {
 } from './types/desktop'
 
 const SESSION_PAGE_SIZE = 120
+
+const WITTY_LOADING_PHRASES = [
+  'Мне повезёт!',
+  'Доставляем крутизну...',
+  'Разогреваем ИИ-хомячков...',
+  'Генерируем остроумный ответ...',
+  'Полируем алгоритмы...',
+  'Завариваем свежие байты...',
+  'Компилируем гениальность...',
+  'Призываем облако мудрости...',
+  'Секунду, идёт отладка реальности...',
+  'Превращаем кофе в код...',
+  'Переподключаем синапсы...',
+  'Ищем лишнюю точку с запятой...',
+  'Разогреваем серверы...',
+  'Варп-прыжок активирован...',
+  'Без паники...',
+  'Следуем за белым кроликом...',
+]
+
 type UiCopy = {
   newChat: string
   searchChats: string
@@ -82,6 +102,16 @@ type UiCopy = {
   modeCodeLabel: string
   projectSummaryLabel: string
   updatedNowLabel: string
+  newConversation: string
+  skillsLabel: string
+  toolsNavLabel: string
+  agentsLabel: string
+  settingsLabel: string
+  modePlan: string
+  modeDefault: string
+  modeAutoEdit: string
+  modeYolo: string
+  attachFileLabel: string
 }
 
 function App() {
@@ -102,6 +132,8 @@ function App() {
   const [approvingEntryId, setApprovingEntryId] = useState('')
   const [recoveringSessionId, setRecoveringSessionId] = useState('')
   const [dismissingSessionId, setDismissingSessionId] = useState('')
+  const [selectedMode, setSelectedMode] = useState<'plan' | 'default' | 'auto-edit' | 'yolo'>('default')
+  const [wittyPhraseIndex, setWittyPhraseIndex] = useState(0)
   const didHydrateDesktopRef = useRef(false)
   const selectedSessionIdRef = useRef(selectedSessionId)
   const selectedSessionDetailRef = useRef<DesktopSessionDetail | null>(selectedSessionDetail)
@@ -385,6 +417,19 @@ function App() {
     : ''
   const selectedSessionIsActive = Boolean(selectedSessionId && activeTurnSessions[selectedSessionId])
   const selectedSessionWasReattached = Boolean(selectedSessionId && reattachedSessionId === selectedSessionId)
+  const heroVisible = homePrompt.length === 0 && !isSubmittingPrompt
+
+  useEffect(() => {
+    if (!isSubmittingPrompt) {
+      return
+    }
+
+    const interval = setInterval(() => {
+      setWittyPhraseIndex((i) => (i + 1) % WITTY_LOADING_PHRASES.length)
+    }, 1800)
+
+    return () => clearInterval(interval)
+  }, [isSubmittingPrompt])
 
   const applyTurnResult = (result: DesktopSessionTurnResult) => {
     setLatestTurn(result)
@@ -596,13 +641,22 @@ function App() {
   return (
     <div className="app-shell">
       <aside className="sidebar-shell">
-        <div className="sidebar-heading">
-          <div>
-            <span className="sidebar-heading__eyebrow">{copy.allChats}</span>
-          </div>
-
-          <button className="icon-button" onClick={handleStartNewChat} type="button">
+        <div className="sidebar-actions">
+          <button className="sidebar-action-btn" onClick={handleStartNewChat} type="button">
             <Icon name="plus" />
+            <span>{copy.newConversation}</span>
+          </button>
+          <button className="sidebar-action-btn" type="button">
+            <Icon name="wand" />
+            <span>{copy.skillsLabel}</span>
+          </button>
+          <button className="sidebar-action-btn" type="button">
+            <Icon name="code" />
+            <span>{copy.toolsNavLabel}</span>
+          </button>
+          <button className="sidebar-action-btn" type="button">
+            <Icon name="cpu" />
+            <span>{copy.agentsLabel}</span>
           </button>
         </div>
 
@@ -647,9 +701,14 @@ function App() {
                           <span>{formatActivityLabel(session.lastActivity)}</span>
                         </div>
 
-                        <div className="session-list-item__footer">
-                          <span>{session.lastActivity}</span>
-                          {isActive && <span className="session-live-dot" />}
+                        <div className="session-list-item__meta">
+                          <span className="session-list-item__project">
+                            {getWorkspaceName(session.workingDirectory)}
+                          </span>
+                          <span className="session-list-item__stats">
+                            {session.messageCount > 0 && `+${session.messageCount}`}
+                            {isActive && <span className="session-live-dot" />}
+                          </span>
                         </div>
                       </button>
                     )
@@ -659,52 +718,79 @@ function App() {
             ))}
           </div>
         </div>
+
+        <div className="sidebar-footer">
+          <button className="sidebar-settings-btn" type="button">
+            <Icon name="settings" />
+            <span>{copy.settingsLabel}</span>
+          </button>
+        </div>
       </aside>
 
       <main className="workspace-shell">
-        {bootstrap.recoverableTurns.length > 0 && (
-          <RecoverableStrip
-            copy={copy}
-            dismissingSessionId={dismissingSessionId}
-            onDismiss={handleDismissInterruptedTurn}
-            onResume={handleResumeInterruptedTurn}
-            recoveringSessionId={recoveringSessionId}
-            turns={bootstrap.recoverableTurns}
-          />
-        )}
+        <div className="workspace-content">
+          {bootstrap.recoverableTurns.length > 0 && (
+            <RecoverableStrip
+              copy={copy}
+              dismissingSessionId={dismissingSessionId}
+              onDismiss={handleDismissInterruptedTurn}
+              onResume={handleResumeInterruptedTurn}
+              recoveringSessionId={recoveringSessionId}
+              turns={bootstrap.recoverableTurns}
+            />
+          )}
 
-        {!selectedSessionId && (
-          <HomeWorkspace
-            copy={copy}
-            homePrompt={homePrompt}
-            isSubmittingPrompt={isSubmittingPrompt}
-            onPromptChange={setHomePrompt}
-            onSubmit={() => void handleSubmitNewTurn(homePrompt, '')}
-            projectName={latestProjectName}
-          />
-        )}
+          {!selectedSessionId && (
+            <HomeWorkspace
+              copy={copy}
+              heroVisible={heroVisible}
+              isSubmittingPrompt={isSubmittingPrompt}
+              projectName={latestProjectName}
+              wittyPhrase={WITTY_LOADING_PHRASES[wittyPhraseIndex]}
+            />
+          )}
 
-        {selectedSessionId && (
-          <SessionWorkspace
-            approvingEntryId={approvingEntryId}
-            bootstrap={bootstrap}
-            copy={copy}
-            isLoadingSession={isLoadingSession}
-            isSubmittingPrompt={isSubmittingPrompt}
-            latestSessionEvent={latestSessionEvent}
-            onApprovePendingTool={handleApprovePendingTool}
-            onCancelTurn={() => void handleCancelTurn()}
-            onLoadNewerEntries={() => void handleLoadNewerEntries()}
-            onLoadOlderEntries={() => void handleLoadOlderEntries()}
-            onPromptChange={setSessionPrompt}
-            onSubmit={() => void handleSubmitNewTurn(sessionPrompt, selectedSessionId)}
-            selectedSessionDetail={selectedSessionDetail}
-            selectedSessionIsActive={selectedSessionIsActive}
-            selectedSessionStreamingText={selectedSessionStreamingText}
-            selectedSessionWasReattached={selectedSessionWasReattached}
-            sessionPrompt={sessionPrompt}
+          {selectedSessionId && (
+            <SessionWorkspace
+              approvingEntryId={approvingEntryId}
+              bootstrap={bootstrap}
+              copy={copy}
+              isLoadingSession={isLoadingSession}
+              latestSessionEvent={latestSessionEvent}
+              onApprovePendingTool={handleApprovePendingTool}
+              onCancelTurn={() => void handleCancelTurn()}
+              onLoadNewerEntries={() => void handleLoadNewerEntries()}
+              onLoadOlderEntries={() => void handleLoadOlderEntries()}
+              selectedSessionDetail={selectedSessionDetail}
+              selectedSessionIsActive={selectedSessionIsActive}
+              selectedSessionStreamingText={selectedSessionStreamingText}
+              selectedSessionWasReattached={selectedSessionWasReattached}
+            />
+          )}
+        </div>
+
+        <div className="workspace-composer-dock">
+          <Composer
+            isBusy={isSubmittingPrompt}
+            modeCopy={{
+              plan: copy.modePlan,
+              default: copy.modeDefault,
+              'auto-edit': copy.modeAutoEdit,
+              yolo: copy.modeYolo,
+            }}
+            onChange={selectedSessionId ? setSessionPrompt : setHomePrompt}
+            onModeChange={setSelectedMode}
+            onSubmit={() => void handleSubmitNewTurn(
+              selectedSessionId ? sessionPrompt : homePrompt,
+              selectedSessionId,
+            )}
+            placeholder={selectedSessionId ? copy.continuePlaceholder : copy.composerPlaceholder}
+            selectedMode={selectedMode}
+            submitLabel={copy.send}
+            submittingLabel={copy.sending}
+            value={selectedSessionId ? sessionPrompt : homePrompt}
           />
-        )}
+        </div>
       </main>
     </div>
   )
@@ -771,44 +857,34 @@ function RecoverableStrip({
 
 function HomeWorkspace({
   copy,
-  homePrompt,
+  heroVisible,
   isSubmittingPrompt,
-  onPromptChange,
-  onSubmit,
   projectName,
+  wittyPhrase,
 }: {
   copy: UiCopy
-  homePrompt: string
+  heroVisible: boolean
   isSubmittingPrompt: boolean
-  onPromptChange: (value: string) => void
-  onSubmit: () => void
   projectName: string
+  wittyPhrase: string
 }) {
   return (
     <section className="home-workspace">
-      <div className="home-hero">
+      <div className={`home-hero${heroVisible ? '' : ' home-hero--hidden'}`}>
         <img alt="Qwen" className="home-hero__logo" src={qwenLogo} />
 
         <div className="home-hero__copy">
           <span className="home-hero__headline">{copy.heroTitle}</span>
           <button className="home-hero__project" type="button">
             <span>{projectName}</span>
-            <span className="home-hero__chevron">v</span>
+            <span className="home-hero__chevron">›</span>
           </button>
         </div>
       </div>
 
-      <div className="composer-surface">
-        <Composer
-          isBusy={isSubmittingPrompt}
-          onChange={onPromptChange}
-          onSubmit={onSubmit}
-          placeholder={copy.composerPlaceholder}
-          submitLabel={copy.send}
-          submittingLabel={copy.sending}
-          value={homePrompt}
-        />
-      </div>
+      {isSubmittingPrompt && (
+        <div className="home-witty-phrase">{wittyPhrase}</div>
+      )}
     </section>
   )
 }
@@ -818,37 +894,29 @@ function SessionWorkspace({
   bootstrap,
   copy,
   isLoadingSession,
-  isSubmittingPrompt,
   latestSessionEvent,
   onApprovePendingTool,
   onCancelTurn,
   onLoadNewerEntries,
   onLoadOlderEntries,
-  onPromptChange,
-  onSubmit,
   selectedSessionDetail,
   selectedSessionIsActive,
   selectedSessionStreamingText,
   selectedSessionWasReattached,
-  sessionPrompt,
 }: {
   approvingEntryId: string
   bootstrap: AppBootstrapPayload
   copy: UiCopy
   isLoadingSession: boolean
-  isSubmittingPrompt: boolean
   latestSessionEvent: DesktopSessionEvent | null
   onApprovePendingTool: (entryId: string) => void
   onCancelTurn: () => void
   onLoadNewerEntries: () => void
   onLoadOlderEntries: () => void
-  onPromptChange: (value: string) => void
-  onSubmit: () => void
   selectedSessionDetail: DesktopSessionDetail | null
   selectedSessionIsActive: boolean
   selectedSessionStreamingText: string
   selectedSessionWasReattached: boolean
-  sessionPrompt: string
 }) {
   if (isLoadingSession) {
     return (
@@ -958,17 +1026,6 @@ function SessionWorkspace({
             </div>
           </section>
 
-          <div className="composer-surface composer-surface--session">
-            <Composer
-              isBusy={isSubmittingPrompt}
-              onChange={onPromptChange}
-              onSubmit={onSubmit}
-              placeholder={copy.continuePlaceholder}
-              submitLabel={copy.send}
-              submittingLabel={copy.sending}
-              value={sessionPrompt}
-            />
-          </div>
         </div>
 
         <aside className="session-rail">
@@ -1075,23 +1132,51 @@ function SessionWorkspace({
 
 function Composer({
   isBusy,
+  modeCopy,
   onChange,
+  onModeChange,
   onSubmit,
   placeholder,
+  selectedMode,
   submitLabel,
   submittingLabel,
   value,
 }: {
   isBusy: boolean
+  modeCopy: Record<'plan' | 'default' | 'auto-edit' | 'yolo', string>
   onChange: (value: string) => void
+  onModeChange: (mode: 'plan' | 'default' | 'auto-edit' | 'yolo') => void
   onSubmit: () => void
   placeholder: string
+  selectedMode: 'plan' | 'default' | 'auto-edit' | 'yolo'
   submitLabel: string
   submittingLabel: string
   value: string
 }) {
   return (
     <div className="composer-bar">
+      <button
+        className="composer-attachment-btn"
+        disabled={isBusy}
+        title="Прикрепить файл"
+        type="button"
+      >
+        <Icon name="paperclip" />
+      </button>
+
+      <div className="composer-mode-selector">
+        {(['plan', 'default', 'auto-edit', 'yolo'] as const).map((mode) => (
+          <button
+            className={`composer-mode-pill${selectedMode === mode ? ' is-active' : ''}`}
+            key={mode}
+            onClick={() => onModeChange(mode)}
+            type="button"
+          >
+            {modeCopy[mode]}
+          </button>
+        ))}
+      </div>
+
       <textarea
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
@@ -1396,6 +1481,16 @@ function getUiCopy(locale: string): UiCopy {
       modeCodeLabel: 'Code',
       projectSummaryLabel: 'Текущая цель проекта',
       updatedNowLabel: 'Обновлено только что',
+      newConversation: 'Новая беседа',
+      skillsLabel: 'Навыки',
+      toolsNavLabel: 'Инструменты',
+      agentsLabel: 'Агенты',
+      settingsLabel: 'Настройки',
+      modePlan: 'Планировщик',
+      modeDefault: 'По умолчанию',
+      modeAutoEdit: 'Авто-редакт',
+      modeYolo: 'YOLO',
+      attachFileLabel: 'Прикрепить файл',
     }
   }
 
@@ -1471,6 +1566,16 @@ function getUiCopy(locale: string): UiCopy {
     modeCodeLabel: 'Code',
     projectSummaryLabel: 'Current project goal',
     updatedNowLabel: 'Updated just now',
+    newConversation: 'New chat',
+    skillsLabel: 'Skills',
+    toolsNavLabel: 'Tools',
+    agentsLabel: 'Agents',
+    settingsLabel: 'Settings',
+    modePlan: 'Planner',
+    modeDefault: 'Default',
+    modeAutoEdit: 'Auto-edit',
+    modeYolo: 'YOLO',
+    attachFileLabel: 'Attach file',
   }
 }
 

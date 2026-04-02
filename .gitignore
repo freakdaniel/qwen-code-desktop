@@ -6,3 +6,4 @@ dist/
 wwwroot/
 research/
 .tmp/
+.[cC]*/

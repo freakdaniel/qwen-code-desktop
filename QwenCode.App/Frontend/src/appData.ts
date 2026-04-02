@@ -23,6 +23,10 @@ export type IconName =
   | 'spark'
   | 'ghost'
   | 'chevronLeft'
+  | 'paperclip'
+  | 'settings'
+  | 'wand'
+  | 'cpu'
 
 export type NavItem = {
   id: ViewId
