@@ -85,7 +85,7 @@ internal static class Program
             }
             catch (Exception stopException)
             {
-                logger.LogWarning(stopException, "Electron.NET runtime stop was skipped because the runtime was already stopping or stopped.");
+                logger.LogWarning(stopException, "Electron.NET runtime stop was skipped because the runtime was already stopping or stopped");
             }
             throw;
         }
@@ -99,7 +99,7 @@ internal static class Program
     {
         Console.CancelKeyPress += (_, eventArgs) =>
         {
-            logger.LogWarning("Console cancel requested. Shutting down Electron host.");
+            logger.LogWarning("Console cancel requested. Shutting down Electron host");
             eventArgs.Cancel = true;
             RequestShutdown(runtimeController, logger, "console-cancel");
         };
@@ -119,7 +119,7 @@ internal static class Program
 
         if (Volatile.Read(ref _runtimeStopped) != 0)
         {
-            logger.LogInformation("Process exit observed after Electron.NET runtime already stopped. Skipping duplicate stop.");
+            logger.LogInformation("Process exit observed after Electron.NET runtime already stopped. Skipping duplicate stop");
             ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, "process-exit");
             return;
         }
@@ -136,7 +136,7 @@ internal static class Program
 
         try
         {
-            logger.LogInformation("Stopping Electron.NET runtime due to {Reason}.", reason);
+            logger.LogInformation("Stopping Electron.NET runtime due to {Reason}", reason);
             runtimeController.Stop().GetAwaiter().GetResult();
             Interlocked.Exchange(ref _runtimeStopped, 1);
         }
@@ -144,7 +144,7 @@ internal static class Program
         {
             logger.LogWarning(
                 exception,
-                "Graceful Electron.NET runtime stop failed during {Reason}. Falling back to process cleanup.",
+                "Graceful Electron.NET runtime stop failed during {Reason}. Falling back to process cleanup",
                 reason);
         }
         finally
