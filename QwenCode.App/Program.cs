@@ -15,6 +15,8 @@ namespace QwenCode.App;
 internal static class Program
 {
     private static int _shutdownInitiated;
+    private static int _runtimeStopped;
+    private static int _processExitCleanupCompleted;
 
     private static async Task Main(string[] args)
     {
@@ -70,6 +72,7 @@ internal static class Program
             logger.LogInformation("Bootstrap completed; waiting for runtime stop");
 
             await runtimeController.WaitStoppedTask;
+            Interlocked.Exchange(ref _runtimeStopped, 1);
             logger.LogInformation("Electron.NET runtime stopped");
         }
         catch (Exception exception)
@@ -78,6 +81,7 @@ internal static class Program
             try
             {
                 await runtimeController.Stop().ConfigureAwait(false);
+                Interlocked.Exchange(ref _runtimeStopped, 1);
             }
             catch (Exception stopException)
             {
@@ -102,8 +106,25 @@ internal static class Program
 
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
-            RequestShutdown(runtimeController, logger, "process-exit");
+            HandleProcessExit(runtimeController, logger);
         };
+    }
+
+    private static void HandleProcessExit(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger)
+    {
+        if (Interlocked.Exchange(ref _processExitCleanupCompleted, 1) != 0)
+        {
+            return;
+        }
+
+        if (Volatile.Read(ref _runtimeStopped) != 0)
+        {
+            logger.LogInformation("Process exit observed after Electron.NET runtime already stopped. Skipping duplicate stop.");
+            ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, "process-exit");
+            return;
+        }
+
+        RequestShutdown(runtimeController, logger, "process-exit");
     }
 
     private static void RequestShutdown(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
@@ -117,6 +138,7 @@ internal static class Program
         {
             logger.LogInformation("Stopping Electron.NET runtime due to {Reason}.", reason);
             runtimeController.Stop().GetAwaiter().GetResult();
+            Interlocked.Exchange(ref _runtimeStopped, 1);
         }
         catch (Exception exception)
         {
