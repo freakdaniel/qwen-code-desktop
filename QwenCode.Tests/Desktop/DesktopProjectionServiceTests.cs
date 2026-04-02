@@ -1,3 +1,5 @@
+using QwenCode.App.Auth;
+
 namespace QwenCode.Tests.Desktop;
 
 public sealed class DesktopProjectionServiceTests
@@ -59,6 +61,7 @@ public sealed class DesktopProjectionServiceTests
             Assert.Equal("default", payload.QwenRuntime.ApprovalProfile.DefaultMode);
             Assert.True(payload.QwenTools.TotalCount >= 0);
             Assert.True(payload.QwenNativeHost.RegisteredCount >= 0);
+            Assert.False(string.IsNullOrWhiteSpace(payload.QwenAuth.SelectedType));
         }
         finally
         {
@@ -99,8 +102,16 @@ public sealed class DesktopProjectionServiceTests
             var settingsResolver = new DesktopSettingsResolver(
                 compatibilityService,
                 runtimeProfileService);
+            var authFlowService = new AuthFlowService(
+                runtimeProfileService,
+                environmentPaths,
+                new FileQwenOAuthCredentialStore(environmentPaths),
+                new HttpClient(new RecordingHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)))),
+                new FakeAuthUrlLauncher());
             var toolRegistry = new ToolCatalogService(runtimeProfileService, approvalPolicyService);
             var toolExecutor = new NativeToolHostService(runtimeProfileService, approvalPolicyService);
+            var mcpRegistry = new McpRegistryService(runtimeProfileService, new FileMcpTokenStore(environmentPaths));
+            var mcpConnectionManager = new McpConnectionManagerService(mcpRegistry, new HttpClient());
             var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
             Directory.CreateDirectory(runtimeProfile.ChatsDirectory);
@@ -131,9 +142,20 @@ public sealed class DesktopProjectionServiceTests
                     projectSummaryService,
                     toolRegistry,
                     toolExecutor,
+                    authFlowService,
+                    mcpConnectionManager,
                     transcriptStore,
                     activeTurnRegistry,
                     interruptedStore),
+                new AuthProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    authFlowService),
+                new McpProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    mcpRegistry,
+                    mcpConnectionManager),
                 new SessionProjectionService(
                     shellOptions,
                     workspacePathResolver,

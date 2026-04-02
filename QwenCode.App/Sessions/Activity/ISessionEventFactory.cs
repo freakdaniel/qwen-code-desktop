@@ -35,6 +35,8 @@ public interface ISessionEventFactory
 
     DesktopSessionEvent CreateToolApproved(string sessionId, string toolName, string workingDirectory, string gitBranch, DateTime timestampUtc);
 
+    DesktopSessionEvent CreateUserInputReceived(string sessionId, string toolName, string workingDirectory, string gitBranch, DateTime timestampUtc);
+
     DesktopSessionEvent CreateTurnCompleted(
         string sessionId,
         string message,

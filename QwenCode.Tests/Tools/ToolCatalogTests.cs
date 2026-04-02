@@ -44,6 +44,20 @@ public sealed class ToolCatalogTests
             Assert.Contains(snapshot.Tools, tool => tool.Name == "edit" && tool.ApprovalState == "ask");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "run_shell_command" && tool.ApprovalState == "deny");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "read_file" && tool.SourcePath == "native://tools/read_file");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "todo_write" && tool.SourcePath == "native://tools/todo_write");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "save_memory" && tool.SourcePath == "native://tools/save_memory");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "agent" && tool.SourcePath == "native://tools/agent");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "skill" && tool.SourcePath == "native://tools/skill");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "exit_plan_mode" && tool.SourcePath == "native://tools/exit_plan_mode");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "web_fetch" && tool.SourcePath == "native://tools/web_fetch");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "web_search" && tool.SourcePath == "native://tools/web_search");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "mcp-client" && tool.SourcePath == "native://tools/mcp-client");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "mcp-tool" && tool.SourcePath == "native://tools/mcp-tool");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "lsp" && tool.SourcePath == "native://tools/lsp");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "ask_user_question" && tool.SourcePath == "native://tools/ask_user_question");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "cron_create" && tool.SourcePath == "native://tools/cron_create");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "cron_list" && tool.SourcePath == "native://tools/cron_list");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "cron_delete" && tool.SourcePath == "native://tools/cron_delete");
         }
         finally
         {

@@ -136,7 +136,8 @@ public sealed class ApprovalPolicyService : IApprovalPolicyEngine
     {
         "read_file" or "glob" or "grep_search" or "list_directory" => "read",
         "edit" or "write_file" or "todo_write" or "save_memory" => "modify",
-        "run_shell_command" or "web_fetch" or "web_search" or "lsp" => "execute",
+        "run_shell_command" or "web_fetch" or "web_search" or "mcp-tool" or "lsp" => "execute",
+        "mcp-client" => "read",
         "agent" or "skill" or "ask_user_question" => "coordination",
         "exit_plan_mode" => "control",
         "cron_create" or "cron_list" or "cron_delete" => "automation",

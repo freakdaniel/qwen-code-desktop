@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using QwenCode.App.Auth;
 using QwenCode.App.Compatibility;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
@@ -6,6 +7,7 @@ using QwenCode.App.Options;
 using QwenCode.App.Runtime;
 using QwenCode.App.Sessions;
 using QwenCode.App.Tools;
+using QwenCode.App.Mcp;
 
 namespace QwenCode.App.Desktop;
 
@@ -16,6 +18,8 @@ public sealed class BootstrapProjectionService(
     IProjectSummaryService projectSummaryService,
     IToolRegistry toolRegistry,
     IToolExecutor toolExecutor,
+    IAuthFlowService authFlowService,
+    IMcpConnectionManager mcpConnectionManager,
     ITranscriptStore transcriptStore,
     IActiveTurnRegistry activeTurnRegistry,
     IInterruptedTurnStore interruptedTurnStore) : IDesktopBootstrapProjectionService
@@ -46,9 +50,22 @@ public sealed class BootstrapProjectionService(
             QwenCompatibility = settingsResolver.InspectCompatibility(workspace),
             QwenRuntime = runtime,
             QwenTools = toolRegistry.Inspect(workspace),
-            QwenNativeHost = toolExecutor.Inspect(workspace)
+            QwenNativeHost = toolExecutor.Inspect(workspace),
+            QwenAuth = authFlowService.GetStatus(workspace),
+            QwenMcp = CreateMcpSnapshot(mcpConnectionManager.ListServersWithStatus(workspace))
         };
     }
+
+    private static McpSnapshot CreateMcpSnapshot(IReadOnlyList<McpServerDefinition> servers) =>
+        new()
+        {
+            TotalCount = servers.Count,
+            ConnectedCount = servers.Count(static item => string.Equals(item.Status, "connected", StringComparison.OrdinalIgnoreCase)),
+            DisconnectedCount = servers.Count(static item => string.Equals(item.Status, "disconnected", StringComparison.OrdinalIgnoreCase)),
+            MissingCount = servers.Count(static item => string.Equals(item.Status, "missing", StringComparison.OrdinalIgnoreCase)),
+            TokenCount = servers.Count(static item => item.HasPersistedToken),
+            Servers = servers
+        };
 
     private static ProjectSummarySnapshot CreateEmptyProjectSummary(string workspaceRoot) =>
         new()

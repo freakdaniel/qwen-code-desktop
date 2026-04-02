@@ -1,9 +1,12 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using QwenCode.App.Agents;
+using QwenCode.App.Auth;
 using QwenCode.App.Compatibility;
 using QwenCode.App.Desktop;
 using QwenCode.App.Ipc;
 using QwenCode.App.Infrastructure;
+using QwenCode.App.Mcp;
 using QwenCode.App.Options;
 using QwenCode.App.Permissions;
 using QwenCode.App.Runtime;
@@ -26,9 +29,12 @@ public static class DesktopShellServiceCollectionExtensions
 
         services
             .AddInfrastructureServices()
+            .AddAuthServices()
             .AddCompatibilityServices()
             .AddPermissionServices()
             .AddRuntimeServices()
+            .AddMcpServices()
+            .AddAgentServices()
             .AddToolServices()
             .AddSessionServices()
             .AddDesktopServices()

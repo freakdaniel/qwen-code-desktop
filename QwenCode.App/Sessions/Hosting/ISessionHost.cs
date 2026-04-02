@@ -16,6 +16,11 @@ public interface ISessionHost
         ApproveDesktopSessionToolRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<DesktopSessionTurnResult> AnswerPendingQuestionAsync(
+        WorkspacePaths paths,
+        AnswerDesktopSessionQuestionRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<CancelDesktopSessionTurnResult> CancelTurnAsync(
         WorkspacePaths paths,
         CancelDesktopSessionTurnRequest request,

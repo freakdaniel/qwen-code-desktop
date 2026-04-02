@@ -130,6 +130,24 @@ public sealed class SessionEventFactory : ISessionEventFactory
             Status = "approved"
         };
 
+    public DesktopSessionEvent CreateUserInputReceived(
+        string sessionId,
+        string toolName,
+        string workingDirectory,
+        string gitBranch,
+        DateTime timestampUtc) =>
+        new()
+        {
+            SessionId = sessionId,
+            Kind = DesktopSessionEventKind.UserInputReceived,
+            TimestampUtc = timestampUtc,
+            Message = $"Captured user answers for native tool '{toolName}'.",
+            WorkingDirectory = workingDirectory,
+            GitBranch = gitBranch,
+            ToolName = toolName,
+            Status = "answered"
+        };
+
     public DesktopSessionEvent CreateTurnCompleted(
         string sessionId,
         string message,
@@ -177,6 +195,7 @@ public sealed class SessionEventFactory : ISessionEventFactory
             "assembling-context" => DesktopSessionEventKind.AssistantPreparingContext,
             "response-delta" => DesktopSessionEventKind.AssistantStreaming,
             "tool-approval-required" => DesktopSessionEventKind.ToolApprovalRequired,
+            "user-input-required" => DesktopSessionEventKind.UserInputRequired,
             "tool-blocked" => DesktopSessionEventKind.ToolBlocked,
             "tool-failed" => DesktopSessionEventKind.ToolFailed,
             "tool-completed" => DesktopSessionEventKind.ToolCompleted,
@@ -207,6 +226,7 @@ public sealed class SessionEventFactory : ISessionEventFactory
         status switch
         {
             "approval-required" => DesktopSessionEventKind.ToolApprovalRequired,
+            "input-required" => DesktopSessionEventKind.UserInputRequired,
             "completed" => DesktopSessionEventKind.ToolCompleted,
             "blocked" => DesktopSessionEventKind.ToolBlocked,
             "error" => DesktopSessionEventKind.ToolFailed,
@@ -217,6 +237,7 @@ public sealed class SessionEventFactory : ISessionEventFactory
         toolExecution.Status switch
         {
             "approval-required" => $"Native tool '{toolExecution.ToolName}' is waiting for approval.",
+            "input-required" => $"Native tool '{toolExecution.ToolName}' is waiting for user answers.",
             "completed" => $"Native tool '{toolExecution.ToolName}' completed inside the .NET host.",
             "blocked" => $"Native tool '{toolExecution.ToolName}' was blocked by approval policy.",
             "error" => $"Native tool '{toolExecution.ToolName}' failed: {toolExecution.ErrorMessage}",

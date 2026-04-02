@@ -23,6 +23,12 @@ export interface AdoptionPattern {
   deliveryState: string;
 }
 
+export interface AnswerDesktopSessionQuestionRequest {
+  sessionId: string;
+  entryId: string;
+  answers: DesktopQuestionAnswer[];
+}
+
 export interface AppBootstrapPayload {
   productName: string;
   currentMode: DesktopMode;
@@ -41,6 +47,8 @@ export interface AppBootstrapPayload {
   qwenRuntime: QwenRuntimeProfile;
   qwenTools: ToolCatalogSnapshot;
   qwenNativeHost: NativeToolHostSnapshot;
+  qwenAuth: AuthStatusSnapshot;
+  qwenMcp: McpSnapshot;
 }
 
 export interface ApprovalProfile {
@@ -57,6 +65,23 @@ export interface ApproveDesktopSessionToolRequest {
   entryId: string;
 }
 
+export interface AuthStatusSnapshot {
+  selectedType: string;
+  selectedScope: string;
+  displayName: string;
+  status: string;
+  model: string;
+  endpoint: string;
+  apiKeyEnvironmentVariable: string;
+  hasApiKey: boolean;
+  hasQwenOAuthCredentials: boolean;
+  hasRefreshToken: boolean;
+  credentialPath: string;
+  lastError: string;
+  lastAuthenticatedAtUtc: string | null;
+  deviceFlow: QwenOAuthDeviceFlowSnapshot;
+}
+
 export interface CancelDesktopSessionTurnRequest {
   sessionId: string;
 }
@@ -68,13 +93,60 @@ export interface CancelDesktopSessionTurnResult {
   timestampUtc: string;
 }
 
+export interface CancelQwenOAuthDeviceFlowRequest {
+  flowId: string;
+}
+
 export interface CapabilityLane {
   title: string;
   summary: string;
   responsibilities: string[];
 }
 
+export interface ConfigureCodingPlanAuthRequest {
+  scope: string;
+  region: string;
+  apiKey: string;
+  model: string;
+}
+
+export interface ConfigureOpenAiCompatibleAuthRequest {
+  scope: string;
+  authType: string;
+  model: string;
+  baseUrl: string;
+  apiKey: string;
+  apiKeyEnvironmentVariable: string;
+}
+
+export interface ConfigureQwenOAuthRequest {
+  scope: string;
+  accessToken: string;
+  refreshToken: string;
+  tokenType: string;
+  resourceUrl: string;
+  idToken: string;
+  expiresAtUtc: string | null;
+}
+
 export type DesktopMode = 'code';
+
+export interface DesktopQuestionAnswer {
+  questionIndex: number;
+  value: string;
+}
+
+export interface DesktopQuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface DesktopQuestionPrompt {
+  header: string;
+  question: string;
+  multiSelect: boolean;
+  options: DesktopQuestionOption[];
+}
 
 export interface DesktopSessionActivitySummary {
   userCount: number;
@@ -82,6 +154,7 @@ export interface DesktopSessionActivitySummary {
   commandCount: number;
   toolCount: number;
   pendingApprovalCount: number;
+  pendingQuestionCount: number;
   completedToolCount: number;
   failedToolCount: number;
   lastTimestamp: string;
@@ -117,6 +190,8 @@ export interface DesktopSessionEntry {
   resolutionStatus: string;
   resolvedAt: string;
   changedFiles: string[];
+  questions: DesktopQuestionPrompt[];
+  answers: DesktopQuestionAnswer[];
 }
 
 export interface DesktopSessionEvent {
@@ -133,7 +208,7 @@ export interface DesktopSessionEvent {
   contentSnapshot: string;
 }
 
-export type DesktopSessionEventKind = 'turnStarted' | 'commandCompleted' | 'toolApprovalRequired' | 'toolCompleted' | 'toolBlocked' | 'toolFailed' | 'toolApproved' | 'assistantPreparingContext' | 'assistantGenerating' | 'assistantStreaming' | 'assistantCompleted' | 'turnInterrupted' | 'turnReattached' | 'turnCancelled' | 'turnCompleted';
+export type DesktopSessionEventKind = 'turnStarted' | 'commandCompleted' | 'toolApprovalRequired' | 'userInputRequired' | 'toolCompleted' | 'toolBlocked' | 'toolFailed' | 'toolApproved' | 'userInputReceived' | 'assistantPreparingContext' | 'assistantGenerating' | 'assistantStreaming' | 'assistantCompleted' | 'turnInterrupted' | 'turnReattached' | 'turnCancelled' | 'turnCompleted';
 
 export interface DesktopSessionTurnResult {
   session: SessionPreview;
@@ -147,6 +222,11 @@ export interface DesktopStateChangedEvent {
   currentMode: DesktopMode;
   currentLocale: string;
   timestampUtc: string;
+}
+
+export interface DisconnectAuthRequest {
+  scope: string;
+  clearPersistedCredentials: boolean;
 }
 
 export interface DismissInterruptedTurnRequest {
@@ -178,6 +258,50 @@ export interface LocaleOption {
   nativeName: string;
 }
 
+export interface McpServerDefinition {
+  name: string;
+  scope: string;
+  transport: string;
+  commandOrUrl: string;
+  arguments: string[];
+  environmentVariables: Record<string, string>;
+  headers: Record<string, string>;
+  timeoutMs: number | null;
+  trust: boolean;
+  description: string;
+  includeTools: string[];
+  excludeTools: string[];
+  settingsPath: string;
+  status: string;
+  lastReconnectAttemptUtc: string | null;
+  lastError: string;
+  hasPersistedToken: boolean;
+}
+
+export interface McpServerRegistrationRequest {
+  name: string;
+  scope: string;
+  transport: string;
+  commandOrUrl: string;
+  arguments: string[];
+  environmentVariables: Record<string, string>;
+  headers: Record<string, string>;
+  timeoutMs: number | null;
+  trust: boolean;
+  description: string;
+  includeTools: string[];
+  excludeTools: string[];
+}
+
+export interface McpSnapshot {
+  totalCount: number;
+  connectedCount: number;
+  disconnectedCount: number;
+  missingCount: number;
+  tokenCount: number;
+  servers: McpServerDefinition[];
+}
+
 export interface NativeToolExecutionResult {
   toolName: string;
   status: string;
@@ -187,6 +311,8 @@ export interface NativeToolExecutionResult {
   errorMessage: string;
   exitCode: number;
   changedFiles: string[];
+  questions: DesktopQuestionPrompt[];
+  answers: DesktopQuestionAnswer[];
 }
 
 export interface NativeToolHostSnapshot {
@@ -250,6 +376,22 @@ export interface QwenCompatibilitySnapshot {
   skills: QwenSkillSurface[];
 }
 
+export interface QwenOAuthDeviceFlowSnapshot {
+  flowId: string;
+  scope: string;
+  status: string;
+  verificationUri: string;
+  verificationUriComplete: string;
+  userCode: string;
+  pollIntervalMs: number;
+  browserLaunchAttempted: boolean;
+  browserLaunchSucceeded: boolean;
+  startedAtUtc: string;
+  expiresAtUtc: string;
+  completedAtUtc: string | null;
+  errorMessage: string;
+}
+
 export interface QwenRuntimeProfile {
   projectRoot: string;
   globalQwenDirectory: string;
@@ -281,6 +423,10 @@ export interface QwenSurfaceDirectory {
   summary: string;
 }
 
+export interface ReconnectMcpServerRequest {
+  name: string;
+}
+
 export interface RecoverableTurnState {
   sessionId: string;
   prompt: string;
@@ -290,6 +436,11 @@ export interface RecoverableTurnState {
   lastUpdatedAtUtc: string;
   contentSnapshot: string;
   toolName: string;
+}
+
+export interface RemoveMcpServerRequest {
+  name: string;
+  scope: string;
 }
 
 export interface ResearchTrack {
@@ -337,6 +488,10 @@ export interface StartDesktopSessionTurnRequest {
   approveToolExecution: boolean;
 }
 
+export interface StartQwenOAuthDeviceFlowRequest {
+  scope: string;
+}
+
 export interface ToolCatalogSnapshot {
   sourceMode: string;
   totalCount: number;
@@ -359,6 +514,18 @@ export interface QwenDesktopBridge {
   bootstrap(): Promise<AppBootstrapPayload>;
   setLocale(request: SetLocaleRequest): Promise<DesktopStateChangedEvent>;
   subscribeStateChanged(callback: (payload: DesktopStateChangedEvent) => void): () => void;
+  cancelQwenOAuthDeviceFlow(request: CancelQwenOAuthDeviceFlowRequest): Promise<AuthStatusSnapshot>;
+  subscribeAuthChanged(callback: (payload: AuthStatusSnapshot) => void): () => void;
+  configureCodingPlanAuth(request: ConfigureCodingPlanAuthRequest): Promise<AuthStatusSnapshot>;
+  configureOpenAiCompatibleAuth(request: ConfigureOpenAiCompatibleAuthRequest): Promise<AuthStatusSnapshot>;
+  configureQwenOAuth(request: ConfigureQwenOAuthRequest): Promise<AuthStatusSnapshot>;
+  disconnectAuth(request: DisconnectAuthRequest): Promise<AuthStatusSnapshot>;
+  startQwenOAuthDeviceFlow(request: StartQwenOAuthDeviceFlowRequest): Promise<AuthStatusSnapshot>;
+  getAuthStatus(): Promise<AuthStatusSnapshot>;
+  addMcpServer(request: McpServerRegistrationRequest): Promise<McpSnapshot>;
+  reconnectMcpServer(request: ReconnectMcpServerRequest): Promise<McpSnapshot>;
+  removeMcpServer(request: RemoveMcpServerRequest): Promise<McpSnapshot>;
+  answerPendingQuestion(request: AnswerDesktopSessionQuestionRequest): Promise<DesktopSessionTurnResult>;
   approvePendingTool(request: ApproveDesktopSessionToolRequest): Promise<DesktopSessionTurnResult>;
   cancelSessionTurn(request: CancelDesktopSessionTurnRequest): Promise<CancelDesktopSessionTurnResult>;
   dismissInterruptedTurn(request: DismissInterruptedTurnRequest): Promise<DismissInterruptedTurnResult>;
@@ -374,6 +541,18 @@ export const qwenDesktopChannels = {
   bootstrap: 'qwen-desktop:app:bootstrap',
   setLocale: 'qwen-desktop:app:set-locale',
   subscribeStateChanged: 'qwen-desktop:app:state-changed',
+  cancelQwenOAuthDeviceFlow: 'qwen-desktop:auth:cancel-qwen-oauth-device-flow',
+  subscribeAuthChanged: 'qwen-desktop:auth:changed',
+  configureCodingPlanAuth: 'qwen-desktop:auth:configure-coding-plan',
+  configureOpenAiCompatibleAuth: 'qwen-desktop:auth:configure-openai-compatible',
+  configureQwenOAuth: 'qwen-desktop:auth:configure-qwen-oauth',
+  disconnectAuth: 'qwen-desktop:auth:disconnect',
+  startQwenOAuthDeviceFlow: 'qwen-desktop:auth:start-qwen-oauth-device-flow',
+  getAuthStatus: 'qwen-desktop:auth:status',
+  addMcpServer: 'qwen-desktop:mcp:add',
+  reconnectMcpServer: 'qwen-desktop:mcp:reconnect',
+  removeMcpServer: 'qwen-desktop:mcp:remove',
+  answerPendingQuestion: 'qwen-desktop:sessions:answer-question',
   approvePendingTool: 'qwen-desktop:sessions:approve-tool',
   cancelSessionTurn: 'qwen-desktop:sessions:cancel-turn',
   dismissInterruptedTurn: 'qwen-desktop:sessions:dismiss-interrupted',

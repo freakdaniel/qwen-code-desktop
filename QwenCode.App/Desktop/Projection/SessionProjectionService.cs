@@ -38,6 +38,9 @@ public sealed class SessionProjectionService(
     public Task<DesktopSessionTurnResult> ApprovePendingToolAsync(ApproveDesktopSessionToolRequest request) =>
         sessionHost.ApprovePendingToolAsync(ResolveWorkspace(), request);
 
+    public Task<DesktopSessionTurnResult> AnswerPendingQuestionAsync(AnswerDesktopSessionQuestionRequest request) =>
+        sessionHost.AnswerPendingQuestionAsync(ResolveWorkspace(), request);
+
     public Task<CancelDesktopSessionTurnResult> CancelSessionTurnAsync(CancelDesktopSessionTurnRequest request) =>
         sessionHost.CancelTurnAsync(ResolveWorkspace(), request);
 

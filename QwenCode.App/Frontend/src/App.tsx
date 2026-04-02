@@ -7,6 +7,9 @@ import qwenLogo from './assets/qwen-logo.svg'
 import type {
   ActiveTurnState,
   AppBootstrapPayload,
+  AuthStatusSnapshot,
+  DesktopQuestionAnswer,
+  McpSnapshot,
   DesktopSessionDetail,
   DesktopSessionEntry,
   DesktopSessionEvent,
@@ -15,6 +18,7 @@ import type {
 } from './types/desktop'
 
 const SESSION_PAGE_SIZE = 120
+type WorkspaceSurface = 'sessions' | 'auth' | 'mcp'
 
 const WITTY_LOADING_PHRASES = [
   'Мне повезёт!',
@@ -60,6 +64,7 @@ type UiCopy = {
   emptySession: string
   loading: string
   pendingApprovals: string
+  pendingQuestions: string
   completedTools: string
   failedTools: string
   commands: string
@@ -73,6 +78,8 @@ type UiCopy = {
   liveTurn: string
   cancelTurn: string
   approveAndExecute: string
+  answerQuestions: string
+  answerPlaceholder: string
   showing: string
   of: string
   suggestionsTitle: string
@@ -99,11 +106,14 @@ type UiCopy = {
   allowedLabel: string
   askLabel: string
   noPendingApprovals: string
+  noPendingQuestions: string
   modeCodeLabel: string
   projectSummaryLabel: string
   updatedNowLabel: string
   newConversation: string
   skillsLabel: string
+  mcpLabel: string
+  authLabel: string
   toolsNavLabel: string
   agentsLabel: string
   settingsLabel: string
@@ -112,6 +122,67 @@ type UiCopy = {
   modeAutoEdit: string
   modeYolo: string
   attachFileLabel: string
+  mcpTitle: string
+  mcpSubtitle: string
+  mcpConnected: string
+  mcpDisconnected: string
+  mcpMissing: string
+  mcpTokens: string
+  mcpEmpty: string
+  mcpAddServer: string
+  mcpReconnect: string
+  mcpRemove: string
+  mcpName: string
+  mcpScope: string
+  mcpTransport: string
+  mcpCommandOrUrl: string
+  mcpDescription: string
+  mcpUserScope: string
+  mcpProjectScope: string
+  mcpSave: string
+  authTitle: string
+  authSubtitle: string
+  authSelectedType: string
+  authSelectedScope: string
+  authStatus: string
+  authModel: string
+  authEndpoint: string
+  authApiKeyEnv: string
+  authCredentials: string
+  authLastError: string
+  authConnected: string
+  authMissingCredentials: string
+  authConfigureQwenOAuth: string
+  authConfigureCodingPlan: string
+  authConfigureOpenAi: string
+  authDisconnect: string
+  authAccessToken: string
+  authRefreshToken: string
+  authApiKey: string
+  authBaseUrl: string
+  authModelName: string
+  authScope: string
+  authRegion: string
+  authScopeUser: string
+  authScopeProject: string
+  authRegionChina: string
+  authRegionGlobal: string
+  authSave: string
+  authClearCredentials: string
+  authDisplayName: string
+  authCredentialPath: string
+  authStartBrowserFlow: string
+  authCancelFlow: string
+  authFlowTitle: string
+  authFlowStatus: string
+  authFlowUserCode: string
+  authFlowUrl: string
+  authFlowExpires: string
+  authFlowPending: string
+  authFlowSucceeded: string
+  authFlowCancelled: string
+  authFlowTimedOut: string
+  authFlowError: string
 }
 
 function App() {
@@ -130,9 +201,19 @@ function App() {
   const [selectedSessionDetail, setSelectedSessionDetail] = useState<DesktopSessionDetail | null>(null)
   const [isLoadingSession, setIsLoadingSession] = useState(false)
   const [approvingEntryId, setApprovingEntryId] = useState('')
+  const [answeringEntryId, setAnsweringEntryId] = useState('')
   const [recoveringSessionId, setRecoveringSessionId] = useState('')
   const [dismissingSessionId, setDismissingSessionId] = useState('')
   const [selectedMode, setSelectedMode] = useState<'plan' | 'default' | 'auto-edit' | 'yolo'>('default')
+  const [workspaceSurface, setWorkspaceSurface] = useState<WorkspaceSurface>('sessions')
+  const [authSnapshot, setAuthSnapshot] = useState<AuthStatusSnapshot>(fallbackBootstrap.qwenAuth)
+  const [isSavingAuth, setIsSavingAuth] = useState(false)
+  const [isStartingOAuthFlow, setIsStartingOAuthFlow] = useState(false)
+  const [isCancellingOAuthFlow, setIsCancellingOAuthFlow] = useState(false)
+  const [mcpSnapshot, setMcpSnapshot] = useState<McpSnapshot>(fallbackBootstrap.qwenMcp)
+  const [isSavingMcp, setIsSavingMcp] = useState(false)
+  const [reconnectingMcpName, setReconnectingMcpName] = useState('')
+  const [removingMcpName, setRemovingMcpName] = useState('')
   const [wittyPhraseIndex, setWittyPhraseIndex] = useState(0)
   const didHydrateDesktopRef = useRef(false)
   const selectedSessionIdRef = useRef(selectedSessionId)
@@ -223,6 +304,8 @@ function App() {
 
       const payload = await window.qwenDesktop.bootstrap()
       setBootstrap(payload)
+      setAuthSnapshot(payload.qwenAuth)
+      setMcpSnapshot(payload.qwenMcp)
       syncActiveTurns(payload.activeTurns)
       await i18n.changeLanguage(payload.currentLocale)
 
@@ -235,6 +318,10 @@ function App() {
         startTransition(() => {
           void i18n.changeLanguage(event.currentLocale)
         })
+      }))
+
+      disposers.push(window.qwenDesktop.subscribeAuthChanged((snapshot) => {
+        updateAuthSnapshot(snapshot)
       }))
 
       disposers.push(window.qwenDesktop.subscribeSessionEvents((event) => {
@@ -448,6 +535,7 @@ function App() {
   }
 
   const handleStartNewChat = () => {
+    setWorkspaceSurface('sessions')
     setSelectedSessionId('')
     setSelectedSessionDetail(null)
     setSessionPrompt('')
@@ -455,8 +543,189 @@ function App() {
   }
 
   const handleSelectSession = (sessionId: string) => {
+    setWorkspaceSurface('sessions')
     setSelectedSessionId(sessionId)
     setSelectedSessionDetail(null)
+  }
+
+  const handleAddMcpServer = async (request: {
+    name: string
+    scope: 'user' | 'project'
+    transport: 'stdio' | 'http' | 'sse'
+    commandOrUrl: string
+    description: string
+  }) => {
+    if (!window.qwenDesktop || isSavingMcp) {
+      return
+    }
+
+    setIsSavingMcp(true)
+    try {
+      const snapshot = await window.qwenDesktop.addMcpServer({
+        name: request.name,
+        scope: request.scope,
+        transport: request.transport,
+        commandOrUrl: request.commandOrUrl,
+        description: request.description,
+        arguments: [],
+        environmentVariables: {},
+        headers: {},
+        timeoutMs: null,
+        trust: false,
+        includeTools: [],
+        excludeTools: [],
+      })
+      setMcpSnapshot(snapshot)
+      setBootstrap((current) => ({ ...current, qwenMcp: snapshot }))
+    } finally {
+      setIsSavingMcp(false)
+    }
+  }
+
+  const updateAuthSnapshot = (snapshot: AuthStatusSnapshot) => {
+    setAuthSnapshot(snapshot)
+    setBootstrap((current) => ({ ...current, qwenAuth: snapshot }))
+  }
+
+  const handleConfigureQwenOAuth = async (request: {
+    scope: 'user' | 'project'
+    accessToken: string
+    refreshToken: string
+  }) => {
+    if (!window.qwenDesktop || isSavingAuth) {
+      return
+    }
+
+    setIsSavingAuth(true)
+    try {
+      const snapshot = await window.qwenDesktop.configureQwenOAuth({
+        scope: request.scope,
+        accessToken: request.accessToken,
+        refreshToken: request.refreshToken,
+        tokenType: 'Bearer',
+        resourceUrl: '',
+        idToken: '',
+        expiresAtUtc: null,
+      })
+      updateAuthSnapshot(snapshot)
+    } finally {
+      setIsSavingAuth(false)
+    }
+  }
+
+  const handleConfigureCodingPlan = async (request: {
+    scope: 'user' | 'project'
+    region: 'china' | 'global'
+    apiKey: string
+    model: string
+  }) => {
+    if (!window.qwenDesktop || isSavingAuth) {
+      return
+    }
+
+    setIsSavingAuth(true)
+    try {
+      const snapshot = await window.qwenDesktop.configureCodingPlanAuth(request)
+      updateAuthSnapshot(snapshot)
+    } finally {
+      setIsSavingAuth(false)
+    }
+  }
+
+  const handleConfigureOpenAiCompatibleAuth = async (request: {
+    scope: 'user' | 'project'
+    authType: string
+    model: string
+    baseUrl: string
+    apiKey: string
+    apiKeyEnvironmentVariable: string
+  }) => {
+    if (!window.qwenDesktop || isSavingAuth) {
+      return
+    }
+
+    setIsSavingAuth(true)
+    try {
+      const snapshot = await window.qwenDesktop.configureOpenAiCompatibleAuth(request)
+      updateAuthSnapshot(snapshot)
+    } finally {
+      setIsSavingAuth(false)
+    }
+  }
+
+  const handleDisconnectAuth = async (scope: 'user' | 'project', clearPersistedCredentials: boolean) => {
+    if (!window.qwenDesktop || isSavingAuth) {
+      return
+    }
+
+    setIsSavingAuth(true)
+    try {
+      const snapshot = await window.qwenDesktop.disconnectAuth({
+        scope,
+        clearPersistedCredentials,
+      })
+      updateAuthSnapshot(snapshot)
+    } finally {
+      setIsSavingAuth(false)
+    }
+  }
+
+  const handleStartQwenOAuthDeviceFlow = async (scope: 'user' | 'project') => {
+    if (!window.qwenDesktop || isStartingOAuthFlow) {
+      return
+    }
+
+    setIsStartingOAuthFlow(true)
+    try {
+      const snapshot = await window.qwenDesktop.startQwenOAuthDeviceFlow({ scope })
+      updateAuthSnapshot(snapshot)
+    } finally {
+      setIsStartingOAuthFlow(false)
+    }
+  }
+
+  const handleCancelQwenOAuthDeviceFlow = async (flowId: string) => {
+    if (!window.qwenDesktop || isCancellingOAuthFlow) {
+      return
+    }
+
+    setIsCancellingOAuthFlow(true)
+    try {
+      const snapshot = await window.qwenDesktop.cancelQwenOAuthDeviceFlow({ flowId })
+      updateAuthSnapshot(snapshot)
+    } finally {
+      setIsCancellingOAuthFlow(false)
+    }
+  }
+
+  const handleReconnectMcpServer = async (name: string) => {
+    if (!window.qwenDesktop || reconnectingMcpName) {
+      return
+    }
+
+    setReconnectingMcpName(name)
+    try {
+      const snapshot = await window.qwenDesktop.reconnectMcpServer({ name })
+      setMcpSnapshot(snapshot)
+      setBootstrap((current) => ({ ...current, qwenMcp: snapshot }))
+    } finally {
+      setReconnectingMcpName('')
+    }
+  }
+
+  const handleRemoveMcpServer = async (name: string, scope: string) => {
+    if (!window.qwenDesktop || removingMcpName) {
+      return
+    }
+
+    setRemovingMcpName(name)
+    try {
+      const snapshot = await window.qwenDesktop.removeMcpServer({ name, scope })
+      setMcpSnapshot(snapshot)
+      setBootstrap((current) => ({ ...current, qwenMcp: snapshot }))
+    } finally {
+      setRemovingMcpName('')
+    }
   }
 
   const handleSubmitNewTurn = async (prompt: string, sessionId: string) => {
@@ -496,6 +765,8 @@ function App() {
             errorMessage: '',
             exitCode: 0,
             changedFiles: [],
+            questions: [],
+            answers: [],
           },
         })
       } else {
@@ -547,6 +818,26 @@ function App() {
       applyTurnResult(result)
     } finally {
       setApprovingEntryId('')
+    }
+  }
+
+  const handleAnswerPendingQuestion = async (entryId: string, answers: DesktopQuestionAnswer[]) => {
+    if (!selectedSessionId || !window.qwenDesktop || answeringEntryId) {
+      return
+    }
+
+    setAnsweringEntryId(entryId)
+
+    try {
+      const result = await window.qwenDesktop.answerPendingQuestion({
+        sessionId: selectedSessionId,
+        entryId,
+        answers,
+      })
+
+      applyTurnResult(result)
+    } finally {
+      setAnsweringEntryId('')
     }
   }
 
@@ -646,11 +937,33 @@ function App() {
             <Icon name="plus" />
             <span>{copy.newConversation}</span>
           </button>
-          <button className="sidebar-action-btn" type="button">
-            <Icon name="wand" />
-            <span>{copy.skillsLabel}</span>
+          <button
+            className={`sidebar-action-btn${workspaceSurface === 'auth' ? ' is-active' : ''}`}
+            onClick={() => {
+              setWorkspaceSurface('auth')
+              setSelectedSessionId('')
+            }}
+            type="button"
+          >
+            <Icon name="settings" />
+            <span>{copy.authLabel}</span>
           </button>
-          <button className="sidebar-action-btn" type="button">
+          <button
+            className={`sidebar-action-btn${workspaceSurface === 'mcp' ? ' is-active' : ''}`}
+            onClick={() => {
+              setWorkspaceSurface('mcp')
+              setSelectedSessionId('')
+            }}
+            type="button"
+          >
+            <Icon name="cpu" />
+            <span>{copy.mcpLabel}</span>
+          </button>
+          <button
+            className={`sidebar-action-btn${workspaceSurface === 'sessions' ? ' is-active' : ''}`}
+            onClick={() => setWorkspaceSurface('sessions')}
+            type="button"
+          >
             <Icon name="code" />
             <span>{copy.toolsNavLabel}</span>
           </button>
@@ -740,7 +1053,7 @@ function App() {
             />
           )}
 
-          {!selectedSessionId && (
+          {!selectedSessionId && workspaceSurface === 'sessions' && (
             <HomeWorkspace
               copy={copy}
               heroVisible={heroVisible}
@@ -750,14 +1063,45 @@ function App() {
             />
           )}
 
-          {selectedSessionId && (
+          {!selectedSessionId && workspaceSurface === 'mcp' && (
+            <McpWorkspace
+              copy={copy}
+              isSavingMcp={isSavingMcp}
+              mcpSnapshot={mcpSnapshot}
+              onAddServer={handleAddMcpServer}
+              onReconnectServer={handleReconnectMcpServer}
+              onRemoveServer={handleRemoveMcpServer}
+              reconnectingMcpName={reconnectingMcpName}
+              removingMcpName={removingMcpName}
+            />
+          )}
+
+          {!selectedSessionId && workspaceSurface === 'auth' && (
+            <AuthWorkspace
+              authSnapshot={authSnapshot}
+              copy={copy}
+              isCancellingOAuthFlow={isCancellingOAuthFlow}
+              isSavingAuth={isSavingAuth}
+              isStartingOAuthFlow={isStartingOAuthFlow}
+              onCancelQwenOAuthDeviceFlow={handleCancelQwenOAuthDeviceFlow}
+              onConfigureCodingPlan={handleConfigureCodingPlan}
+              onConfigureOpenAiCompatible={handleConfigureOpenAiCompatibleAuth}
+              onConfigureQwenOAuth={handleConfigureQwenOAuth}
+              onDisconnect={handleDisconnectAuth}
+              onStartQwenOAuthDeviceFlow={handleStartQwenOAuthDeviceFlow}
+            />
+          )}
+
+          {selectedSessionId && workspaceSurface === 'sessions' && (
             <SessionWorkspace
               approvingEntryId={approvingEntryId}
+              answeringEntryId={answeringEntryId}
               bootstrap={bootstrap}
               copy={copy}
               isLoadingSession={isLoadingSession}
               latestSessionEvent={latestSessionEvent}
               onApprovePendingTool={handleApprovePendingTool}
+              onAnswerPendingQuestion={handleAnswerPendingQuestion}
               onCancelTurn={() => void handleCancelTurn()}
               onLoadNewerEntries={() => void handleLoadNewerEntries()}
               onLoadOlderEntries={() => void handleLoadOlderEntries()}
@@ -769,6 +1113,7 @@ function App() {
           )}
         </div>
 
+        {workspaceSurface === 'sessions' && (
         <div className="workspace-composer-dock">
           <Composer
             isBusy={isSubmittingPrompt}
@@ -791,6 +1136,7 @@ function App() {
             value={selectedSessionId ? sessionPrompt : homePrompt}
           />
         </div>
+        )}
       </main>
     </div>
   )
@@ -889,13 +1235,610 @@ function HomeWorkspace({
   )
 }
 
+function AuthWorkspace({
+  authSnapshot,
+  copy,
+  isCancellingOAuthFlow,
+  isSavingAuth,
+  isStartingOAuthFlow,
+  onCancelQwenOAuthDeviceFlow,
+  onConfigureCodingPlan,
+  onConfigureOpenAiCompatible,
+  onConfigureQwenOAuth,
+  onDisconnect,
+  onStartQwenOAuthDeviceFlow,
+}: {
+  authSnapshot: AuthStatusSnapshot
+  copy: UiCopy
+  isCancellingOAuthFlow: boolean
+  isSavingAuth: boolean
+  isStartingOAuthFlow: boolean
+  onCancelQwenOAuthDeviceFlow: (flowId: string) => void
+  onConfigureCodingPlan: (request: {
+    scope: 'user' | 'project'
+    region: 'china' | 'global'
+    apiKey: string
+    model: string
+  }) => void
+  onConfigureOpenAiCompatible: (request: {
+    scope: 'user' | 'project'
+    authType: string
+    model: string
+    baseUrl: string
+    apiKey: string
+    apiKeyEnvironmentVariable: string
+  }) => void
+  onConfigureQwenOAuth: (request: {
+    scope: 'user' | 'project'
+    accessToken: string
+    refreshToken: string
+  }) => void
+  onDisconnect: (scope: 'user' | 'project', clearPersistedCredentials: boolean) => void
+  onStartQwenOAuthDeviceFlow: (scope: 'user' | 'project') => void
+}) {
+  const [oauthScope, setOauthScope] = useState<'user' | 'project'>('user')
+  const [oauthAccessToken, setOauthAccessToken] = useState('')
+  const [oauthRefreshToken, setOauthRefreshToken] = useState('')
+
+  const [codingPlanScope, setCodingPlanScope] = useState<'user' | 'project'>('project')
+  const [codingPlanRegion, setCodingPlanRegion] = useState<'china' | 'global'>('global')
+  const [codingPlanApiKey, setCodingPlanApiKey] = useState('')
+  const [codingPlanModel, setCodingPlanModel] = useState('qwen3-coder-plus')
+
+  const [openAiScope, setOpenAiScope] = useState<'user' | 'project'>('project')
+  const [openAiAuthType, setOpenAiAuthType] = useState('openai')
+  const [openAiModel, setOpenAiModel] = useState(authSnapshot.model || 'qwen3-coder-plus')
+  const [openAiBaseUrl, setOpenAiBaseUrl] = useState(authSnapshot.endpoint.replace(/\/chat\/completions$/i, ''))
+  const [openAiApiKey, setOpenAiApiKey] = useState('')
+  const [openAiApiKeyEnv, setOpenAiApiKeyEnv] = useState(authSnapshot.apiKeyEnvironmentVariable || 'OPENAI_API_KEY')
+  const [disconnectScope, setDisconnectScope] = useState<'user' | 'project'>(
+    authSnapshot.selectedScope === 'project' ? 'project' : 'user',
+  )
+  const [clearPersistedCredentials, setClearPersistedCredentials] = useState(true)
+  const [deviceFlowScope, setDeviceFlowScope] = useState<'user' | 'project'>(
+    authSnapshot.selectedScope === 'project' ? 'project' : 'user',
+  )
+
+  const deviceFlowStatusLabel = authSnapshot.deviceFlow
+    ? ({
+        pending: copy.authFlowPending,
+        succeeded: copy.authFlowSucceeded,
+        cancelled: copy.authFlowCancelled,
+        timeout: copy.authFlowTimedOut,
+        error: copy.authFlowError,
+      }[authSnapshot.deviceFlow.status] ?? formatTokenLabel(authSnapshot.deviceFlow.status))
+    : ''
+
+  return (
+    <section className="auth-workspace">
+      <header className="session-hero">
+        <div className="session-hero__copy">
+          <span className="section-heading__eyebrow">{copy.authLabel}</span>
+          <h2>{copy.authTitle}</h2>
+          <p>{copy.authSubtitle}</p>
+        </div>
+      </header>
+
+      <section className="surface-card">
+        <div className="auth-summary-grid">
+          <article className="auth-summary-card">
+            <span>{copy.authDisplayName}</span>
+            <strong>{authSnapshot.displayName}</strong>
+          </article>
+          <article className="auth-summary-card">
+            <span>{copy.authSelectedType}</span>
+            <strong>{formatTokenLabel(authSnapshot.selectedType)}</strong>
+          </article>
+          <article className="auth-summary-card">
+            <span>{copy.authSelectedScope}</span>
+            <strong>{formatTokenLabel(authSnapshot.selectedScope)}</strong>
+          </article>
+          <article className="auth-summary-card">
+            <span>{copy.authStatus}</span>
+            <strong>
+              {authSnapshot.status === 'connected' ? copy.authConnected : copy.authMissingCredentials}
+            </strong>
+          </article>
+          <article className="auth-summary-card">
+            <span>{copy.authModel}</span>
+            <strong>{authSnapshot.model || '—'}</strong>
+          </article>
+          <article className="auth-summary-card">
+            <span>{copy.authApiKeyEnv}</span>
+            <strong>{authSnapshot.apiKeyEnvironmentVariable || '—'}</strong>
+          </article>
+        </div>
+
+        <div className="auth-detail-grid">
+          <article className="detail-block">
+            <span>{copy.authEndpoint}</span>
+            <pre>{authSnapshot.endpoint || '—'}</pre>
+          </article>
+          <article className="detail-block">
+            <span>{copy.authCredentialPath}</span>
+            <pre>{authSnapshot.credentialPath || '—'}</pre>
+          </article>
+          <article className="detail-block">
+            <span>{copy.authCredentials}</span>
+            <pre>{authSnapshot.hasQwenOAuthCredentials ? 'Qwen OAuth credentials present' : 'No persisted OAuth credentials'}</pre>
+          </article>
+          <article className="detail-block">
+            <span>{copy.authLastError}</span>
+            <pre>{authSnapshot.lastError || '—'}</pre>
+          </article>
+        </div>
+      </section>
+
+      <section className="surface-card">
+        <div className="surface-card__toolbar">
+          <div className="section-heading">
+            <div>
+              <span className="section-heading__eyebrow">{copy.authLabel}</span>
+              <h3>{copy.authFlowTitle}</h3>
+            </div>
+          </div>
+        </div>
+
+        <div className="auth-form-grid">
+          <label className="auth-field">
+            <span>{copy.authScope}</span>
+            <select onChange={(event) => setDeviceFlowScope(event.target.value as 'user' | 'project')} value={deviceFlowScope}>
+              <option value="user">{copy.authScopeUser}</option>
+              <option value="project">{copy.authScopeProject}</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="timeline-entry__actions">
+          <button
+            className="button button--primary"
+            disabled={isStartingOAuthFlow}
+            onClick={() => onStartQwenOAuthDeviceFlow(deviceFlowScope)}
+            type="button"
+          >
+            {isStartingOAuthFlow ? copy.sending : copy.authStartBrowserFlow}
+          </button>
+          {authSnapshot.deviceFlow && authSnapshot.deviceFlow.status === 'pending' && (
+            <button
+              className="button button--ghost"
+              disabled={isCancellingOAuthFlow}
+              onClick={() => onCancelQwenOAuthDeviceFlow(authSnapshot.deviceFlow!.flowId)}
+              type="button"
+            >
+              {isCancellingOAuthFlow ? copy.sending : copy.authCancelFlow}
+            </button>
+          )}
+        </div>
+
+        {authSnapshot.deviceFlow && (
+          <div className="auth-device-flow">
+            <div className="auth-device-flow__meta">
+              <article className="detail-block">
+                <span>{copy.authFlowStatus}</span>
+                <pre>{deviceFlowStatusLabel}</pre>
+              </article>
+              <article className="detail-block">
+                <span>{copy.authFlowUserCode}</span>
+                <pre>{authSnapshot.deviceFlow.userCode}</pre>
+              </article>
+              <article className="detail-block">
+                <span>{copy.authFlowUrl}</span>
+                <pre>{authSnapshot.deviceFlow.verificationUriComplete}</pre>
+              </article>
+              <article className="detail-block">
+                <span>{copy.authFlowExpires}</span>
+                <pre>{authSnapshot.deviceFlow.expiresAtUtc}</pre>
+              </article>
+            </div>
+            {authSnapshot.deviceFlow.errorMessage && (
+              <div className="empty-note">{authSnapshot.deviceFlow.errorMessage}</div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="surface-card">
+        <div className="surface-card__toolbar">
+          <div className="section-heading">
+            <div>
+              <span className="section-heading__eyebrow">{copy.authLabel}</span>
+              <h3>{copy.authConfigureQwenOAuth}</h3>
+            </div>
+          </div>
+        </div>
+
+        <div className="auth-form-grid">
+          <label className="auth-field">
+            <span>{copy.authScope}</span>
+            <select onChange={(event) => setOauthScope(event.target.value as 'user' | 'project')} value={oauthScope}>
+              <option value="user">{copy.authScopeUser}</option>
+              <option value="project">{copy.authScopeProject}</option>
+            </select>
+          </label>
+          <label className="auth-field auth-field--wide">
+            <span>{copy.authAccessToken}</span>
+            <input onChange={(event) => setOauthAccessToken(event.target.value)} value={oauthAccessToken} />
+          </label>
+          <label className="auth-field auth-field--wide">
+            <span>{copy.authRefreshToken}</span>
+            <input onChange={(event) => setOauthRefreshToken(event.target.value)} value={oauthRefreshToken} />
+          </label>
+        </div>
+
+        <div className="timeline-entry__actions">
+          <button
+            className="button button--primary"
+            disabled={isSavingAuth || oauthAccessToken.trim().length === 0}
+            onClick={() => onConfigureQwenOAuth({
+              scope: oauthScope,
+              accessToken: oauthAccessToken.trim(),
+              refreshToken: oauthRefreshToken.trim(),
+            })}
+            type="button"
+          >
+            {isSavingAuth ? copy.sending : copy.authSave}
+          </button>
+        </div>
+      </section>
+
+      <section className="surface-card">
+        <div className="surface-card__toolbar">
+          <div className="section-heading">
+            <div>
+              <span className="section-heading__eyebrow">{copy.authLabel}</span>
+              <h3>{copy.authConfigureCodingPlan}</h3>
+            </div>
+          </div>
+        </div>
+
+        <div className="auth-form-grid">
+          <label className="auth-field">
+            <span>{copy.authScope}</span>
+            <select onChange={(event) => setCodingPlanScope(event.target.value as 'user' | 'project')} value={codingPlanScope}>
+              <option value="user">{copy.authScopeUser}</option>
+              <option value="project">{copy.authScopeProject}</option>
+            </select>
+          </label>
+          <label className="auth-field">
+            <span>{copy.authRegion}</span>
+            <select onChange={(event) => setCodingPlanRegion(event.target.value as 'china' | 'global')} value={codingPlanRegion}>
+              <option value="china">{copy.authRegionChina}</option>
+              <option value="global">{copy.authRegionGlobal}</option>
+            </select>
+          </label>
+          <label className="auth-field">
+            <span>{copy.authModelName}</span>
+            <input onChange={(event) => setCodingPlanModel(event.target.value)} value={codingPlanModel} />
+          </label>
+          <label className="auth-field auth-field--wide">
+            <span>{copy.authApiKey}</span>
+            <input onChange={(event) => setCodingPlanApiKey(event.target.value)} value={codingPlanApiKey} />
+          </label>
+        </div>
+
+        <div className="timeline-entry__actions">
+          <button
+            className="button button--primary"
+            disabled={isSavingAuth || codingPlanApiKey.trim().length === 0}
+            onClick={() => onConfigureCodingPlan({
+              scope: codingPlanScope,
+              region: codingPlanRegion,
+              apiKey: codingPlanApiKey.trim(),
+              model: codingPlanModel.trim(),
+            })}
+            type="button"
+          >
+            {isSavingAuth ? copy.sending : copy.authSave}
+          </button>
+        </div>
+      </section>
+
+      <section className="surface-card">
+        <div className="surface-card__toolbar">
+          <div className="section-heading">
+            <div>
+              <span className="section-heading__eyebrow">{copy.authLabel}</span>
+              <h3>{copy.authConfigureOpenAi}</h3>
+            </div>
+          </div>
+        </div>
+
+        <div className="auth-form-grid">
+          <label className="auth-field">
+            <span>{copy.authScope}</span>
+            <select onChange={(event) => setOpenAiScope(event.target.value as 'user' | 'project')} value={openAiScope}>
+              <option value="user">{copy.authScopeUser}</option>
+              <option value="project">{copy.authScopeProject}</option>
+            </select>
+          </label>
+          <label className="auth-field">
+            <span>{copy.authSelectedType}</span>
+            <input onChange={(event) => setOpenAiAuthType(event.target.value)} value={openAiAuthType} />
+          </label>
+          <label className="auth-field">
+            <span>{copy.authModelName}</span>
+            <input onChange={(event) => setOpenAiModel(event.target.value)} value={openAiModel} />
+          </label>
+          <label className="auth-field auth-field--wide">
+            <span>{copy.authBaseUrl}</span>
+            <input onChange={(event) => setOpenAiBaseUrl(event.target.value)} value={openAiBaseUrl} />
+          </label>
+          <label className="auth-field auth-field--wide">
+            <span>{copy.authApiKey}</span>
+            <input onChange={(event) => setOpenAiApiKey(event.target.value)} value={openAiApiKey} />
+          </label>
+          <label className="auth-field">
+            <span>{copy.authApiKeyEnv}</span>
+            <input onChange={(event) => setOpenAiApiKeyEnv(event.target.value)} value={openAiApiKeyEnv} />
+          </label>
+        </div>
+
+        <div className="timeline-entry__actions">
+          <button
+            className="button button--primary"
+            disabled={isSavingAuth || openAiApiKey.trim().length === 0 || openAiBaseUrl.trim().length === 0}
+            onClick={() => onConfigureOpenAiCompatible({
+              scope: openAiScope,
+              authType: openAiAuthType.trim() || 'openai',
+              model: openAiModel.trim(),
+              baseUrl: openAiBaseUrl.trim(),
+              apiKey: openAiApiKey.trim(),
+              apiKeyEnvironmentVariable: openAiApiKeyEnv.trim(),
+            })}
+            type="button"
+          >
+            {isSavingAuth ? copy.sending : copy.authSave}
+          </button>
+        </div>
+      </section>
+
+      <section className="surface-card">
+        <div className="surface-card__toolbar">
+          <div className="section-heading">
+            <div>
+              <span className="section-heading__eyebrow">{copy.authLabel}</span>
+              <h3>{copy.authDisconnect}</h3>
+            </div>
+          </div>
+        </div>
+
+        <div className="auth-form-grid">
+          <label className="auth-field">
+            <span>{copy.authScope}</span>
+            <select onChange={(event) => setDisconnectScope(event.target.value as 'user' | 'project')} value={disconnectScope}>
+              <option value="user">{copy.authScopeUser}</option>
+              <option value="project">{copy.authScopeProject}</option>
+            </select>
+          </label>
+          <label className="auth-field auth-field--toggle">
+            <span>{copy.authClearCredentials}</span>
+            <input
+              checked={clearPersistedCredentials}
+              onChange={(event) => setClearPersistedCredentials(event.target.checked)}
+              type="checkbox"
+            />
+          </label>
+        </div>
+
+        <div className="timeline-entry__actions">
+          <button
+            className="button button--ghost"
+            disabled={isSavingAuth}
+            onClick={() => onDisconnect(disconnectScope, clearPersistedCredentials)}
+            type="button"
+          >
+            {isSavingAuth ? copy.sending : copy.authDisconnect}
+          </button>
+        </div>
+      </section>
+    </section>
+  )
+}
+
+function McpWorkspace({
+  copy,
+  isSavingMcp,
+  mcpSnapshot,
+  onAddServer,
+  onReconnectServer,
+  onRemoveServer,
+  reconnectingMcpName,
+  removingMcpName,
+}: {
+  copy: UiCopy
+  isSavingMcp: boolean
+  mcpSnapshot: McpSnapshot
+  onAddServer: (request: {
+    name: string
+    scope: 'user' | 'project'
+    transport: 'stdio' | 'http' | 'sse'
+    commandOrUrl: string
+    description: string
+  }) => void
+  onReconnectServer: (name: string) => void
+  onRemoveServer: (name: string, scope: string) => void
+  reconnectingMcpName: string
+  removingMcpName: string
+}) {
+  const [name, setName] = useState('')
+  const [scope, setScope] = useState<'user' | 'project'>('user')
+  const [transport, setTransport] = useState<'stdio' | 'http' | 'sse'>('stdio')
+  const [commandOrUrl, setCommandOrUrl] = useState('')
+  const [description, setDescription] = useState('')
+
+  const canSubmit = name.trim().length > 0 && commandOrUrl.trim().length > 0 && !isSavingMcp
+
+  return (
+    <section className="mcp-workspace">
+      <header className="session-hero">
+        <div className="session-hero__copy">
+          <span className="section-heading__eyebrow">{copy.mcpLabel}</span>
+          <h2>{copy.mcpTitle}</h2>
+          <p>{copy.mcpSubtitle}</p>
+        </div>
+      </header>
+
+      <section className="surface-card">
+        <div className="mcp-summary-grid">
+          <article className="mcp-summary-card">
+            <span>{copy.mcpLabel}</span>
+            <strong>{mcpSnapshot.totalCount}</strong>
+          </article>
+          <article className="mcp-summary-card">
+            <span>{copy.mcpConnected}</span>
+            <strong>{mcpSnapshot.connectedCount}</strong>
+          </article>
+          <article className="mcp-summary-card">
+            <span>{copy.mcpDisconnected}</span>
+            <strong>{mcpSnapshot.disconnectedCount}</strong>
+          </article>
+          <article className="mcp-summary-card">
+            <span>{copy.mcpMissing}</span>
+            <strong>{mcpSnapshot.missingCount}</strong>
+          </article>
+          <article className="mcp-summary-card">
+            <span>{copy.mcpTokens}</span>
+            <strong>{mcpSnapshot.tokenCount}</strong>
+          </article>
+        </div>
+      </section>
+
+      <section className="surface-card">
+        <div className="surface-card__toolbar">
+          <div className="section-heading">
+            <div>
+              <span className="section-heading__eyebrow">{copy.mcpAddServer}</span>
+              <h3>{copy.mcpTitle}</h3>
+            </div>
+          </div>
+        </div>
+
+        <div className="mcp-form-grid">
+          <label className="mcp-field">
+            <span>{copy.mcpName}</span>
+            <input onChange={(event) => setName(event.target.value)} value={name} />
+          </label>
+          <label className="mcp-field">
+            <span>{copy.mcpScope}</span>
+            <select onChange={(event) => setScope(event.target.value as 'user' | 'project')} value={scope}>
+              <option value="user">{copy.mcpUserScope}</option>
+              <option value="project">{copy.mcpProjectScope}</option>
+            </select>
+          </label>
+          <label className="mcp-field">
+            <span>{copy.mcpTransport}</span>
+            <select onChange={(event) => setTransport(event.target.value as 'stdio' | 'http' | 'sse')} value={transport}>
+              <option value="stdio">stdio</option>
+              <option value="http">http</option>
+              <option value="sse">sse</option>
+            </select>
+          </label>
+          <label className="mcp-field mcp-field--wide">
+            <span>{copy.mcpCommandOrUrl}</span>
+            <input onChange={(event) => setCommandOrUrl(event.target.value)} value={commandOrUrl} />
+          </label>
+          <label className="mcp-field mcp-field--wide">
+            <span>{copy.mcpDescription}</span>
+            <input onChange={(event) => setDescription(event.target.value)} value={description} />
+          </label>
+        </div>
+
+        <div className="timeline-entry__actions">
+          <button
+            className="button button--primary"
+            disabled={!canSubmit}
+            onClick={() => {
+              onAddServer({
+                name: name.trim(),
+                scope,
+                transport,
+                commandOrUrl: commandOrUrl.trim(),
+                description: description.trim(),
+              })
+              setName('')
+              setCommandOrUrl('')
+              setDescription('')
+            }}
+            type="button"
+          >
+            {isSavingMcp ? copy.sending : copy.mcpSave}
+          </button>
+        </div>
+      </section>
+
+      <section className="surface-card">
+        <div className="surface-card__toolbar">
+          <div className="section-heading">
+            <div>
+              <span className="section-heading__eyebrow">{copy.mcpLabel}</span>
+              <h3>{mcpSnapshot.totalCount}</h3>
+            </div>
+          </div>
+        </div>
+
+        {mcpSnapshot.servers.length === 0 ? (
+          <div className="empty-note">{copy.mcpEmpty}</div>
+        ) : (
+          <div className="mcp-server-list">
+            {mcpSnapshot.servers.map((server) => (
+              <article className="mcp-server-card" key={`${server.scope}:${server.name}`}>
+                <div className="mcp-server-card__header">
+                  <div className="timeline-entry__copy">
+                    <div className="timeline-entry__eyebrow">
+                      <span>{server.scope}</span>
+                      <span>{server.transport}</span>
+                    </div>
+                    <strong>{server.name}</strong>
+                  </div>
+
+                  <div className="entry-tags">
+                    <span>{formatTokenLabel(server.status)}</span>
+                    {server.hasPersistedToken && <span>{copy.mcpTokens}</span>}
+                  </div>
+                </div>
+
+                <div className="timeline-entry__body">
+                  {server.commandOrUrl}
+                  {server.description && `\n${server.description}`}
+                  {server.lastError && `\n${server.lastError}`}
+                </div>
+
+                <div className="timeline-entry__actions">
+                  <button
+                    className="button button--ghost"
+                    disabled={reconnectingMcpName === server.name}
+                    onClick={() => onReconnectServer(server.name)}
+                    type="button"
+                  >
+                    {reconnectingMcpName === server.name ? copy.sending : copy.mcpReconnect}
+                  </button>
+                  <button
+                    className="button button--ghost"
+                    disabled={removingMcpName === server.name}
+                    onClick={() => onRemoveServer(server.name, server.scope)}
+                    type="button"
+                  >
+                    {removingMcpName === server.name ? copy.sending : copy.mcpRemove}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </section>
+  )
+}
+
 function SessionWorkspace({
   approvingEntryId,
+  answeringEntryId,
   bootstrap,
   copy,
   isLoadingSession,
   latestSessionEvent,
   onApprovePendingTool,
+  onAnswerPendingQuestion,
   onCancelTurn,
   onLoadNewerEntries,
   onLoadOlderEntries,
@@ -905,11 +1848,13 @@ function SessionWorkspace({
   selectedSessionWasReattached,
 }: {
   approvingEntryId: string
+  answeringEntryId: string
   bootstrap: AppBootstrapPayload
   copy: UiCopy
   isLoadingSession: boolean
   latestSessionEvent: DesktopSessionEvent | null
   onApprovePendingTool: (entryId: string) => void
+  onAnswerPendingQuestion: (entryId: string, answers: DesktopQuestionAnswer[]) => void
   onCancelTurn: () => void
   onLoadNewerEntries: () => void
   onLoadOlderEntries: () => void
@@ -946,6 +1891,11 @@ function SessionWorkspace({
     || Boolean(sessionLatestEvent && liveMessage)
   const pendingApprovalEntries = selectedSessionDetail.entries.filter((entry) =>
     entry.type === 'tool' && entry.status === 'approval-required' && !entry.resolutionStatus)
+  const pendingQuestionEntries = selectedSessionDetail.entries.filter((entry) =>
+    entry.type === 'tool'
+    && entry.toolName === 'ask_user_question'
+    && entry.status === 'input-required'
+    && !entry.resolutionStatus)
   const rangeStart = selectedSessionDetail.entries.length === 0
     ? 0
     : selectedSessionDetail.windowOffset + 1
@@ -1017,10 +1967,12 @@ function SessionWorkspace({
               {selectedSessionDetail.entries.map((entry) => (
                 <SessionEntryCard
                   approvingEntryId={approvingEntryId}
+                  answeringEntryId={answeringEntryId}
                   copy={copy}
                   entry={entry}
                   key={entry.id}
                   onApprovePendingTool={onApprovePendingTool}
+                  onAnswerPendingQuestion={onAnswerPendingQuestion}
                 />
               ))}
             </div>
@@ -1057,6 +2009,10 @@ function SessionWorkspace({
               <article>
                 <span>{copy.pendingApprovals}</span>
                 <strong>{selectedSessionDetail.summary.pendingApprovalCount}</strong>
+              </article>
+              <article>
+                <span>{copy.pendingQuestions}</span>
+                <strong>{selectedSessionDetail.summary.pendingQuestionCount}</strong>
               </article>
               <article>
                 <span>{copy.completedTools}</span>
@@ -1119,6 +2075,28 @@ function SessionWorkspace({
                   <article className="approval-list__item" key={entry.id}>
                     <strong>{entry.toolName || entry.title}</strong>
                     <p>{entry.body || entry.arguments || entry.sourcePath}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="surface-card surface-card--rail">
+            <div className="section-heading">
+              <div>
+                <span className="section-heading__eyebrow">{copy.pendingQuestions}</span>
+                <h3>{pendingQuestionEntries.length}</h3>
+              </div>
+            </div>
+
+            {pendingQuestionEntries.length === 0 ? (
+              <div className="empty-note">{copy.noPendingQuestions}</div>
+            ) : (
+              <div className="approval-list">
+                {pendingQuestionEntries.map((entry) => (
+                  <article className="approval-list__item" key={entry.id}>
+                    <strong>{entry.title}</strong>
+                    <p>{entry.body || entry.arguments}</p>
                   </article>
                 ))}
               </div>
@@ -1207,17 +2185,26 @@ function Composer({
 
 function SessionEntryCard({
   approvingEntryId,
+  answeringEntryId,
   copy,
   entry,
   onApprovePendingTool,
+  onAnswerPendingQuestion,
 }: {
   approvingEntryId: string
+  answeringEntryId: string
   copy: UiCopy
   entry: DesktopSessionEntry
   onApprovePendingTool: (entryId: string) => void
+  onAnswerPendingQuestion: (entryId: string, answers: DesktopQuestionAnswer[]) => void
 }) {
   const canApprove = entry.type === 'tool' && entry.status === 'approval-required' && !entry.resolutionStatus
+  const canAnswer = entry.type === 'tool'
+    && entry.toolName === 'ask_user_question'
+    && entry.status === 'input-required'
+    && !entry.resolutionStatus
   const isApproving = approvingEntryId === entry.id
+  const isAnswering = answeringEntryId === entry.id
   const toneClass = getEntryToneClass(entry.type)
 
   return (
@@ -1269,7 +2256,130 @@ function SessionEntryCard({
           </button>
         </div>
       )}
+
+      {canAnswer && (
+        <PendingQuestionForm
+          copy={copy}
+          entry={entry}
+          isSubmitting={isAnswering}
+          onSubmit={(answers) => onAnswerPendingQuestion(entry.id, answers)}
+        />
+      )}
     </article>
+  )
+}
+
+function PendingQuestionForm({
+  copy,
+  entry,
+  isSubmitting,
+  onSubmit,
+}: {
+  copy: UiCopy
+  entry: DesktopSessionEntry
+  isSubmitting: boolean
+  onSubmit: (answers: DesktopQuestionAnswer[]) => void
+}) {
+  const [answersByIndex, setAnswersByIndex] = useState<Record<number, string>>(() =>
+    Object.fromEntries(entry.answers.map((answer) => [answer.questionIndex, answer.value] as const)),
+  )
+
+  const setAnswer = (questionIndex: number, value: string) => {
+    setAnswersByIndex((current) => ({
+      ...current,
+      [questionIndex]: value,
+    }))
+  }
+
+  const toggleOption = (questionIndex: number, label: string, multiSelect: boolean) => {
+    setAnswersByIndex((current) => {
+      const currentValue = current[questionIndex] ?? ''
+      if (!multiSelect) {
+        return {
+          ...current,
+          [questionIndex]: label,
+        }
+      }
+
+      const items = splitAnswerValues(currentValue)
+      const nextItems = items.includes(label)
+        ? items.filter((item) => item !== label)
+        : [...items, label]
+
+      return {
+        ...current,
+        [questionIndex]: nextItems.join(', '),
+      }
+    })
+  }
+
+  const preparedAnswers = entry.questions.map((question, questionIndex) => ({
+    question,
+    questionIndex,
+    value: (answersByIndex[questionIndex] ?? '').trim(),
+  }))
+  const isReadyToSubmit = preparedAnswers.length > 0
+    && preparedAnswers.every((item) => item.value.length > 0)
+
+  return (
+    <div className="question-form">
+      {entry.questions.map((question, questionIndex) => {
+        const currentValue = answersByIndex[questionIndex] ?? ''
+        const selectedValues = splitAnswerValues(currentValue)
+
+        return (
+          <section className="question-form__item" key={`${entry.id}-${questionIndex}`}>
+            <div className="question-form__header">
+              <strong>{question.header || `Question ${questionIndex + 1}`}</strong>
+              <p>{question.question}</p>
+            </div>
+
+            <div className="question-form__options">
+              {question.options.map((option) => {
+                const isSelected = question.multiSelect
+                  ? selectedValues.includes(option.label)
+                  : currentValue.trim() === option.label
+
+                return (
+                  <button
+                    className={`question-option${isSelected ? ' is-selected' : ''}`}
+                    key={`${entry.id}-${questionIndex}-${option.label}`}
+                    onClick={() => toggleOption(questionIndex, option.label, question.multiSelect)}
+                    type="button"
+                  >
+                    <strong>{option.label}</strong>
+                    <span>{option.description}</span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <input
+              className="question-form__input"
+              onChange={(event) => setAnswer(questionIndex, event.target.value)}
+              placeholder={copy.answerPlaceholder}
+              value={currentValue}
+            />
+          </section>
+        )
+      })}
+
+      <div className="timeline-entry__actions">
+        <button
+          className="button button--primary"
+          disabled={isSubmitting || !isReadyToSubmit}
+          onClick={() => onSubmit(
+            preparedAnswers.map((item) => ({
+              questionIndex: item.questionIndex,
+              value: item.value,
+            })),
+          )}
+          type="button"
+        >
+          {isSubmitting ? copy.sending : copy.answerQuestions}
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -1297,6 +2407,7 @@ function buildPreviewDetail(result: DesktopSessionTurnResult): DesktopSessionDet
       commandCount: result.resolvedCommand ? 1 : 0,
       toolCount: 0,
       pendingApprovalCount: 0,
+      pendingQuestionCount: 0,
       completedToolCount: 0,
       failedToolCount: 0,
       lastTimestamp: '',
@@ -1320,6 +2431,8 @@ function buildPreviewDetail(result: DesktopSessionTurnResult): DesktopSessionDet
         resolvedAt: '',
         changedFiles: [],
         toolName: '',
+        questions: [],
+        answers: [],
       },
       {
         id: `${result.session.sessionId}-assistant`,
@@ -1339,9 +2452,18 @@ function buildPreviewDetail(result: DesktopSessionTurnResult): DesktopSessionDet
         resolvedAt: '',
         changedFiles: [],
         toolName: '',
+        questions: [],
+        answers: [],
       },
     ],
   }
+}
+
+function splitAnswerValues(value: string) {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function getWorkspaceName(path: string) {
@@ -1434,6 +2556,7 @@ function getUiCopy(locale: string): UiCopy {
       emptySession: 'Выберите сессию слева, чтобы открыть transcript.',
       loading: 'Загружаю transcript...',
       pendingApprovals: 'Ожидают approval',
+      pendingQuestions: 'Ожидают ответа',
       completedTools: 'Инструменты завершены',
       failedTools: 'Ошибки',
       commands: 'Команды',
@@ -1447,6 +2570,8 @@ function getUiCopy(locale: string): UiCopy {
       liveTurn: 'Живой turn',
       cancelTurn: 'Остановить',
       approveAndExecute: 'Подтвердить и выполнить',
+      answerQuestions: 'Отправить ответы',
+      answerPlaceholder: 'Выберите вариант или напишите свой ответ',
       showing: 'Показано',
       of: 'из',
       suggestionsTitle: 'Быстрые сценарии',
@@ -1478,11 +2603,14 @@ function getUiCopy(locale: string): UiCopy {
       allowedLabel: 'Allow',
       askLabel: 'Ask',
       noPendingApprovals: 'Сейчас нет инструментов, ожидающих подтверждения.',
+      noPendingQuestions: 'Сейчас нет вопросов, ожидающих ответа пользователя.',
       modeCodeLabel: 'Code',
       projectSummaryLabel: 'Текущая цель проекта',
       updatedNowLabel: 'Обновлено только что',
       newConversation: 'Новая беседа',
       skillsLabel: 'Навыки',
+      authLabel: 'Auth',
+      mcpLabel: 'MCP',
       toolsNavLabel: 'Инструменты',
       agentsLabel: 'Агенты',
       settingsLabel: 'Настройки',
@@ -1491,6 +2619,67 @@ function getUiCopy(locale: string): UiCopy {
       modeAutoEdit: 'Авто-редакт',
       modeYolo: 'YOLO',
       attachFileLabel: 'Прикрепить файл',
+      mcpTitle: 'MCP серверы',
+      mcpSubtitle: 'Управляйте qwen-compatible MCP конфигурацией прямо из desktop shell и сразу проверяйте доступность серверов.',
+      mcpConnected: 'Подключены',
+      mcpDisconnected: 'Отключены',
+      mcpMissing: 'Не найдены',
+      mcpTokens: 'Токены',
+      mcpEmpty: 'MCP серверы пока не настроены.',
+      mcpAddServer: 'Добавить сервер',
+      mcpReconnect: 'Переподключить',
+      mcpRemove: 'Удалить',
+      mcpName: 'Имя',
+      mcpScope: 'Scope',
+      mcpTransport: 'Transport',
+      mcpCommandOrUrl: 'Команда или URL',
+      mcpDescription: 'Описание',
+      mcpUserScope: 'User',
+      mcpProjectScope: 'Project',
+      mcpSave: 'Сохранить сервер',
+      authTitle: 'Аутентификация',
+      authSubtitle: 'Настраивайте qwen-oauth, Coding Plan и openai-compatible провайдеры прямо из desktop shell и сразу отдавайте их в native runtime.',
+      authSelectedType: 'Тип',
+      authSelectedScope: 'Scope',
+      authStatus: 'Статус',
+      authModel: 'Модель',
+      authEndpoint: 'Endpoint',
+      authApiKeyEnv: 'Переменная API key',
+      authCredentials: 'Persisted credentials',
+      authLastError: 'Последняя ошибка',
+      authConnected: 'Подключено',
+      authMissingCredentials: 'Нет credentials',
+      authConfigureQwenOAuth: 'Подключить Qwen OAuth',
+      authConfigureCodingPlan: 'Подключить Coding Plan',
+      authConfigureOpenAi: 'Подключить OpenAI-compatible',
+      authDisconnect: 'Отключить auth',
+      authAccessToken: 'Access token',
+      authRefreshToken: 'Refresh token',
+      authApiKey: 'API key',
+      authBaseUrl: 'Base URL',
+      authModelName: 'Model',
+      authScope: 'Scope',
+      authRegion: 'Region',
+      authScopeUser: 'User',
+      authScopeProject: 'Project',
+      authRegionChina: 'China',
+      authRegionGlobal: 'Global',
+      authSave: 'Сохранить auth',
+      authClearCredentials: 'Очистить persisted credentials',
+      authDisplayName: 'Провайдер',
+      authCredentialPath: 'Credential path',
+      authStartBrowserFlow: 'Запустить Qwen OAuth в браузере',
+      authCancelFlow: 'Отменить flow',
+      authFlowTitle: 'Qwen OAuth device flow',
+      authFlowStatus: 'Flow status',
+      authFlowUserCode: 'User code',
+      authFlowUrl: 'Verification URL',
+      authFlowExpires: 'Expires at',
+      authFlowPending: 'Ожидает авторизации',
+      authFlowSucceeded: 'Успешно завершен',
+      authFlowCancelled: 'Отменен',
+      authFlowTimedOut: 'Истек по таймауту',
+      authFlowError: 'Ошибка',
     }
   }
 
@@ -1519,6 +2708,7 @@ function getUiCopy(locale: string): UiCopy {
     emptySession: 'Select a session from the sidebar to open its transcript.',
     loading: 'Loading transcript...',
     pendingApprovals: 'Pending approvals',
+    pendingQuestions: 'Pending questions',
     completedTools: 'Completed tools',
     failedTools: 'Failures',
     commands: 'Commands',
@@ -1532,6 +2722,8 @@ function getUiCopy(locale: string): UiCopy {
     liveTurn: 'Live turn',
     cancelTurn: 'Cancel turn',
     approveAndExecute: 'Approve and execute',
+    answerQuestions: 'Send answers',
+    answerPlaceholder: 'Choose an option or type your answer',
     showing: 'Showing',
     of: 'of',
     suggestionsTitle: 'Quick prompts',
@@ -1563,11 +2755,14 @@ function getUiCopy(locale: string): UiCopy {
     allowedLabel: 'Allow',
     askLabel: 'Ask',
     noPendingApprovals: 'There are no tools waiting for approval right now.',
+    noPendingQuestions: 'There are no pending questions right now.',
     modeCodeLabel: 'Code',
     projectSummaryLabel: 'Current project goal',
     updatedNowLabel: 'Updated just now',
     newConversation: 'New chat',
     skillsLabel: 'Skills',
+    authLabel: 'Auth',
+    mcpLabel: 'MCP',
     toolsNavLabel: 'Tools',
     agentsLabel: 'Agents',
     settingsLabel: 'Settings',
@@ -1576,6 +2771,67 @@ function getUiCopy(locale: string): UiCopy {
     modeAutoEdit: 'Auto-edit',
     modeYolo: 'YOLO',
     attachFileLabel: 'Attach file',
+    mcpTitle: 'MCP servers',
+    mcpSubtitle: 'Manage qwen-compatible MCP configuration directly from the desktop shell and validate server availability without leaving the workspace.',
+    mcpConnected: 'Connected',
+    mcpDisconnected: 'Disconnected',
+    mcpMissing: 'Missing',
+    mcpTokens: 'Tokens',
+    mcpEmpty: 'No MCP servers are configured yet.',
+    mcpAddServer: 'Add server',
+    mcpReconnect: 'Reconnect',
+    mcpRemove: 'Remove',
+    mcpName: 'Name',
+    mcpScope: 'Scope',
+    mcpTransport: 'Transport',
+    mcpCommandOrUrl: 'Command or URL',
+    mcpDescription: 'Description',
+    mcpUserScope: 'User',
+    mcpProjectScope: 'Project',
+    mcpSave: 'Save server',
+    authTitle: 'Authentication',
+    authSubtitle: 'Configure qwen-oauth, Coding Plan, and openai-compatible providers directly from the desktop shell and feed them into the native runtime.',
+    authSelectedType: 'Type',
+    authSelectedScope: 'Scope',
+    authStatus: 'Status',
+    authModel: 'Model',
+    authEndpoint: 'Endpoint',
+    authApiKeyEnv: 'API key env',
+    authCredentials: 'Persisted credentials',
+    authLastError: 'Last error',
+    authConnected: 'Connected',
+    authMissingCredentials: 'Missing credentials',
+    authConfigureQwenOAuth: 'Connect Qwen OAuth',
+    authConfigureCodingPlan: 'Connect Coding Plan',
+    authConfigureOpenAi: 'Connect OpenAI-compatible',
+    authDisconnect: 'Disconnect auth',
+    authAccessToken: 'Access token',
+    authRefreshToken: 'Refresh token',
+    authApiKey: 'API key',
+    authBaseUrl: 'Base URL',
+    authModelName: 'Model',
+    authScope: 'Scope',
+    authRegion: 'Region',
+    authScopeUser: 'User',
+    authScopeProject: 'Project',
+    authRegionChina: 'China',
+    authRegionGlobal: 'Global',
+    authSave: 'Save auth',
+    authClearCredentials: 'Clear persisted credentials',
+    authDisplayName: 'Provider',
+    authCredentialPath: 'Credential path',
+    authStartBrowserFlow: 'Start Qwen OAuth in browser',
+    authCancelFlow: 'Cancel flow',
+    authFlowTitle: 'Qwen OAuth device flow',
+    authFlowStatus: 'Flow status',
+    authFlowUserCode: 'User code',
+    authFlowUrl: 'Verification URL',
+    authFlowExpires: 'Expires at',
+    authFlowPending: 'Pending authorization',
+    authFlowSucceeded: 'Completed successfully',
+    authFlowCancelled: 'Cancelled',
+    authFlowTimedOut: 'Timed out',
+    authFlowError: 'Error',
   }
 }
 

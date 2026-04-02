@@ -35,4 +35,8 @@ public sealed class DesktopSessionEntry
     public string ResolvedAt { get; init; } = string.Empty;
 
     public IReadOnlyList<string> ChangedFiles { get; init; } = [];
+
+    public IReadOnlyList<DesktopQuestionPrompt> Questions { get; init; } = [];
+
+    public IReadOnlyList<DesktopQuestionAnswer> Answers { get; init; } = [];
 }

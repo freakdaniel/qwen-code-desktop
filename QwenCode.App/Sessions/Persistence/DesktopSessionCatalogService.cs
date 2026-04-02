@@ -184,7 +184,7 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
     }
 
     private static string? TryGetString(JsonElement root, string propertyName) =>
-        root.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+        TryGetProperty(root, propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
 
@@ -237,7 +237,9 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
             SourcePath = TryGetString(root, "sourcePath") ?? string.Empty,
             ResolutionStatus = TryGetString(root, "resolutionStatus") ?? string.Empty,
             ResolvedAt = TryGetString(root, "resolvedAt") ?? string.Empty,
-            ChangedFiles = TryGetStringArray(root, "changedFiles")
+            ChangedFiles = TryGetStringArray(root, "changedFiles"),
+            Questions = TryGetQuestions(root),
+            Answers = TryGetAnswers(root)
         };
     }
 
@@ -260,14 +262,16 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
             SourcePath = Truncate(entry.SourcePath, MaximumSourcePathLength),
             ResolutionStatus = entry.ResolutionStatus,
             ResolvedAt = entry.ResolvedAt,
-            ChangedFiles = entry.ChangedFiles.Take(MaximumChangedFileCount).ToArray()
+            ChangedFiles = entry.ChangedFiles.Take(MaximumChangedFileCount).ToArray(),
+            Questions = entry.Questions,
+            Answers = entry.Answers
         };
 
     private static string? TryExtractPrompt(JsonElement root)
     {
-        if (!root.TryGetProperty("message", out var message) ||
+        if (!TryGetProperty(root, "message", out var message) ||
             message.ValueKind != JsonValueKind.Object ||
-            !message.TryGetProperty("parts", out var parts) ||
+            !TryGetProperty(message, "parts", out var parts) ||
             parts.ValueKind != JsonValueKind.Array)
         {
             return null;
@@ -276,7 +280,7 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
         foreach (var part in parts.EnumerateArray())
         {
             if (part.ValueKind == JsonValueKind.Object &&
-                part.TryGetProperty("text", out var textValue) &&
+                TryGetProperty(part, "text", out var textValue) &&
                 textValue.ValueKind == JsonValueKind.String)
             {
                 var text = textValue.GetString();
@@ -291,13 +295,13 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
     }
 
     private static int? TryGetInt(JsonElement root, string propertyName) =>
-        root.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var result)
+        TryGetProperty(root, propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var result)
             ? result
             : null;
 
     private static IReadOnlyList<string> TryGetStringArray(JsonElement root, string propertyName)
     {
-        if (!root.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.Array)
+        if (!TryGetProperty(root, propertyName, out var value) || value.ValueKind != JsonValueKind.Array)
         {
             return [];
         }
@@ -308,6 +312,83 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
             .Where(static item => !string.IsNullOrWhiteSpace(item))
             .Cast<string>()
             .ToArray();
+    }
+
+    private static IReadOnlyList<DesktopQuestionPrompt> TryGetQuestions(JsonElement root)
+    {
+        if (!TryGetProperty(root, "questions", out var questionsElement) || questionsElement.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return questionsElement.EnumerateArray()
+            .Where(static item => item.ValueKind == JsonValueKind.Object)
+            .Select(ParseQuestion)
+            .ToArray();
+    }
+
+    private static DesktopQuestionPrompt ParseQuestion(JsonElement questionElement)
+    {
+        var options = TryGetProperty(questionElement, "options", out var optionsElement) &&
+            optionsElement.ValueKind == JsonValueKind.Array
+            ? optionsElement.EnumerateArray()
+                .Where(static item => item.ValueKind == JsonValueKind.Object)
+                .Select(static item => new DesktopQuestionOption
+                {
+                    Label = TryGetString(item, "label") ?? string.Empty,
+                    Description = TryGetString(item, "description") ?? string.Empty
+                })
+                .ToArray()
+            : [];
+
+        return new DesktopQuestionPrompt
+        {
+            Header = TryGetString(questionElement, "header") ?? string.Empty,
+            Question = TryGetString(questionElement, "question") ?? string.Empty,
+            MultiSelect = TryGetProperty(questionElement, "multiSelect", out var multiSelectElement) &&
+                multiSelectElement.ValueKind == JsonValueKind.True,
+            Options = options
+        };
+    }
+
+    private static IReadOnlyList<DesktopQuestionAnswer> TryGetAnswers(JsonElement root)
+    {
+        if (!TryGetProperty(root, "answers", out var answersElement) || answersElement.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return answersElement.EnumerateArray()
+            .Where(static item => item.ValueKind == JsonValueKind.Object)
+            .Select(static item => new DesktopQuestionAnswer
+            {
+                QuestionIndex = TryGetInt(item, "questionIndex") ?? 0,
+                Value = TryGetString(item, "value") ?? string.Empty
+            })
+            .ToArray();
+    }
+
+    private static bool TryGetProperty(JsonElement root, string propertyName, out JsonElement value)
+    {
+        if (root.TryGetProperty(propertyName, out value))
+        {
+            return true;
+        }
+
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in root.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
     }
 
     private static string FirstNonEmpty(params string?[] values) =>

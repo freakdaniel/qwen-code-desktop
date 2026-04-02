@@ -1,12 +1,16 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using QwenCode.App.Auth;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Options;
 using QwenCode.App.Models;
 
 namespace QwenCode.App.Runtime;
 
-public sealed class ProviderConfigurationResolver(IDesktopEnvironmentPaths environmentPaths)
+public sealed class ProviderConfigurationResolver(
+    IDesktopEnvironmentPaths environmentPaths,
+    IQwenOAuthCredentialStore? qwenOAuthCredentialStore = null,
+    IQwenOAuthTokenManager? qwenOAuthTokenManager = null)
 {
     public ResolvedProviderConfiguration Resolve(
         AssistantTurnRequest request,
@@ -45,7 +49,10 @@ public sealed class ProviderConfigurationResolver(IDesktopEnvironmentPaths envir
             settingsEnvironment,
             apiKeyEnvironmentVariable,
             GetString(mergedSettings, "security", "auth", "apiKey"),
-            modelProvider?.HasExplicitEnvironmentVariable == true);
+            modelProvider?.HasExplicitEnvironmentVariable == true,
+            authType,
+            qwenOAuthCredentialStore,
+            qwenOAuthTokenManager);
 
         var baseUrl = FirstNonEmpty(
             options.Endpoint,
@@ -200,7 +207,10 @@ public sealed class ProviderConfigurationResolver(IDesktopEnvironmentPaths envir
         IReadOnlyDictionary<string, string> settingsEnvironment,
         string apiKeyEnvironmentVariable,
         string settingsApiKey,
-        bool explicitEnvironmentVariableRequired)
+        bool explicitEnvironmentVariableRequired,
+        string authType,
+        IQwenOAuthCredentialStore? qwenOAuthCredentialStore,
+        IQwenOAuthTokenManager? qwenOAuthTokenManager)
     {
         if (!string.IsNullOrWhiteSpace(options.ApiKey))
         {
@@ -218,6 +228,25 @@ public sealed class ProviderConfigurationResolver(IDesktopEnvironmentPaths envir
             }
         }
 
+        if (string.Equals(authType, "qwen-oauth", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(authType, "qwen_oauth", StringComparison.OrdinalIgnoreCase))
+        {
+            var persistedAccessToken = qwenOAuthTokenManager?
+                                           .GetValidCredentialsAsync()
+                                           .GetAwaiter()
+                                           .GetResult()?
+                                           .AccessToken ??
+                                       qwenOAuthCredentialStore?
+                                           .ReadAsync()
+                                           .GetAwaiter()
+                                           .GetResult()?
+                                           .AccessToken;
+            if (!string.IsNullOrWhiteSpace(persistedAccessToken))
+            {
+                return persistedAccessToken;
+            }
+        }
+
         if (explicitEnvironmentVariableRequired)
         {
             return string.Empty;
@@ -229,8 +258,8 @@ public sealed class ProviderConfigurationResolver(IDesktopEnvironmentPaths envir
     private static string ResolveDefaultApiKeyEnvironmentVariable(string authType) =>
         authType switch
         {
-            "qwen-oauth" => "DASHSCOPE_API_KEY",
-            "qwen_oauth" => "DASHSCOPE_API_KEY",
+            "qwen-oauth" => "QWEN_OAUTH_ACCESS_TOKEN",
+            "qwen_oauth" => "QWEN_OAUTH_ACCESS_TOKEN",
             _ => "OPENAI_API_KEY"
         };
 

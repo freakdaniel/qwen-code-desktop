@@ -38,6 +38,7 @@ public sealed class FallbackAssistantResponseProvider : IAssistantResponseProvid
             {
                 "completed" => $"Assistant runtime used native tool '{lastTool.Execution.ToolName}' and completed the turn inside the .NET host.",
                 "approval-required" => $"Assistant runtime requested native tool '{lastTool.Execution.ToolName}', but it is waiting for approval before the turn can continue.",
+                "input-required" => $"Assistant runtime requested native tool '{lastTool.Execution.ToolName}', but it is waiting for user answers before the turn can continue.",
                 "blocked" => $"Assistant runtime requested native tool '{lastTool.Execution.ToolName}', but qwen-compatible approval policy blocked it.",
                 "error" => $"Assistant runtime requested native tool '{lastTool.Execution.ToolName}', but execution failed: {lastTool.Execution.ErrorMessage}",
                 _ => $"Assistant runtime updated the session after using native tool '{lastTool.Execution.ToolName}'."
@@ -46,6 +47,12 @@ public sealed class FallbackAssistantResponseProvider : IAssistantResponseProvid
 
         if (request.IsApprovalResolution)
         {
+            if (string.Equals(request.ToolExecution.ToolName, "ask_user_question", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(request.ToolExecution.Status, "completed", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Captured user answers for ask_user_question and continued the native desktop session.";
+            }
+
             return request.ToolExecution.Status switch
             {
                 "completed" => $"Approved native tool '{request.ToolExecution.ToolName}' and executed it inside the .NET host.",
@@ -94,6 +101,7 @@ public sealed class FallbackAssistantResponseProvider : IAssistantResponseProvid
         {
             "completed" => $"Native tool '{request.ToolExecution.ToolName}' completed inside the .NET host.",
             "approval-required" => $"Native tool '{request.ToolExecution.ToolName}' is waiting for approval before execution.",
+            "input-required" => $"Native tool '{request.ToolExecution.ToolName}' is waiting for user answers before execution can continue.",
             "blocked" => $"Native tool '{request.ToolExecution.ToolName}' was blocked by qwen-compatible approval policy.",
             "error" => $"Native tool '{request.ToolExecution.ToolName}' failed: {request.ToolExecution.ErrorMessage}",
             _ => $"Native tool '{request.ToolExecution.ToolName}' updated the desktop session."

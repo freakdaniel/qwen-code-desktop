@@ -17,4 +17,8 @@ public sealed class NativeToolExecutionResult
     public int ExitCode { get; init; }
 
     public required IReadOnlyList<string> ChangedFiles { get; init; }
+
+    public IReadOnlyList<DesktopQuestionPrompt> Questions { get; init; } = [];
+
+    public IReadOnlyList<DesktopQuestionAnswer> Answers { get; init; } = [];
 }

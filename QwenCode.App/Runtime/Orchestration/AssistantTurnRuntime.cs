@@ -180,6 +180,7 @@ public sealed class AssistantTurnRuntime(
         status switch
         {
             "approval-required" => "tool-approval-required",
+            "input-required" => "user-input-required",
             "blocked" => "tool-blocked",
             "error" => "tool-failed",
             _ => "tool-completed"
@@ -189,6 +190,7 @@ public sealed class AssistantTurnRuntime(
         execution.Status switch
         {
             "approval-required" => $"Assistant runtime requested native tool '{execution.ToolName}', and it is waiting for approval.",
+            "input-required" => $"Assistant runtime requested native tool '{execution.ToolName}', and it is waiting for user answers.",
             "blocked" => $"Assistant runtime requested native tool '{execution.ToolName}', but approval policy blocked it.",
             "error" => $"Assistant runtime requested native tool '{execution.ToolName}', but execution failed: {execution.ErrorMessage}",
             _ => $"Assistant runtime completed native tool '{execution.ToolName}'."

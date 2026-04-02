@@ -12,4 +12,14 @@ public sealed class PendingApprovalResolver : IPendingApprovalResolver
                 string.IsNullOrWhiteSpace(entry.ResolutionStatus))
             .LastOrDefault(entry => string.IsNullOrWhiteSpace(entryId) || string.Equals(entry.Id, entryId, StringComparison.Ordinal))
         ?? throw new InvalidOperationException("No pending tool approval was found for this session.");
+
+    public DesktopSessionEntry ResolvePendingQuestion(DesktopSessionDetail detail, string? entryId) =>
+        detail.Entries
+            .Where(static entry =>
+                entry.Type == "tool" &&
+                string.Equals(entry.ToolName, "ask_user_question", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(entry.Status, "input-required", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(entry.ResolutionStatus))
+            .LastOrDefault(entry => string.IsNullOrWhiteSpace(entryId) || string.Equals(entry.Id, entryId, StringComparison.Ordinal))
+        ?? throw new InvalidOperationException("No pending user question was found for this session.");
 }

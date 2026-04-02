@@ -4,25 +4,25 @@ let diagnosticsInstalled = false;
 
 function log(message, details) {
   if (typeof details === 'undefined') {
-    console.log(`[custom_main] ${message}`);
+    console.log(`custom_main → ${message}`);
     return;
   }
 
-  console.log(`[custom_main] ${message}`, details);
+  console.log(`custom_main → ${message}`, details);
 }
 
 function logError(message, error) {
   if (!error) {
-    console.error(`[custom_main] ${message}`);
+    console.error(`custom_main → ${message}`);
     return;
   }
 
   if (error instanceof Error) {
-    console.error(`[custom_main] ${message}: ${error.stack || error.message}`);
+    console.error(`custom_main → ${message}: ${error.stack || error.message}`);
     return;
   }
 
-  console.error(`[custom_main] ${message}:`, error);
+  console.error(`custom_main → ${message}:`, error);
 }
 
 function installDiagnostics(app, BrowserWindow) {

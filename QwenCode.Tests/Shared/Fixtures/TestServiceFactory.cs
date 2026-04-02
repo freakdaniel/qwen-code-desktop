@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using QwenCode.App.Auth;
 
 namespace QwenCode.Tests.Shared.Fixtures;
 
@@ -15,6 +16,19 @@ internal static class TestServiceFactory
         var approvalPolicyService = new ApprovalPolicyService();
         var workspacePathResolver = new WorkspacePathResolver(environmentPaths);
         var shellOptions = Options.Create(options ?? new DesktopShellOptions());
+        var authHttpClient = new HttpClient(new RecordingHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))));
+        var qwenOAuthCredentialStore = new FileQwenOAuthCredentialStore(environmentPaths);
+        var qwenOAuthTokenManager = new QwenOAuthTokenManager(
+            qwenOAuthCredentialStore,
+            environmentPaths,
+            authHttpClient);
+        var authFlowService = new AuthFlowService(
+            runtimeProfileService,
+            environmentPaths,
+            qwenOAuthCredentialStore,
+            authHttpClient,
+            new FakeAuthUrlLauncher(),
+            qwenOAuthTokenManager);
         var compatibilityService = new QwenCompatibilityService(environmentPaths);
         var settingsResolver = new DesktopSettingsResolver(
             compatibilityService,
@@ -22,6 +36,10 @@ internal static class TestServiceFactory
         var projectSummaryService = new ProjectSummaryService();
         var toolRegistry = new ToolCatalogService(runtimeProfileService, approvalPolicyService);
         var toolExecutor = new NativeToolHostService(runtimeProfileService, approvalPolicyService);
+        var mcpRegistry = new McpRegistryService(
+            runtimeProfileService,
+            new FileMcpTokenStore(environmentPaths));
+        var mcpConnectionManager = new McpConnectionManagerService(mcpRegistry, new HttpClient());
         var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
         var interruptedTurnStore = new InterruptedTurnStore();
         var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);
@@ -41,9 +59,20 @@ internal static class TestServiceFactory
                 projectSummaryService,
                 toolRegistry,
                 toolExecutor,
+                authFlowService,
+                mcpConnectionManager,
                 transcriptStore,
                 activeTurnRegistry,
                 interruptedTurnStore),
+            new AuthProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                authFlowService),
+            new McpProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                mcpRegistry,
+                mcpConnectionManager),
             new SessionProjectionService(
                 shellOptions,
                 workspacePathResolver,
@@ -71,6 +100,7 @@ internal static class TestServiceFactory
                 new ToolCatalogService(runtimeProfileService, approvalPolicyService)),
             CreateAssistantTurnRuntime(),
             new NativeToolHostService(runtimeProfileService, approvalPolicyService),
+            new UserQuestionToolService(),
             transcriptStore ?? new DesktopSessionCatalogService(runtimeProfileService),
             activeTurnRegistry ?? new ActiveTurnRegistry(effectiveInterruptedTurnStore),
             effectiveInterruptedTurnStore,
@@ -85,7 +115,15 @@ internal static class TestServiceFactory
         new AssistantTurnRuntime(
             new AssistantPromptAssembler(new ProjectSummaryService()),
             primaryProvider is null
-                ? [new OpenAiCompatibleAssistantResponseProvider(new HttpClient()), new FallbackAssistantResponseProvider()]
+                ? [
+                    new OpenAiCompatibleAssistantResponseProvider(
+                        new HttpClient(),
+                        new ProviderConfigurationResolver(
+                            new FakeDesktopEnvironmentPaths(
+                                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)))),
+                    new FallbackAssistantResponseProvider()
+                ]
                 : [primaryProvider, new FallbackAssistantResponseProvider()],
             toolExecutor ?? new FakeToolExecutor(),
             Options.Create(new NativeAssistantRuntimeOptions

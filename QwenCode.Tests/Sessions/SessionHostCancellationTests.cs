@@ -31,6 +31,7 @@ public sealed class SessionHostCancellationTests
                     new ToolCatalogService(runtimeProfileService, approvalPolicyService)),
                 CreateAssistantTurnRuntime(new CancellableAssistantResponseProvider()),
                 new NativeToolHostService(runtimeProfileService, approvalPolicyService),
+                new UserQuestionToolService(),
                 sessionCatalog,
                 new ActiveTurnRegistry(interruptedTurnStore),
                 interruptedTurnStore,

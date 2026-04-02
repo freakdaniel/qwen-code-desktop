@@ -124,6 +124,8 @@ public sealed class SessionTranscriptWriter : ISessionTranscriptWriter
                     errorMessage = toolExecution.Execution.ErrorMessage,
                     exitCode = toolExecution.Execution.ExitCode,
                     changedFiles = toolExecution.Execution.ChangedFiles,
+                    questions = toolExecution.Execution.Questions,
+                    answers = toolExecution.Execution.Answers,
                     source = "assistant-runtime"
                 },
                 cancellationToken);

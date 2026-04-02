@@ -2,17 +2,34 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using QwenCode.App.Models;
+using QwenCode.App.Agents;
 using QwenCode.App.Compatibility;
+using QwenCode.App.Infrastructure;
+using QwenCode.App.Mcp;
+using QwenCode.App.Models;
 using QwenCode.App.Permissions;
 
 namespace QwenCode.App.Tools;
 
 public sealed class NativeToolHostService(
     QwenRuntimeProfileService runtimeProfileService,
-    IApprovalPolicyEngine approvalPolicyService) : IToolExecutor
+    IApprovalPolicyEngine approvalPolicyService,
+    ICronScheduler? cronScheduler = null,
+    IWebToolService? webToolService = null,
+    IUserQuestionToolService? userQuestionToolService = null,
+    IMcpToolRuntime? mcpToolRuntime = null,
+    ILspToolService? lspToolService = null,
+    ISkillToolService? skillToolService = null,
+    ISubagentCoordinator? subagentCoordinator = null) : IToolExecutor
 {
     private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", ".electron", "dist"];
+    private readonly ISubagentCoordinator agents = subagentCoordinator ?? CreateFallbackSubagentCoordinator(runtimeProfileService, approvalPolicyService);
+    private readonly ICronScheduler cron = cronScheduler ?? new InMemoryCronScheduler();
+    private readonly IWebToolService webTools = webToolService ?? new WebToolService(new DefaultDesktopEnvironmentPaths());
+    private readonly IUserQuestionToolService userQuestions = userQuestionToolService ?? new UserQuestionToolService();
+    private readonly IMcpToolRuntime? mcpTools = mcpToolRuntime;
+    private readonly ILspToolService lspTools = lspToolService ?? new RoslynLspToolService();
+    private readonly ISkillToolService skills = skillToolService ?? new SkillToolService(new QwenCompatibilityService(new DefaultDesktopEnvironmentPaths()));
 
     public NativeToolHostSnapshot Inspect(WorkspacePaths paths)
     {
@@ -78,6 +95,17 @@ public sealed class NativeToolHostService(
         {
             var approvalContext = BuildApprovalContext(request.ToolName, tool.Kind, runtimeProfile, document.RootElement);
             var approval = approvalPolicyService.Evaluate(approvalContext, runtimeProfile.ApprovalProfile);
+            if (string.Equals(request.ToolName, "mcp-tool", StringComparison.OrdinalIgnoreCase))
+            {
+                var mcpApproval = await EvaluateMcpToolApprovalAsync(paths, runtimeProfile, document.RootElement, cancellationToken);
+                if (mcpApproval.ErrorResult is not null)
+                {
+                    return mcpApproval.ErrorResult;
+                }
+
+                approval = mcpApproval.Decision!;
+            }
+
             if (approval.State == "deny")
             {
                 return new NativeToolExecutionResult
@@ -89,6 +117,11 @@ public sealed class NativeToolHostService(
                     ErrorMessage = approval.Reason,
                     ChangedFiles = []
                 };
+            }
+
+            if (string.Equals(request.ToolName, "ask_user_question", StringComparison.OrdinalIgnoreCase))
+            {
+                return ExecuteAskUserQuestion(runtimeProfile, approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot, document.RootElement, approval.State);
             }
 
             if (approval.State == "ask" && !request.ApproveExecution)
@@ -113,8 +146,38 @@ public sealed class NativeToolHostService(
                 "run_shell_command" => await ExecuteShellAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
                 "write_file" => await ExecuteWriteFileAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
                 "edit" => await ExecuteEditAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "todo_write" => await ExecuteTodoWriteAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "save_memory" => await ExecuteSaveMemoryAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "agent" => await agents.ExecuteAsync(paths, runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "skill" => await ExecuteSkillAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "exit_plan_mode" => ExecuteExitPlanMode(runtimeProfile, approval.State),
+                "web_fetch" => await ExecuteWebFetchAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "web_search" => await ExecuteWebSearchAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "mcp-client" => await ExecuteMcpClientAsync(paths, runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "mcp-tool" => await ExecuteMcpToolAsync(paths, runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "lsp" => await lspTools.ExecuteAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "ask_user_question" => ExecuteAskUserQuestion(runtimeProfile, approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot, document.RootElement, approval.State),
+                "cron_create" => ExecuteCronCreate(document.RootElement, runtimeProfile, approval.State),
+                "cron_list" => ExecuteCronList(runtimeProfile, approval.State),
+                "cron_delete" => ExecuteCronDelete(document.RootElement, runtimeProfile, approval.State),
                 _ => Error(request.ToolName, "Tool is not implemented by the native .NET host yet.", runtimeProfile.ProjectRoot)
             };
+        }
+    }
+
+    private NativeToolExecutionResult ExecuteAskUserQuestion(
+        QwenRuntimeProfile runtimeProfile,
+        string workingDirectory,
+        JsonElement arguments,
+        string approvalState)
+    {
+        try
+        {
+            return userQuestions.CreatePendingResult(runtimeProfile, workingDirectory, arguments, approvalState);
+        }
+        catch (Exception exception)
+        {
+            return Error("ask_user_question", exception.Message, workingDirectory, approvalState);
         }
     }
 
@@ -131,6 +194,14 @@ public sealed class NativeToolHostService(
                 : runtimeProfile.ProjectRoot;
 
         var domain = TryExtractDomain(arguments);
+        var filePath = toolName switch
+        {
+            "save_memory" => MemoryStore.ResolveMemoryFilePath(runtimeProfile, TryGetOptionalString(arguments, "scope")),
+            "todo_write" => TodoStore.ResolveTodoFilePath(
+                runtimeProfile,
+                TryGetOptionalString(arguments, "session_id") ?? TryGetOptionalString(arguments, "sessionId")),
+            _ => TryExtractFilePath(arguments, runtimeProfile.ProjectRoot)
+        };
 
         return new ApprovalCheckContext
         {
@@ -139,7 +210,7 @@ public sealed class NativeToolHostService(
             ProjectRoot = runtimeProfile.ProjectRoot,
             WorkingDirectory = workingDirectory,
             Command = TryGetString(arguments, "command", out var command) ? command : null,
-            FilePath = TryExtractFilePath(arguments, runtimeProfile.ProjectRoot),
+            FilePath = filePath,
             Domain = domain,
             Specifier = TryGetString(arguments, "agent_type", out var agentType)
                 ? agentType
@@ -172,6 +243,77 @@ public sealed class NativeToolHostService(
         }
 
         return Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : null;
+    }
+
+    private async Task<McpApprovalEvaluation> EvaluateMcpToolApprovalAsync(
+        WorkspacePaths paths,
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        CancellationToken cancellationToken)
+    {
+        if (mcpTools is null)
+        {
+            return new McpApprovalEvaluation(
+                null,
+                Error("mcp-tool", "MCP runtime is not available in this host instance.", runtimeProfile.ProjectRoot));
+        }
+
+        if (!TryGetString(arguments, "server_name", out var serverName))
+        {
+            return new McpApprovalEvaluation(
+                null,
+                Error("mcp-tool", "Parameter 'server_name' is required.", runtimeProfile.ProjectRoot));
+        }
+
+        if (!TryGetString(arguments, "tool_name", out var toolName))
+        {
+            return new McpApprovalEvaluation(
+                null,
+                Error("mcp-tool", "Parameter 'tool_name' is required.", runtimeProfile.ProjectRoot));
+        }
+
+        try
+        {
+            var tool = await mcpTools.ResolveToolAsync(paths, serverName, toolName, cancellationToken);
+            var decision = approvalPolicyService.Evaluate(
+                new ApprovalCheckContext
+                {
+                    ToolName = tool.FullyQualifiedName,
+                    Kind = tool.ReadOnlyHint ? "read" : "execute",
+                    ProjectRoot = runtimeProfile.ProjectRoot,
+                    WorkingDirectory = runtimeProfile.ProjectRoot,
+                    Specifier = tool.FullyQualifiedName
+                },
+                runtimeProfile.ApprovalProfile);
+
+            if (!decision.Reason.Contains("explicit", StringComparison.OrdinalIgnoreCase))
+            {
+                if (tool.ReadOnlyHint)
+                {
+                    decision = new ApprovalDecision
+                    {
+                        State = "allow",
+                        Reason = $"Allowed because MCP tool '{tool.FullyQualifiedName}' is marked read-only."
+                    };
+                }
+                else
+                {
+                    decision = new ApprovalDecision
+                    {
+                        State = "ask",
+                        Reason = $"Requires confirmation for MCP tool '{tool.FullyQualifiedName}'."
+                    };
+                }
+            }
+
+            return new McpApprovalEvaluation(decision, null);
+        }
+        catch (Exception exception)
+        {
+            return new McpApprovalEvaluation(
+                null,
+                Error("mcp-tool", exception.Message, runtimeProfile.ProjectRoot));
+        }
     }
 
     private static async Task<NativeToolExecutionResult> ExecuteReadFileAsync(
@@ -448,6 +590,244 @@ public sealed class NativeToolHostService(
         return Success("edit", approvalState, runtimeProfile.ProjectRoot, "Edit applied.", [filePath.Value!]);
     }
 
+    private static async Task<NativeToolExecutionResult> ExecuteTodoWriteAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await TodoStore.SaveTodosAsync(runtimeProfile, arguments, cancellationToken);
+            return Success("todo_write", approvalState, runtimeProfile.RuntimeBaseDirectory, result.Summary, [result.FilePath]);
+        }
+        catch (Exception exception)
+        {
+            return Error("todo_write", exception.Message, runtimeProfile.RuntimeBaseDirectory, approvalState);
+        }
+    }
+
+    private static async Task<NativeToolExecutionResult> ExecuteSaveMemoryAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetString(arguments, "fact", out var fact))
+        {
+            return Error("save_memory", "Parameter 'fact' is required.", runtimeProfile.ProjectRoot, approvalState);
+        }
+
+        try
+        {
+            var scope = TryGetOptionalString(arguments, "scope");
+            var targetPath = await MemoryStore.SaveFactAsync(runtimeProfile, fact, scope, cancellationToken);
+            var effectiveScope = string.Equals(scope, "global", StringComparison.OrdinalIgnoreCase) ? "global" : "project";
+            return Success(
+                "save_memory",
+                approvalState,
+                runtimeProfile.ProjectRoot,
+                $"Saved memory to {targetPath} ({effectiveScope} scope).",
+                [targetPath]);
+        }
+        catch (Exception exception)
+        {
+            return Error("save_memory", exception.Message, runtimeProfile.ProjectRoot, approvalState);
+        }
+    }
+
+    private async Task<NativeToolExecutionResult> ExecuteSkillAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var output = await skills.LoadSkillContentAsync(runtimeProfile, arguments, cancellationToken);
+            return Success("skill", approvalState, runtimeProfile.ProjectRoot, output, []);
+        }
+        catch (Exception exception)
+        {
+            return Error("skill", exception.Message, runtimeProfile.ProjectRoot, approvalState);
+        }
+    }
+
+    private static NativeToolExecutionResult ExecuteExitPlanMode(
+        QwenRuntimeProfile runtimeProfile,
+        string approvalState) =>
+        Success(
+            "exit_plan_mode",
+            approvalState,
+            runtimeProfile.ProjectRoot,
+            "Plan mode exit requested in the native desktop runtime.",
+            []);
+
+    private async Task<NativeToolExecutionResult> ExecuteWebFetchAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var output = await webTools.FetchAsync(runtimeProfile, arguments, cancellationToken);
+            return Success("web_fetch", approvalState, runtimeProfile.ProjectRoot, output, []);
+        }
+        catch (Exception exception)
+        {
+            return Error("web_fetch", exception.Message, runtimeProfile.ProjectRoot, approvalState);
+        }
+    }
+
+    private async Task<NativeToolExecutionResult> ExecuteWebSearchAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var output = await webTools.SearchAsync(runtimeProfile, arguments, cancellationToken);
+            return Success("web_search", approvalState, runtimeProfile.ProjectRoot, output, []);
+        }
+        catch (Exception exception)
+        {
+            return Error("web_search", exception.Message, runtimeProfile.ProjectRoot, approvalState);
+        }
+    }
+
+    private async Task<NativeToolExecutionResult> ExecuteMcpClientAsync(
+        WorkspacePaths paths,
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        if (mcpTools is null)
+        {
+            return Error("mcp-client", "MCP runtime is not available in this host instance.", runtimeProfile.ProjectRoot, approvalState);
+        }
+
+        try
+        {
+            var output = await mcpTools.DescribeAsync(paths, arguments, cancellationToken);
+            return Success("mcp-client", approvalState, runtimeProfile.ProjectRoot, output, []);
+        }
+        catch (Exception exception)
+        {
+            return Error("mcp-client", exception.Message, runtimeProfile.ProjectRoot, approvalState);
+        }
+    }
+
+    private async Task<NativeToolExecutionResult> ExecuteMcpToolAsync(
+        WorkspacePaths paths,
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        if (mcpTools is null)
+        {
+            return Error("mcp-tool", "MCP runtime is not available in this host instance.", runtimeProfile.ProjectRoot, approvalState);
+        }
+
+        if (!TryGetString(arguments, "server_name", out var serverName))
+        {
+            return Error("mcp-tool", "Parameter 'server_name' is required.", runtimeProfile.ProjectRoot, approvalState);
+        }
+
+        if (!TryGetString(arguments, "tool_name", out var toolName))
+        {
+            return Error("mcp-tool", "Parameter 'tool_name' is required.", runtimeProfile.ProjectRoot, approvalState);
+        }
+
+        try
+        {
+            var result = await mcpTools.InvokeAsync(paths, serverName, toolName, arguments, cancellationToken);
+            return new NativeToolExecutionResult
+            {
+                ToolName = "mcp-tool",
+                Status = result.IsError ? "error" : "completed",
+                ApprovalState = approvalState,
+                WorkingDirectory = runtimeProfile.ProjectRoot,
+                Output = result.Output,
+                ErrorMessage = result.IsError ? result.Output : string.Empty,
+                ChangedFiles = []
+            };
+        }
+        catch (Exception exception)
+        {
+            return Error("mcp-tool", exception.Message, runtimeProfile.ProjectRoot, approvalState);
+        }
+    }
+
+    private NativeToolExecutionResult ExecuteCronCreate(
+        JsonElement arguments,
+        QwenRuntimeProfile runtimeProfile,
+        string approvalState)
+    {
+        if (!TryGetString(arguments, "cron", out var cronExpression))
+        {
+            return Error("cron_create", "Parameter 'cron' is required.", runtimeProfile.ProjectRoot, approvalState);
+        }
+
+        if (!TryGetString(arguments, "prompt", out var prompt))
+        {
+            return Error("cron_create", "Parameter 'prompt' is required.", runtimeProfile.ProjectRoot, approvalState);
+        }
+
+        var recurring = TryGetBool(arguments, "recurring") ?? true;
+
+        try
+        {
+            var job = cron.Create(cronExpression, prompt, recurring);
+            var output = recurring
+                ? $"Scheduled recurring job {job.Id} ({job.CronExpression}). Session-only (not written to disk, dies when Qwen Code exits). Auto-expires after 3 days. Use CronDelete to cancel sooner."
+                : $"Scheduled one-shot task {job.Id} ({job.CronExpression}). Session-only (not written to disk, dies when Qwen Code exits). It will fire once then auto-delete.";
+
+            return Success("cron_create", approvalState, runtimeProfile.ProjectRoot, output, []);
+        }
+        catch (Exception exception)
+        {
+            return Error("cron_create", $"Error creating cron job: {exception.Message}", runtimeProfile.ProjectRoot, approvalState);
+        }
+    }
+
+    private NativeToolExecutionResult ExecuteCronList(
+        QwenRuntimeProfile runtimeProfile,
+        string approvalState)
+    {
+        var jobs = cron.List();
+        if (jobs.Count == 0)
+        {
+            return Success("cron_list", approvalState, runtimeProfile.ProjectRoot, "No active cron jobs.", []);
+        }
+
+        var lines = jobs.Select(static job =>
+        {
+            var type = job.IsRecurring ? "recurring" : "one-shot";
+            return $"{job.Id} - {job.CronExpression} ({type}) [session-only]: {job.Prompt}";
+        });
+
+        return Success("cron_list", approvalState, runtimeProfile.ProjectRoot, string.Join(Environment.NewLine, lines), []);
+    }
+
+    private NativeToolExecutionResult ExecuteCronDelete(
+        JsonElement arguments,
+        QwenRuntimeProfile runtimeProfile,
+        string approvalState)
+    {
+        if (!TryGetString(arguments, "id", out var id))
+        {
+            return Error("cron_delete", "Parameter 'id' is required.", runtimeProfile.ProjectRoot, approvalState);
+        }
+
+        return cron.Delete(id)
+            ? Success("cron_delete", approvalState, runtimeProfile.ProjectRoot, $"Cancelled job {id}.", [])
+            : Error("cron_delete", $"Job {id} not found.", runtimeProfile.ProjectRoot, approvalState);
+    }
+
     private static NativeToolExecutionResult Success(
         string toolName,
         string approvalState,
@@ -533,6 +913,11 @@ public sealed class NativeToolHostService(
         return !string.IsNullOrWhiteSpace(value);
     }
 
+    private static string? TryGetOptionalString(JsonElement arguments, string propertyName) =>
+        arguments.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+
     private static int? TryGetInt(JsonElement arguments, string propertyName) =>
         arguments.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var value)
             ? value
@@ -599,4 +984,28 @@ public sealed class NativeToolHostService(
 
         public static PathResolutionResult Fail(string errorMessage) => new(null, errorMessage);
     }
+
+    private sealed class DefaultDesktopEnvironmentPaths : IDesktopEnvironmentPaths
+    {
+        public string HomeDirectory => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        public string? ProgramDataDirectory => Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+
+        public string CurrentDirectory => Environment.CurrentDirectory;
+
+        public string AppBaseDirectory => AppContext.BaseDirectory;
+    }
+
+    private static ISubagentCoordinator CreateFallbackSubagentCoordinator(
+        QwenRuntimeProfileService runtimeProfileService,
+        IApprovalPolicyEngine approvalPolicyService)
+    {
+        var environmentPaths = new DefaultDesktopEnvironmentPaths();
+        return new SubagentCoordinatorService(
+            new SubagentCatalogService(environmentPaths),
+            new ToolCatalogService(runtimeProfileService, approvalPolicyService),
+            new QwenCompatibilityService(environmentPaths));
+    }
+
+    private sealed record McpApprovalEvaluation(ApprovalDecision? Decision, NativeToolExecutionResult? ErrorResult);
 }

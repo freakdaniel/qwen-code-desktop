@@ -168,7 +168,7 @@ internal static class ConsoleLogBridge
                 return true;
             }
 
-            if (message.Contains("[custom_main] Renderer console", StringComparison.Ordinal) &&
+            if (message.Contains("custom_main → Renderer console", StringComparison.Ordinal) &&
                 !message.Contains("[2]", StringComparison.Ordinal) &&
                 !message.Contains("[3]", StringComparison.Ordinal) &&
                 !message.Contains("[4]", StringComparison.Ordinal) &&

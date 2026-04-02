@@ -180,5 +180,113 @@ public sealed class SessionHostApprovalTests
         }
     }
 
+    [Fact]
+    public async Task DesktopSessionHostService_AnswerPendingQuestionAsync_StoresAnswersAndResolvesPendingEntry()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-answer-question-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
+
+            var startResult = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Ask the user which implementation path to take.",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "ask_user_question",
+                    ToolArgumentsJson =
+                        """
+                        {
+                          "questions": [
+                            {
+                              "header": "Direction",
+                              "question": "Which implementation path should we take?",
+                              "multiSelect": false,
+                              "options": [
+                                { "label": "Native host", "description": "Continue deepening the C# runtime." },
+                                { "label": "UI polish", "description": "Pause runtime work and improve the renderer." }
+                              ]
+                            }
+                          ]
+                        }
+                        """,
+                    ApproveToolExecution = false
+                });
+
+            var pendingDetail = sessionCatalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = startResult.Session.SessionId
+                });
+            Assert.NotNull(pendingDetail);
+            Assert.Equal(1, pendingDetail!.Summary.PendingQuestionCount);
+
+            var pendingEntry = Assert.Single(pendingDetail.Entries, entry =>
+                entry.Type == "tool" &&
+                entry.ToolName == "ask_user_question" &&
+                entry.Status == "input-required");
+
+            var answerResult = await sessionHost.AnswerPendingQuestionAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new AnswerDesktopSessionQuestionRequest
+                {
+                    SessionId = startResult.Session.SessionId,
+                    EntryId = pendingEntry.Id,
+                    Answers =
+                    [
+                        new DesktopQuestionAnswer
+                        {
+                            QuestionIndex = 0,
+                            Value = "Native host"
+                        }
+                    ]
+                });
+
+            Assert.Equal("completed", answerResult.ToolExecution.Status);
+            Assert.Equal("ask_user_question", answerResult.ToolExecution.ToolName);
+            Assert.Contains("Native host", answerResult.ToolExecution.Output);
+
+            var finalDetail = sessionCatalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = startResult.Session.SessionId
+                });
+            Assert.NotNull(finalDetail);
+            Assert.Equal(0, finalDetail!.Summary.PendingQuestionCount);
+
+            var resolvedPendingEntry = finalDetail.Entries.First(entry => entry.Id == pendingEntry.Id);
+            Assert.Equal("answered", resolvedPendingEntry.ResolutionStatus);
+            Assert.False(string.IsNullOrWhiteSpace(resolvedPendingEntry.ResolvedAt));
+
+            var completedQuestionEntry = finalDetail.Entries.Last(entry =>
+                entry.Type == "tool" &&
+                entry.ToolName == "ask_user_question" &&
+                entry.Status == "completed");
+            Assert.Equal("answered-by-user", completedQuestionEntry.ResolutionStatus);
+            Assert.Single(completedQuestionEntry.Answers);
+            Assert.Equal("Native host", completedQuestionEntry.Answers[0].Value);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
 
 }

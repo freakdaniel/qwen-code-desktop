@@ -8,6 +8,8 @@ public interface IDesktopProjectionService
 
     event EventHandler<DesktopSessionEvent>? SessionEvent;
 
+    event EventHandler<AuthStatusSnapshot>? AuthChanged;
+
     Task<AppBootstrapPayload> GetBootstrapAsync();
 
     Task<IReadOnlyList<ActiveTurnState>> GetActiveTurnsAsync();
@@ -16,11 +18,33 @@ public interface IDesktopProjectionService
 
     Task<DesktopStateChangedEvent> SetLocaleAsync(string locale);
 
+    Task<AuthStatusSnapshot> GetAuthStatusAsync();
+
+    Task<AuthStatusSnapshot> ConfigureOpenAiCompatibleAuthAsync(ConfigureOpenAiCompatibleAuthRequest request);
+
+    Task<AuthStatusSnapshot> ConfigureCodingPlanAuthAsync(ConfigureCodingPlanAuthRequest request);
+
+    Task<AuthStatusSnapshot> ConfigureQwenOAuthAsync(ConfigureQwenOAuthRequest request);
+
+    Task<AuthStatusSnapshot> StartQwenOAuthDeviceFlowAsync(StartQwenOAuthDeviceFlowRequest request);
+
+    Task<AuthStatusSnapshot> CancelQwenOAuthDeviceFlowAsync(CancelQwenOAuthDeviceFlowRequest request);
+
+    Task<AuthStatusSnapshot> DisconnectAuthAsync(DisconnectAuthRequest request);
+
+    Task<McpSnapshot> AddMcpServerAsync(McpServerRegistrationRequest request);
+
+    Task<McpSnapshot> RemoveMcpServerAsync(RemoveMcpServerRequest request);
+
+    Task<McpSnapshot> ReconnectMcpServerAsync(ReconnectMcpServerRequest request);
+
     Task<NativeToolExecutionResult> ExecuteNativeToolAsync(ExecuteNativeToolRequest request);
 
     Task<DesktopSessionTurnResult> StartSessionTurnAsync(StartDesktopSessionTurnRequest request);
 
     Task<DesktopSessionTurnResult> ApprovePendingToolAsync(ApproveDesktopSessionToolRequest request);
+
+    Task<DesktopSessionTurnResult> AnswerPendingQuestionAsync(AnswerDesktopSessionQuestionRequest request);
 
     Task<CancelDesktopSessionTurnResult> CancelSessionTurnAsync(CancelDesktopSessionTurnRequest request);
 

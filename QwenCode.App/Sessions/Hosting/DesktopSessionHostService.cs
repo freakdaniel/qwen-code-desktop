@@ -10,6 +10,7 @@ public sealed class DesktopSessionHostService(
     ICommandActionRuntime commandActionRuntime,
     IAssistantTurnRuntime assistantTurnRuntime,
     IToolExecutor nativeToolHostService,
+    IUserQuestionToolService userQuestionToolService,
     ITranscriptStore sessionCatalogService,
     IActiveTurnRegistry activeTurnRegistry,
     IInterruptedTurnStore interruptedTurnStore,
@@ -281,7 +282,9 @@ public sealed class DesktopSessionHostService(
                     output = toolExecution.Output,
                     errorMessage = toolExecution.ErrorMessage,
                     exitCode = toolExecution.ExitCode,
-                    changedFiles = toolExecution.ChangedFiles
+                    changedFiles = toolExecution.ChangedFiles,
+                    questions = toolExecution.Questions,
+                    answers = toolExecution.Answers
                 },
                 cancellationToken);
 
@@ -443,6 +446,50 @@ public sealed class DesktopSessionHostService(
             cancellationToken);
     }
 
+    public async Task<DesktopSessionTurnResult> AnswerPendingQuestionAsync(
+        WorkspacePaths paths,
+        AnswerDesktopSessionQuestionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.SessionId))
+        {
+            throw new InvalidOperationException("SessionId is required to answer a pending question.");
+        }
+
+        var detail = sessionCatalogService.GetSession(paths, new GetDesktopSessionRequest
+        {
+            SessionId = request.SessionId
+        })
+            ?? throw new InvalidOperationException("Session transcript was not found.");
+        var workingDirectory = string.IsNullOrWhiteSpace(detail.Session.WorkingDirectory)
+            ? runtimeProfileService.Inspect(paths).ProjectRoot
+            : detail.Session.WorkingDirectory;
+        var gitBranch = detail.Session.GitBranch;
+
+        return await activeTurnRegistry.RunAsync(
+            request.SessionId,
+            CreateActiveTurnState(
+                request.SessionId,
+                detail.Session.Title,
+                detail.TranscriptPath,
+                workingDirectory,
+                gitBranch,
+                "ask_user_question"),
+            token => AnswerPendingQuestionCoreAsync(paths, request, token),
+            async () => await BuildCancelledTurnResultAsync(
+                paths,
+                request.SessionId,
+                detail.TranscriptPath,
+                workingDirectory,
+                gitBranch,
+                detail.Session.Title,
+                CreateCancelledToolExecutionResult(workingDirectory),
+                createdNewSession: false,
+                resolvedCommand: null,
+                cancellationToken),
+            cancellationToken);
+    }
+
     private async Task<DesktopSessionTurnResult> ApprovePendingToolCoreAsync(
         WorkspacePaths paths,
         ApproveDesktopSessionToolRequest request,
@@ -519,6 +566,8 @@ public sealed class DesktopSessionHostService(
                 errorMessage = execution.ErrorMessage,
                 exitCode = execution.ExitCode,
                 changedFiles = execution.ChangedFiles,
+                questions = execution.Questions,
+                answers = execution.Answers,
                 resolutionStatus = "executed-after-approval",
                 sourcePath = pendingTool.SourcePath,
                 scope = pendingTool.Scope
@@ -625,6 +674,201 @@ public sealed class DesktopSessionHostService(
         PublishSessionEvent(sessionEventFactory.CreateTurnCompleted(
             request.SessionId,
             "Pending tool approval resolved and desktop session updated.",
+            workingDirectory,
+            gitBranch,
+            string.Empty,
+            execution.ToolName,
+            execution.Status));
+
+        return result;
+    }
+
+    private async Task<DesktopSessionTurnResult> AnswerPendingQuestionCoreAsync(
+        WorkspacePaths paths,
+        AnswerDesktopSessionQuestionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.SessionId))
+        {
+            throw new InvalidOperationException("SessionId is required to answer a pending question.");
+        }
+
+        var detail = sessionCatalogService.GetSession(paths, new GetDesktopSessionRequest
+        {
+            SessionId = request.SessionId
+        })
+            ?? throw new InvalidOperationException("Session transcript was not found.");
+        var pendingQuestion = pendingApprovalResolver.ResolvePendingQuestion(detail, request.EntryId);
+        var questions = pendingQuestion.Questions.Count > 0
+            ? pendingQuestion.Questions
+            : userQuestionToolService.ParseQuestions(pendingQuestion.Arguments);
+        var answers = userQuestionToolService.ValidateAnswers(questions, request.Answers);
+
+        var runtimeProfile = runtimeProfileService.Inspect(paths);
+        var workingDirectory = string.IsNullOrWhiteSpace(pendingQuestion.WorkingDirectory)
+            ? runtimeProfile.ProjectRoot
+            : pendingQuestion.WorkingDirectory;
+        var execution = userQuestionToolService.CreateAnsweredResult(
+            workingDirectory,
+            string.IsNullOrWhiteSpace(pendingQuestion.ApprovalState) ? "ask" : pendingQuestion.ApprovalState,
+            questions,
+            answers);
+
+        var resolutionTimestamp = DateTime.UtcNow;
+        await transcriptWriter.MarkToolEntryResolvedAsync(
+            detail.TranscriptPath,
+            pendingQuestion.Id,
+            "answered",
+            resolutionTimestamp,
+            cancellationToken);
+
+        var parentUuid = transcriptWriter.TryReadLastEntryUuid(detail.TranscriptPath);
+        var gitBranch = pendingQuestion.GitBranch;
+
+        PublishSessionEvent(sessionEventFactory.CreateUserInputReceived(
+            request.SessionId,
+            execution.ToolName,
+            workingDirectory,
+            gitBranch,
+            resolutionTimestamp));
+        activeTurnRegistry.Update(request.SessionId, state =>
+        {
+            state.ToolName = execution.ToolName;
+            state.Stage = "user-input-received";
+            state.Status = "answered";
+            state.ContentSnapshot = execution.Output;
+        });
+
+        var toolUuid = Guid.NewGuid().ToString();
+        await transcriptWriter.AppendEntryAsync(
+            detail.TranscriptPath,
+            new
+            {
+                uuid = toolUuid,
+                parentUuid,
+                sessionId = request.SessionId,
+                timestamp = resolutionTimestamp,
+                type = "tool",
+                cwd = execution.WorkingDirectory,
+                version = "0.1.0",
+                gitBranch,
+                toolName = execution.ToolName,
+                args = string.IsNullOrWhiteSpace(pendingQuestion.Arguments) ? "{}" : pendingQuestion.Arguments,
+                approvalState = execution.ApprovalState,
+                status = execution.Status,
+                output = execution.Output,
+                errorMessage = execution.ErrorMessage,
+                exitCode = execution.ExitCode,
+                changedFiles = execution.ChangedFiles,
+                questions = execution.Questions,
+                answers = execution.Answers,
+                resolutionStatus = "answered-by-user",
+                sourcePath = pendingQuestion.SourcePath,
+                scope = pendingQuestion.Scope
+            },
+            cancellationToken);
+
+        PublishSessionEvent(sessionEventFactory.CreateToolEvent(request.SessionId, execution, gitBranch));
+        activeTurnRegistry.Update(request.SessionId, state =>
+        {
+            state.ToolName = execution.ToolName;
+            state.Stage = "tool-executed";
+            state.Status = execution.Status;
+            state.ContentSnapshot = execution.Output;
+        });
+
+        var assistantResponse = await assistantTurnRuntime.GenerateAsync(
+            CreateAssistantTurnRequest(
+                request.SessionId,
+                execution.Output,
+                workingDirectory,
+                detail.TranscriptPath,
+                runtimeProfile,
+                gitBranch,
+                commandInvocation: null,
+                resolvedCommand: null,
+                execution,
+                isApprovalResolution: true),
+            runtimeEvent =>
+            {
+                activeTurnRegistry.Update(request.SessionId, state => ApplyRuntimeEvent(state, runtimeEvent));
+                PublishSessionEvent(sessionEventFactory.CreateAssistantRuntimeEvent(
+                    request.SessionId,
+                    runtimeEvent,
+                    workingDirectory,
+                    gitBranch,
+                    string.Empty,
+                    execution.ToolName));
+            },
+            cancellationToken);
+        var assistantSummary = assistantResponse.Summary;
+        parentUuid = await transcriptWriter.AppendAssistantToolExecutionsAsync(
+            detail.TranscriptPath,
+            request.SessionId,
+            toolUuid,
+            gitBranch,
+            assistantResponse.ToolExecutions,
+            cancellationToken);
+
+        await transcriptWriter.AppendEntryAsync(
+            detail.TranscriptPath,
+            new
+            {
+                uuid = Guid.NewGuid().ToString(),
+                parentUuid = parentUuid ?? toolUuid,
+                sessionId = request.SessionId,
+                timestamp = DateTime.UtcNow,
+                type = "assistant",
+                cwd = workingDirectory,
+                version = "0.1.0",
+                gitBranch,
+                mode = DesktopMode.Code.ToString().ToLowerInvariant(),
+                message = new
+                {
+                    role = "assistant",
+                    parts = new[]
+                    {
+                        new
+                        {
+                            text = assistantSummary
+                        }
+                    },
+                    provider = assistantResponse.ProviderName,
+                    model = assistantResponse.Model
+                }
+            },
+            cancellationToken);
+
+        PublishSessionEvent(sessionEventFactory.CreateAssistantCompleted(
+            request.SessionId,
+            assistantSummary,
+            workingDirectory,
+            gitBranch,
+            string.Empty,
+            execution.ToolName));
+        activeTurnRegistry.Update(request.SessionId, state =>
+        {
+            state.Stage = "assistant-completed";
+            state.Status = "completed";
+            state.ContentSnapshot = assistantSummary;
+        });
+
+        var session = sessionCatalogService.ListSessions(paths, 64)
+            .FirstOrDefault(item => string.Equals(item.SessionId, request.SessionId, StringComparison.Ordinal))
+            ?? BuildFallbackSession(request.SessionId, detail.TranscriptPath, workingDirectory, gitBranch, pendingQuestion.Title);
+
+        var result = new DesktopSessionTurnResult
+        {
+            Session = session,
+            AssistantSummary = assistantSummary,
+            CreatedNewSession = false,
+            ToolExecution = execution,
+            ResolvedCommand = null
+        };
+
+        PublishSessionEvent(sessionEventFactory.CreateTurnCompleted(
+            request.SessionId,
+            "Captured user answers and updated the desktop session.",
             workingDirectory,
             gitBranch,
             string.Empty,

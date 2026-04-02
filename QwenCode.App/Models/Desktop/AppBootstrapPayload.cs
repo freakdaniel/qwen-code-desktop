@@ -37,4 +37,8 @@ public sealed class AppBootstrapPayload
     public required ToolCatalogSnapshot QwenTools { get; init; }
 
     public required NativeToolHostSnapshot QwenNativeHost { get; init; }
+
+    public required AuthStatusSnapshot QwenAuth { get; init; }
+
+    public required McpSnapshot QwenMcp { get; init; }
 }

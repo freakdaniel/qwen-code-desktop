@@ -32,7 +32,7 @@ public sealed class NativeToolHostTests
 
             var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService());
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), new InMemoryCronScheduler());
 
             var targetFile = Path.Combine(workspaceRoot, "notes.txt");
             File.WriteAllText(targetFile, "alpha\nbeta\ngamma");
@@ -105,7 +105,7 @@ public sealed class NativeToolHostTests
 
             var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService());
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), new InMemoryCronScheduler());
 
             var docsFile = Path.Combine(docsRoot, "guide.md");
             var srcFile = Path.Combine(srcRoot, "Program.cs");
@@ -194,7 +194,7 @@ public sealed class NativeToolHostTests
 
             var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService());
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), new InMemoryCronScheduler());
 
             var allowedShellRead = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
             {
@@ -228,5 +228,271 @@ public sealed class NativeToolHostTests
         }
     }
 
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_SavesMemoryToProjectAndGlobalScopes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-memory-tool-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
 
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), new InMemoryCronScheduler());
+
+            var projectResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "save_memory",
+                ApproveExecution = true,
+                ArgumentsJson = """{"fact":"Remember that this project uses a desktop-native qwen runtime","scope":"project"}"""
+            });
+
+            var globalResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "save_memory",
+                ApproveExecution = true,
+                ArgumentsJson = """{"fact":"Remember that Daniel prefers the C# port to stay monolithic","scope":"global"}"""
+            });
+
+            var projectMemoryPath = Path.Combine(workspaceRoot, "QWEN.md");
+            var globalMemoryPath = Path.Combine(homeRoot, ".qwen", "QWEN.md");
+
+            Assert.Equal("completed", projectResult.Status);
+            Assert.Equal("completed", globalResult.Status);
+            Assert.Contains("## Qwen Added Memories", File.ReadAllText(projectMemoryPath));
+            Assert.Contains("desktop-native qwen runtime", File.ReadAllText(projectMemoryPath));
+            Assert.Contains("stay monolithic", File.ReadAllText(globalMemoryPath));
+            Assert.Contains(projectMemoryPath, projectResult.ChangedFiles);
+            Assert.Contains(globalMemoryPath, globalResult.ChangedFiles);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_WritesTodoListIntoRuntimeStore()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-todo-tool-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), new InMemoryCronScheduler());
+            var runtimeProfile = runtimeProfileService.Inspect(sourcePaths);
+
+            var result = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "todo_write",
+                ApproveExecution = true,
+                ArgumentsJson =
+                    """
+                    {
+                      "session_id":"session-123",
+                      "todos":[
+                        {"id":"todo-1","content":"Port qwen core scheduling","status":"in_progress"},
+                        {"id":"todo-2","content":"Add parity tests for new tools","status":"pending"},
+                        {"id":"todo-3","content":"Report missing subsystems","status":"completed"}
+                      ]
+                    }
+                    """
+            });
+
+            var todoFilePath = Path.Combine(runtimeProfile.RuntimeBaseDirectory, "todos", "session-123.json");
+            var todoFileContent = File.ReadAllText(todoFilePath);
+
+            Assert.Equal("completed", result.Status);
+            Assert.Contains("Saved 3 todo item(s)", result.Output);
+            Assert.Contains("todo-1", todoFileContent);
+            Assert.Contains("in_progress", todoFileContent);
+            Assert.Contains(todoFilePath, result.ChangedFiles);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_CompletesExitPlanModeControlTool()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-plan-exit-tool-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), new InMemoryCronScheduler());
+
+            var result = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "exit_plan_mode",
+                ArgumentsJson = "{}"
+            });
+
+            Assert.Equal("completed", result.Status);
+            Assert.Equal("exit_plan_mode", result.ToolName);
+            Assert.Contains("Plan mode exit requested", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_CreatesListsAndDeletesSessionOnlyCronJobs()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-cron-tools-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "permissions": {
+                    "defaultMode": "yolo"
+                  }
+                }
+                """);
+
+            var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var scheduler = new InMemoryCronScheduler();
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), scheduler);
+
+            var createResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "cron_create",
+                ArgumentsJson = """{"cron":"*/5 * * * *","prompt":"check the build"}"""
+            });
+
+            var createdJob = scheduler.List().Single();
+
+            var listResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "cron_list",
+                ArgumentsJson = "{}"
+            });
+
+            var deleteResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "cron_delete",
+                ArgumentsJson = $$"""{"id":"{{createdJob.Id}}"}"""
+            });
+
+            var emptyListResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "cron_list",
+                ArgumentsJson = "{}"
+            });
+
+            Assert.Equal("completed", createResult.Status);
+            Assert.Contains("Scheduled recurring job", createResult.Output);
+            Assert.Contains("Session-only", createResult.Output);
+            Assert.Equal("completed", listResult.Status);
+            Assert.Contains(createdJob.Id, listResult.Output);
+            Assert.Contains("(recurring) [session-only]: check the build", listResult.Output);
+            Assert.Equal("completed", deleteResult.Status);
+            Assert.Contains($"Cancelled job {createdJob.Id}.", deleteResult.Output);
+            Assert.Equal("completed", emptyListResult.Status);
+            Assert.Contains("No active cron jobs.", emptyListResult.Output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_CreatesPendingAskUserQuestionInteraction()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-ask-user-tool-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), new InMemoryCronScheduler());
+
+            var result = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "ask_user_question",
+                ArgumentsJson =
+                    """
+                    {
+                      "questions": [
+                        {
+                          "header": "Library",
+                          "question": "Which library should we use?",
+                          "multiSelect": false,
+                          "options": [
+                            { "label": "Spectre", "description": "Keep the current rendering stack." },
+                            { "label": "Terminal.Gui", "description": "Switch to a different TUI stack." }
+                          ]
+                        }
+                      ]
+                    }
+                    """
+            });
+
+            Assert.Equal("input-required", result.Status);
+            Assert.Equal("ask_user_question", result.ToolName);
+            var question = Assert.Single(result.Questions);
+            Assert.Equal("Library", question.Header);
+            Assert.Equal(2, question.Options.Count);
+            Assert.Empty(result.Answers);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

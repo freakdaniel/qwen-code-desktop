@@ -1,12 +1,14 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using QwenCode.App.Options;
 using QwenCode.App.Models;
+using QwenCode.App.Options;
 
 namespace QwenCode.App.Runtime;
 
-public sealed class OpenAiCompatibleAssistantResponseProvider(HttpClient httpClient) : IAssistantResponseProvider
+public sealed class OpenAiCompatibleAssistantResponseProvider(
+    HttpClient httpClient,
+    ProviderConfigurationResolver configurationResolver) : IAssistantResponseProvider
 {
     public string Name => "openai-compatible";
 
@@ -23,24 +25,29 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(HttpClient httpCli
             return null;
         }
 
-        var endpoint = ResolveEndpoint(options);
-        var apiKey = ResolveApiKey(options);
-        if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(apiKey))
+        var configuration = configurationResolver.Resolve(request, options);
+        if (string.IsNullOrWhiteSpace(configuration.Endpoint) || string.IsNullOrWhiteSpace(configuration.ApiKey))
         {
             return null;
         }
 
-        var resolvedModel = string.IsNullOrWhiteSpace(options.Model) ? "qwen3-coder-plus" : options.Model;
         var payload = OpenAiCompatibleProtocol.BuildPayload(
-            resolvedModel,
+            configuration.Model,
             options.Temperature,
             options.SystemPrompt,
             request,
             promptContext,
-            toolHistory);
+            toolHistory,
+            null,
+            configuration.ExtraBody);
 
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, configuration.Endpoint);
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", configuration.ApiKey);
+        foreach (var header in configuration.Headers)
+        {
+            httpRequest.Headers.TryAddWithoutValidation(header.Key, header.Value);
+        }
+
         httpRequest.Content = new StringContent(
             JsonSerializer.Serialize(payload),
             Encoding.UTF8,
@@ -63,26 +70,8 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(HttpClient httpCli
         {
             Summary = providerResponse.Summary,
             ProviderName = Name,
-            Model = resolvedModel,
+            Model = configuration.Model,
             ToolCalls = providerResponse.ToolCalls
         };
-    }
-
-    private static string ResolveEndpoint(NativeAssistantRuntimeOptions options) =>
-        !string.IsNullOrWhiteSpace(options.Endpoint)
-            ? options.Endpoint
-            : Environment.GetEnvironmentVariable("QWENCODE_ASSISTANT_ENDPOINT") ?? string.Empty;
-
-    private static string ResolveApiKey(NativeAssistantRuntimeOptions options)
-    {
-        if (!string.IsNullOrWhiteSpace(options.ApiKey))
-        {
-            return options.ApiKey;
-        }
-
-        var environmentVariable = string.IsNullOrWhiteSpace(options.ApiKeyEnvironmentVariable)
-            ? "OPENAI_API_KEY"
-            : options.ApiKeyEnvironmentVariable;
-        return Environment.GetEnvironmentVariable(environmentVariable) ?? string.Empty;
     }
 }

@@ -12,6 +12,8 @@ public sealed class DesktopSessionActivitySummary
 
     public required int PendingApprovalCount { get; init; }
 
+    public required int PendingQuestionCount { get; init; }
+
     public required int CompletedToolCount { get; init; }
 
     public required int FailedToolCount { get; init; }

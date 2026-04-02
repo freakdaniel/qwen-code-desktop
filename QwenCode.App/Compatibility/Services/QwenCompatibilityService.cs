@@ -256,14 +256,15 @@ public sealed partial class QwenCompatibilityService(IDesktopEnvironmentPaths en
         foreach (var rawLine in yaml.Split('\n'))
         {
             var line = rawLine.TrimEnd();
+            var trimmedLine = line.TrimStart();
             if (string.IsNullOrWhiteSpace(line))
             {
                 continue;
             }
 
-            if (line.StartsWith("- ", StringComparison.Ordinal) && activeListKey is not null)
+            if (trimmedLine.StartsWith("- ", StringComparison.Ordinal) && activeListKey is not null)
             {
-                listValues.Add(line[2..].Trim());
+                listValues.Add(trimmedLine[2..].Trim());
                 result[activeListKey] = string.Join('\n', listValues);
                 continue;
             }
