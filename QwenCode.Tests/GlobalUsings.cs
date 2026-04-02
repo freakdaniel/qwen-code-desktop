@@ -1,0 +1,18 @@
+global using System.Net;
+global using System.Net.Http.Headers;
+global using System.Text;
+global using System.Text.Json;
+global using System.Text.Json.Nodes;
+global using Microsoft.Extensions.Options;
+global using QwenCode.App.Compatibility;
+global using QwenCode.App.Desktop;
+global using QwenCode.App.Infrastructure;
+global using QwenCode.App.Models;
+global using QwenCode.App.Options;
+global using QwenCode.App.Permissions;
+global using QwenCode.App.Runtime;
+global using QwenCode.App.Sessions;
+global using QwenCode.App.Tools;
+global using QwenCode.Tests.Shared.Fakes;
+global using QwenCode.Tests.Shared.Fixtures;
+global using static QwenCode.Tests.Shared.Fixtures.TestServiceFactory;

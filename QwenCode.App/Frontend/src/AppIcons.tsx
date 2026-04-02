@@ -56,6 +56,12 @@ export function Icon({ name }: { name: IconName }) {
           <path d="M4 8.5h16v9A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5v-9ZM9 8.5v-2A1.5 1.5 0 0 1 10.5 5h3A1.5 1.5 0 0 1 15 6.5v2" />
         </svg>
       )
+    case 'folder':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3.5 7.5a2 2 0 0 1 2-2h4l1.8 2H18.5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-9Z" />
+        </svg>
+      )
     case 'artifacts':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">

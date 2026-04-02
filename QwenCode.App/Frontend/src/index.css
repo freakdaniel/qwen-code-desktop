@@ -1,17 +1,22 @@
 :root {
-  font-family: 'Segoe UI', 'Inter', sans-serif;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;
-  color: #f4efe3;
-  background-color: #262522;
+  color: #f5f5f5;
+  background: #111111;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --text: #f4efe3;
-  --muted: #9f9789;
-  --muted-strong: #b9af9c;
+  --app-bg: #111111;
+  --app-sidebar: #18181a;
+  --app-panel: #1a1a1c;
+  --app-elevated: #202024;
+  --app-elevated-hover: #26262b;
+  --app-border: #2b2b31;
+  --app-text: #f3f4f6;
+  --app-muted: #8a8f98;
 }
 
 * {
@@ -27,7 +32,7 @@ body,
 
 body {
   min-height: 100vh;
-  background: #262522;
+  background: #111111;
 }
 
 button,
@@ -37,11 +42,7 @@ textarea {
   font: inherit;
 }
 
-button {
-  color: inherit;
-}
-
+button,
 a {
   color: inherit;
 }
-

@@ -39,7 +39,7 @@
     <ElectronPackageId>io.github.freakdaniel.QwenCodeDesktop</ElectronPackageId>
     <Title>Qwen Code Desktop</Title>
     <Version>0.1.0</Version>
-    <Description>Desktop shell for qwen-code with Claude-inspired UX patterns.</Description>
+    <Description>Native desktop shell for Qwen with a fully local .NET runtime and React-based workspace.</Description>
     <Company>freakdaniel</Company>
     <ElectronVersion>34.2.0</ElectronVersion>
     <ElectronSkipMigrationChecks>true</ElectronSkipMigrationChecks>

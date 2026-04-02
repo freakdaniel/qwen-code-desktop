@@ -15,6 +15,7 @@ export type IconName =
   | 'customize'
   | 'chats'
   | 'projects'
+  | 'folder'
   | 'artifacts'
   | 'write'
   | 'learn'
@@ -76,7 +77,6 @@ export type LocaleCopy = {
   projectsSubtitle: string
   artifactsTitle: string
   artifactsSubtitle: string
-  sourceMirrors: string
   compatibilityGoals: string
   runtimeProfileLabel: string
   runtimeApprovalLabel: string
@@ -90,29 +90,31 @@ export type LocaleCopy = {
   surfaceDirectoriesLabel: string
 }
 
+const fallbackPaths = {
+  workspaceRoot: '[workspace-root]',
+  userQwenRoot: '[user-home]/.qwen',
+  programDataRoot: '[program-data]/qwen-code',
+  projectHash: '[project-hash]',
+} as const
+
 export const fallbackBootstrap: AppBootstrapPayload = {
   productName: 'Qwen Code Desktop',
   currentMode: 'code',
   currentLocale: 'ru',
   locales: [
     { code: 'en', name: 'English', nativeName: 'English' },
-    { code: 'ru', name: 'Russian', nativeName: 'Русский' },
-    { code: 'zh-CN', name: 'Chinese', nativeName: '简体中文' },
+    { code: 'ru', name: 'Russian', nativeName: 'Р В РЎС“РЎРѓРЎРѓР С”Р С‘Р в„–' },
+    { code: 'zh-CN', name: 'Chinese', nativeName: 'Р·В®Р‚РґР…вЂњРґС‘В­Р¶вЂ“вЂЎ' },
     { code: 'de', name: 'German', nativeName: 'Deutsch' },
     { code: 'fr', name: 'French', nativeName: 'Francais' },
     { code: 'es', name: 'Spanish', nativeName: 'Espanol' },
-    { code: 'ja', name: 'Japanese', nativeName: '日本語' },
-    { code: 'ko', name: 'Korean', nativeName: '한국어' },
-    { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'Português (Brasil)' },
-    { code: 'tr', name: 'Turkish', nativeName: 'Türkçe' },
-    { code: 'ar', name: 'Arabic', nativeName: 'العربية' },
+    { code: 'ja', name: 'Japanese', nativeName: 'Р¶вЂ”ТђР¶СљВ¬РёР„С›' },
+    { code: 'ko', name: 'Korean', nativeName: 'РЅвЂўСљРєВµВ­РјвЂ“Т‘' },
+    { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'PortuguР“Р„s (Brasil)' },
+    { code: 'tr', name: 'Turkish', nativeName: 'TР“СrkР“В§e' },
+    { code: 'ar', name: 'Arabic', nativeName: 'РЁВ§Р©вЂћРЁв„–РЁВ±РЁРЃР©Р‰РЁВ©' },
   ],
-  sources: {
-    workspaceRoot: 'D:\\Projects\\qwen-code-desktop',
-    qwenRoot: 'D:\\Projects\\qwen-code-main',
-    claudeRoot: 'D:\\Projects\\claude-code-main',
-    ipcReferenceRoot: 'D:\\Projects\\HyPrism',
-  },
+  workspaceRoot: fallbackPaths.workspaceRoot,
   tracks: [
     {
       title: 'Lift qwen core behind a native session host',
@@ -120,9 +122,9 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         'The desktop backend should own orchestration, but the model loop, tools, history, and policy logic must stay source-compatible with qwen.',
     },
     {
-      title: 'Adopt Claude-grade session ergonomics',
+      title: 'Drive sessions through native desktop ergonomics',
       summary:
-        'Claude desktop patterns are strongest around workspaces, approvals, and context visibility rather than provider-specific logic.',
+        'Desktop workspaces should expose sessions, approvals, and activity as first-class GUI concepts instead of terminal-only state.',
     },
     {
       title: 'Keep the Electron bridge narrow and typed',
@@ -133,7 +135,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
   compatibilityGoals: [
     'Do not shell out to qwen CLI for core execution paths.',
     'Keep .qwen-compatible settings, memory, session, and tool semantics.',
-    'Treat claude-code as a UX and session-orchestration reference only.',
+    'Keep every production runtime contract inside this codebase.',
     'Make desktop-specific concerns explicit: windows, trays, approvals, attachments, and session chrome.',
   ],
   capabilityLanes: [
@@ -158,7 +160,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       ],
     },
     {
-      title: 'Claude-inspired renderer lane',
+      title: 'Renderer workspace lane',
       summary:
         'Owns the high-level interaction model: sidebar navigation, code-first desktop surfaces, approvals, and task visibility.',
       responsibilities: [
@@ -172,9 +174,9 @@ export const fallbackBootstrap: AppBootstrapPayload = {
     {
       area: 'Execution engine',
       qwenSource:
-        'packages/core should remain the authority for prompt assembly, tool execution, and session semantics.',
+        'Native runtime foundations already own slash commands, session writes, and qwen-compatible policy handling.',
       claudeReference:
-        'claude-code adds a session bridge instead of shoving desktop behavior into the renderer.',
+        'The remaining gap is a provider-backed model loop with token streaming and tool orchestration.',
       desktopDirection:
         'Build a native host around qwen core primitives, not a wrapper around qwen CLI stdout.',
       deliveryState: 'Foundation',
@@ -182,9 +184,9 @@ export const fallbackBootstrap: AppBootstrapPayload = {
     {
       area: 'Session lifecycle',
       qwenSource:
-        'CLI and history flows already define how turns, resumes, and config layering work.',
+        'Transcript persistence, approvals, and resume flows already live inside the native session engine.',
       claudeReference:
-        'BridgeConfig, SessionHandle, and session status tracking show how desktop workspaces can reconnect and expose live activity.',
+        'The current focus is turning those flows into a richer live desktop workspace with reconnect and activity surfaces.',
       desktopDirection:
         'Promote sessions to first-class desktop objects with reconnect, activity, and branch/worktree awareness.',
       deliveryState: 'High priority',
@@ -194,7 +196,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       qwenSource:
         'Approval modes and sandbox policies already exist in qwen and should be preserved.',
       claudeReference:
-        "Claude's UX makes permission requests, task state, and tool activity visible instead of burying them in terminal text.",
+        'Permission requests, task state, and tool activity should stay visible in dedicated desktop surfaces.',
       desktopDirection:
         'Move approvals into explicit desktop panels while keeping qwen policy logic intact.',
       deliveryState: 'High priority',
@@ -204,7 +206,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       qwenSource:
         'Settings, memory, slash commands, and project context are already well-defined.',
       claudeReference:
-        'Customize, connectors, scheduled work, and project surfaces make these capabilities discoverable.',
+        'The desktop shell still needs more discoverable surfaces for connectors, scheduled work, and project context.',
       desktopDirection:
         'Expose qwen capabilities as browseable desktop surfaces rather than hidden CLI-only concepts.',
       deliveryState: 'In design',
@@ -214,7 +216,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       qwenSource:
         'Core/CLI separation means renderer-specific contracts should stay outside the engine.',
       claudeReference:
-        'Separate bridge types and APIs keep desktop traffic structured and evolvable.',
+        'Typed bridge contracts keep desktop traffic structured and evolvable as the runtime grows.',
       desktopDirection:
         'Keep Electron preload thin and strongly typed so backend evolution does not leak into UI code.',
       deliveryState: 'Implemented',
@@ -228,10 +230,10 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       category: 'Architecture',
       mode: 'code',
       status: 'resume-ready',
-      workingDirectory: 'D:\\Projects\\qwen-code-desktop',
+      workingDirectory: fallbackPaths.workspaceRoot,
       gitBranch: 'main',
       messageCount: 14,
-      transcriptPath: 'D:\\Projects\\qwen-code-desktop\\.qwen\\chats\\desktop-parity-audit.jsonl',
+      transcriptPath: `${fallbackPaths.workspaceRoot}/.qwen/chats/desktop-parity-audit.jsonl`,
     },
     {
       sessionId: 'claude-session-bridge-mapping',
@@ -240,10 +242,10 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       category: 'Customize',
       mode: 'code',
       status: 'resume-ready',
-      workingDirectory: 'D:\\Projects\\qwen-code-desktop',
+      workingDirectory: fallbackPaths.workspaceRoot,
       gitBranch: 'main',
       messageCount: 11,
-      transcriptPath: 'D:\\Projects\\qwen-code-desktop\\.qwen\\chats\\claude-session-bridge-mapping.jsonl',
+      transcriptPath: `${fallbackPaths.workspaceRoot}/.qwen/chats/claude-session-bridge-mapping.jsonl`,
     },
     {
       sessionId: 'qwen-core-host-extraction',
@@ -252,10 +254,10 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       category: 'Code',
       mode: 'code',
       status: 'resume-ready',
-      workingDirectory: 'D:\\Projects\\qwen-code-desktop',
+      workingDirectory: fallbackPaths.workspaceRoot,
       gitBranch: 'main',
       messageCount: 22,
-      transcriptPath: 'D:\\Projects\\qwen-code-desktop\\.qwen\\chats\\qwen-core-host-extraction.jsonl',
+      transcriptPath: `${fallbackPaths.workspaceRoot}/.qwen/chats/qwen-core-host-extraction.jsonl`,
     },
     {
       sessionId: 'approval-panel-behaviors',
@@ -264,149 +266,43 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       category: 'UX',
       mode: 'code',
       status: 'resume-ready',
-      workingDirectory: 'D:\\Projects\\qwen-code-desktop',
+      workingDirectory: fallbackPaths.workspaceRoot,
       gitBranch: 'main',
       messageCount: 8,
-      transcriptPath: 'D:\\Projects\\qwen-code-desktop\\.qwen\\chats\\approval-panel-behaviors.jsonl',
+      transcriptPath: `${fallbackPaths.workspaceRoot}/.qwen/chats/approval-panel-behaviors.jsonl`,
     },
     {
       sessionId: 'workspace-source-mirror-review',
-      title: 'Workspace source mirror review',
+      title: 'Workspace compatibility review',
       lastActivity: 'Updated 2 days ago',
       category: 'Research',
       mode: 'code',
       status: 'resume-ready',
-      workingDirectory: 'D:\\Projects\\qwen-code-desktop',
+      workingDirectory: fallbackPaths.workspaceRoot,
       gitBranch: 'main',
       messageCount: 5,
-      transcriptPath: 'D:\\Projects\\qwen-code-desktop\\.qwen\\chats\\workspace-source-mirror-review.jsonl',
+      transcriptPath: `${fallbackPaths.workspaceRoot}/.qwen/chats/workspace-source-mirror-review.jsonl`,
     },
   ],
-  sourceStatuses: [
-    {
-      id: 'workspace',
-      title: 'Desktop workspace',
-      path: 'D:\\Projects\\qwen-code-desktop',
-      status: 'ready',
-      summary: 'Electron host, IPC generator, and renderer workspace. Repository and expected markers are available.',
-      exists: true,
-      isGitRepository: true,
-      primaryMarker: 'QwenCode.slnx',
-      highlights: ['Directory found', 'Git repository detected', 'Primary marker: QwenCode.slnx'],
-    },
-    {
-      id: 'qwen',
-      title: 'qwen-code',
-      path: 'D:\\Projects\\qwen-code-main',
-      status: 'ready',
-      summary: 'Primary runtime and tool execution reference. Repository and expected markers are available.',
-      exists: true,
-      isGitRepository: true,
-      primaryMarker: 'package.json',
-      highlights: ['Directory found', 'Git repository detected', 'Primary marker: package.json'],
-    },
-    {
-      id: 'claude',
-      title: 'claude-code',
-      path: 'D:\\Projects\\claude-code-main',
-      status: 'ready',
-      summary: 'Desktop UX and session bridge reference. Repository and expected markers are available.',
-      exists: true,
-      isGitRepository: true,
-      primaryMarker: 'src/bridge/types.ts',
-      highlights: ['Directory found', 'Git repository detected', 'Primary marker: src/bridge/types.ts'],
-    },
-    {
-      id: 'ipc',
-      title: 'IPC reference',
-      path: 'D:\\Projects\\HyPrism',
-      status: 'partial',
-      summary: 'Typed preload and shell integration reference. Path exists, but some expected repository markers are missing.',
-      exists: true,
-      isGitRepository: false,
-      primaryMarker: '',
-      highlights: ['Directory found'],
-    },
-  ],
-  runtimePortPlan: [
-    {
-      id: 'qwen-core-engine',
-      title: 'Port qwen core engine to .NET runtime services',
-      sourceSystem: 'qwen-code',
-      targetModule: 'QwenCode.Runtime',
-      stage: 'next',
-      summary: 'Mirror is ready: qwen-code 0.14.0 with 6 workspace entries and a detected core package.',
-      compatibilityContract:
-        'Preserve prompt assembly, session turns, model/tool orchestration, and history semantics without routing through qwen CLI.',
-      evidencePaths: ['package.json', 'packages/core', 'docs/developers/architecture.md'],
-    },
-    {
-      id: 'qwen-tooling-host',
-      title: 'Rebuild qwen tool registry as native .NET services',
-      sourceSystem: 'qwen-code',
-      targetModule: 'QwenCode.Runtime.Tools',
-      stage: 'next',
-      summary:
-        'Tool sources are present under packages/core/src/tools with key markers for shell, file, search, and MCP work.',
-      compatibilityContract:
-        'Keep qwen tool names, approval boundaries, and workspace behavior stable while swapping the execution host to .NET.',
-      evidencePaths: [
-        'packages/core/src/tools',
-        'packages/core/src/tools/tool-registry.ts',
-        'packages/core/src/tools/shell.ts',
-      ],
-    },
-    {
-      id: 'qwen-compat-settings',
-      title: 'Preserve qwen settings, skills, and command compatibility',
-      sourceSystem: 'qwen-code',
-      targetModule: 'QwenCode.Runtime.Configuration',
-      stage: 'next',
-      summary:
-        'Compatibility markers for .qwen commands, skills, and documented settings are present and ready to be modeled in .NET.',
-      compatibilityContract:
-        'Do not fork .qwen conventions; instead read and honor compatible settings, commands, and skill locations from the native runtime.',
-      evidencePaths: ['.qwen', '.qwen/commands', '.qwen/skills', 'docs/users/configuration/settings.md'],
-    },
-    {
-      id: 'claude-session-host',
-      title: 'Adapt Claude session bridge patterns for native desktop hosting',
-      sourceSystem: 'claude-code',
-      targetModule: 'QwenCode.SessionHost',
-      stage: 'next',
-      summary:
-        'Bridge sources are present with typed session and transport contracts ready to be adapted.',
-      compatibilityContract:
-        'Adopt reconnectable session-host and activity-tracking patterns, but keep Qwen as the only model/runtime authority.',
-      evidencePaths: ['src/bridge/types.ts', 'src/bridge/sessionRunner.ts', 'src/bridge/codeSessionApi.ts'],
-    },
-    {
-      id: 'claude-approval-ux',
-      title: 'Port explicit approval and permission UX into the renderer',
-      sourceSystem: 'claude-code',
-      targetModule: 'QwenCode.Renderer.Approvals',
-      stage: 'queued',
-      summary:
-        'Permission- and session-oriented command surfaces are present and can be translated into desktop approval panels.',
-      compatibilityContract:
-        'Renderer should expose approvals clearly, but the decision rules must still come from qwen-compatible runtime policy.',
-      evidencePaths: ['src/bridge/bridgePermissionCallbacks.ts', 'src/commands/permissions', 'src/commands/plan'],
-    },
-    {
-      id: 'claude-workspace-ux',
-      title: 'Adapt Claude desktop workspace navigation to qwen desktop surfaces',
-      sourceSystem: 'claude-code',
-      targetModule: 'QwenCode.Renderer.Workspace',
-      stage: 'foundation',
-      summary:
-        'Desktop, statusline, and session command surfaces are available as concrete UX references for a code-first workspace shell.',
-      compatibilityContract:
-        'Borrow desktop navigation, session discovery, and activity presentation while keeping qwen storage and behavior compatible.',
-      evidencePaths: ['src/commands/desktop/desktop.tsx', 'src/commands/statusline.tsx', 'src/commands/session'],
-    },
-  ],
+  activeTurns: [],
+  recoverableTurns: [],
+  projectSummary: {
+    hasHistory: false,
+    filePath: `${fallbackPaths.workspaceRoot}/.qwen/PROJECT_SUMMARY.md`,
+    content: '',
+    timestampText: '',
+    timeAgo: '',
+    overallGoal: '',
+    currentPlan: '',
+    totalTasks: 0,
+    doneCount: 0,
+    inProgressCount: 0,
+    todoCount: 0,
+    pendingTasks: [],
+    timestampUtc: '0001-01-01T00:00:00Z',
+  },
   qwenCompatibility: {
-    projectRoot: 'D:\\Projects\\qwen-code-desktop',
+    projectRoot: fallbackPaths.workspaceRoot,
     defaultContextFileName: 'QWEN.md',
     settingsLayers: [
       {
@@ -414,7 +310,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         title: 'System defaults',
         scope: 'system defaults',
         priority: 2,
-        path: 'C:\\ProgramData\\qwen-code\\system-defaults.json',
+        path: `${fallbackPaths.programDataRoot}/system-defaults.json`,
         exists: false,
         categories: [],
       },
@@ -423,7 +319,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         title: 'User settings',
         scope: 'user',
         priority: 3,
-        path: 'C:\\Users\\Daniel Freak\\.qwen\\settings.json',
+        path: `${fallbackPaths.userQwenRoot}/settings.json`,
         exists: false,
         categories: [],
       },
@@ -432,7 +328,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         title: 'Project settings',
         scope: 'project',
         priority: 4,
-        path: 'D:\\Projects\\qwen-code-desktop\\.qwen\\settings.json',
+        path: `${fallbackPaths.workspaceRoot}/.qwen/settings.json`,
         exists: false,
         categories: [],
       },
@@ -441,7 +337,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         title: 'System settings',
         scope: 'system override',
         priority: 5,
-        path: 'C:\\ProgramData\\qwen-code\\settings.json',
+        path: `${fallbackPaths.programDataRoot}/settings.json`,
         exists: false,
         categories: [],
       },
@@ -450,7 +346,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       {
         id: 'project-commands',
         title: 'Project commands',
-        path: 'D:\\Projects\\qwen-code-desktop\\.qwen\\commands',
+        path: `${fallbackPaths.workspaceRoot}/.qwen/commands`,
         exists: false,
         itemCount: 0,
         summary: 'Slash-command markdown and command surfaces. Not found yet.',
@@ -458,7 +354,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       {
         id: 'project-skills',
         title: 'Project skills',
-        path: 'D:\\Projects\\qwen-code-desktop\\.qwen\\skills',
+        path: `${fallbackPaths.workspaceRoot}/.qwen/skills`,
         exists: false,
         itemCount: 0,
         summary: 'Project-local skills stored as directories with SKILL.md. Not found yet.',
@@ -466,7 +362,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       {
         id: 'user-skills',
         title: 'User skills',
-        path: 'C:\\Users\\Daniel Freak\\.qwen\\skills',
+        path: `${fallbackPaths.userQwenRoot}/skills`,
         exists: false,
         itemCount: 0,
         summary: 'User-level skill surface shared across projects. Not found yet.',
@@ -474,7 +370,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
       {
         id: 'context-root',
         title: 'Workspace context file',
-        path: 'D:\\Projects\\qwen-code-desktop\\QWEN.md',
+        path: `${fallbackPaths.workspaceRoot}/QWEN.md`,
         exists: false,
         itemCount: 0,
         summary: 'Default project instruction context file. Not found yet.',
@@ -485,7 +381,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         id: 'project:qc/code-review.md',
         name: 'qc/code-review',
         scope: 'project',
-        path: 'D:\\Projects\\qwen-code-desktop\\.qwen\\commands\\qc\\code-review.md',
+        path: `${fallbackPaths.workspaceRoot}/.qwen/commands/qc/code-review.md`,
         description: 'Review a pull request with qwen-native guidance.',
         group: 'qc',
       },
@@ -493,7 +389,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         id: 'user:team/release.md',
         name: 'team/release',
         scope: 'user',
-        path: 'C:\\Users\\Daniel Freak\\.qwen\\commands\\team\\release.md',
+        path: `${fallbackPaths.userQwenRoot}/commands/team/release.md`,
         description: 'Prepare a release note draft.',
         group: 'team',
       },
@@ -503,7 +399,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         id: 'project:project-review',
         name: 'project-review',
         scope: 'project',
-        path: 'D:\\Projects\\qwen-code-desktop\\.qwen\\skills\\project-review\\SKILL.md',
+        path: `${fallbackPaths.workspaceRoot}/.qwen/skills/project-review/SKILL.md`,
         description: 'Review project changes with local context.',
         allowedTools: ['read_file', 'grep_search'],
       },
@@ -511,22 +407,22 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         id: 'user:user-skill',
         name: 'user-skill',
         scope: 'user',
-        path: 'C:\\Users\\Daniel Freak\\.qwen\\skills\\user-skill\\SKILL.md',
+        path: `${fallbackPaths.userQwenRoot}/skills/user-skill/SKILL.md`,
         description: 'A user-level reusable skill.',
         allowedTools: [],
       },
     ],
   },
   qwenRuntime: {
-    projectRoot: 'D:\\Projects\\qwen-code-desktop',
-    globalQwenDirectory: 'C:\\Users\\Daniel Freak\\.qwen',
-    runtimeBaseDirectory: 'C:\\Users\\Daniel Freak\\.qwen',
+    projectRoot: fallbackPaths.workspaceRoot,
+    globalQwenDirectory: fallbackPaths.userQwenRoot,
+    runtimeBaseDirectory: fallbackPaths.userQwenRoot,
     runtimeSource: 'default-home',
-    projectDataDirectory: 'C:\\Users\\Daniel Freak\\.qwen\\projects\\d--projects--qwen-code-desktop',
-    chatsDirectory: 'C:\\Users\\Daniel Freak\\.qwen\\projects\\d--projects--qwen-code-desktop\\chats',
-    historyDirectory: 'C:\\Users\\Daniel Freak\\.qwen\\history\\demo-project-hash',
+    projectDataDirectory: `${fallbackPaths.userQwenRoot}/projects/${fallbackPaths.projectHash}`,
+    chatsDirectory: `${fallbackPaths.userQwenRoot}/projects/${fallbackPaths.projectHash}/chats`,
+    historyDirectory: `${fallbackPaths.userQwenRoot}/history/${fallbackPaths.projectHash}`,
     contextFileNames: ['QWEN.md'],
-    contextFilePaths: ['D:\\Projects\\qwen-code-desktop\\QWEN.md'],
+    contextFilePaths: [`${fallbackPaths.workspaceRoot}/QWEN.md`],
     approvalProfile: {
       defaultMode: 'default',
       confirmShellCommands: true,
@@ -537,7 +433,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
     },
   },
   qwenTools: {
-    sourceMode: 'source-assisted',
+    sourceMode: 'native-contracts',
     totalCount: 4,
     allowedCount: 2,
     askCount: 2,
@@ -547,7 +443,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         name: 'read_file',
         displayName: 'ReadFile',
         kind: 'read',
-        sourcePath: 'D:/Projects/qwen-code-main/packages/core/src/tools/read-file.ts',
+        sourcePath: 'native://tools/read_file',
         approvalState: 'allow',
         approvalReason: 'Allowed by explicit compatibility rule.',
       },
@@ -555,7 +451,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         name: 'edit',
         displayName: 'Edit',
         kind: 'modify',
-        sourcePath: 'D:/Projects/qwen-code-main/packages/core/src/tools/edit.ts',
+        sourcePath: 'native://tools/edit',
         approvalState: 'ask',
         approvalReason: 'Requires confirmation due to explicit ask rule.',
       },
@@ -563,7 +459,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         name: 'run_shell_command',
         displayName: 'Shell',
         kind: 'execute',
-        sourcePath: 'D:/Projects/qwen-code-main/packages/core/src/tools/shell.ts',
+        sourcePath: 'native://tools/run_shell_command',
         approvalState: 'ask',
         approvalReason: 'Requires confirmation in default mode.',
       },
@@ -571,7 +467,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
         name: 'agent',
         displayName: 'Agent',
         kind: 'coordination',
-        sourcePath: 'D:/Projects/qwen-code-main/packages/core/src/tools/agent.ts',
+        sourcePath: 'native://tools/agent',
         approvalState: 'ask',
         approvalReason: 'Requires confirmation in default mode.',
       },
@@ -656,9 +552,9 @@ const copyByLanguage: Record<'en' | 'ru', LocaleCopy> = {
     allConversations: 'Your code sessions with Qwen',
     rootViewTitle: 'Qwen-first desktop workspace',
     rootViewSubtitle:
-      'A native shell over qwen-code that borrows Claude-grade desktop patterns without inheriting CLI coupling.',
+      'A native desktop shell for Qwen built around a fully local .NET runtime and a typed React workspace.',
     homeGreeting: 'Good evening, Daniel',
-    homeLead: 'How can I help you move qwen-code from terminal shell to a real desktop product?',
+    homeLead: 'How can I help you move the current runtime and GUI toward a fully native desktop product?',
     homeModeDescriptions: {
       code: 'Shape backend extraction, IPC contracts, renderer behavior, and session hosting.',
     },
@@ -676,7 +572,7 @@ const copyByLanguage: Record<'en' | 'ru', LocaleCopy> = {
       { label: 'Write', icon: 'write' },
       { label: 'Learn', icon: 'learn' },
       { label: 'Code', icon: 'code' },
-      { label: 'Claude patterns', icon: 'spark' },
+      { label: 'Runtime plan', icon: 'spark' },
     ],
     bridgeStatus: { connected: 'IPC attached', local: 'Local preview' },
     chatSurfaceTitle: 'Sessions',
@@ -685,11 +581,11 @@ const copyByLanguage: Record<'en' | 'ru', LocaleCopy> = {
     emptySearch: 'Nothing matched this search yet.',
     customizeTitle: 'Customize',
     customizeSubtitle:
-      'Use source mirrors and adoption patterns to decide what belongs in qwen core, in the native host, and in the renderer.',
+      'Use internal module diagnostics and adoption patterns to decide what belongs in the native runtime, host, and renderer.',
     customizeLibraryTitle: 'Architecture library',
     customizeDetailTitle: 'Pattern details',
-    referenceFromQwen: 'From qwen-code',
-    referenceFromClaude: 'From claude-code',
+    referenceFromQwen: 'Native baseline',
+    referenceFromClaude: 'Decision rationale',
     desktopDecision: 'Desktop direction',
     deliveryState: 'Delivery state',
     capabilityLanes: 'Delivery lanes',
@@ -700,7 +596,6 @@ const copyByLanguage: Record<'en' | 'ru', LocaleCopy> = {
     artifactsTitle: 'Artifacts',
     artifactsSubtitle:
       'Turn architecture decisions into visible desktop deliverables instead of terminal-only conventions.',
-    sourceMirrors: 'Source mirrors',
     compatibilityGoals: 'Compatibility goals',
     runtimeProfileLabel: 'Runtime profile',
     runtimeApprovalLabel: 'Approval profile',
@@ -709,78 +604,77 @@ const copyByLanguage: Record<'en' | 'ru', LocaleCopy> = {
     currentLocale: 'Locale',
     workspaceTag: 'Workspace',
     modeLabel: 'Surface',
-    searchPlaceholder: 'Search sessions, patterns, and source mirrors...',
+    searchPlaceholder: 'Search sessions, patterns, and compatibility surfaces...',
     settingsLayersLabel: 'Settings layers',
     surfaceDirectoriesLabel: 'Compatibility surfaces',
   },
   ru: {
     appLabel: 'Desktop shell',
-    newChat: 'Новая сессия',
-    search: 'Поиск',
+    newChat: 'Р СњР С•Р Р†Р В°РЎРЏ РЎРѓР ВµРЎРѓРЎРѓР С‘РЎРЏ',
+    search: 'Р СџР С•Р С‘РЎРѓР С”',
     customize: 'Customize',
-    chats: 'Сессии',
-    projects: 'Проекты',
-    artifacts: 'Артефакты',
-    recents: 'Недавние',
-    allConversations: 'Ваши кодовые сессии с Qwen',
+    chats: 'Р РЋР ВµРЎРѓРЎРѓР С‘Р С‘',
+    projects: 'Р СџРЎР‚Р С•Р ВµР С”РЎвЂљРЎвЂ№',
+    artifacts: 'Р С’РЎР‚РЎвЂљР ВµРЎвЂћР В°Р С”РЎвЂљРЎвЂ№',
+    recents: 'Р СњР ВµР Т‘Р В°Р Р†Р Р…Р С‘Р Вµ',
+    allConversations: 'Р вЂ™Р В°РЎв‚¬Р С‘ Р С”Р С•Р Т‘Р С•Р Р†РЎвЂ№Р Вµ РЎРѓР ВµРЎРѓРЎРѓР С‘Р С‘ РЎРѓ Qwen',
     rootViewTitle: 'Qwen-first desktop workspace',
     rootViewSubtitle:
-      'Нативная оболочка над qwen-code, которая заимствует сильные desktop-паттерны Claude без зависимости от их CLI.',
-    homeGreeting: 'Добрый вечер, Daniel',
-    homeLead: 'Чем помочь с переносом qwen-code из terminal shell в полноценный desktop-продукт?',
+      'Р СњР В°РЎвЂљР С‘Р Р†Р Р…Р В°РЎРЏ Р С•Р В±Р С•Р В»Р С•РЎвЂЎР С”Р В° Р Р…Р В°Р Т‘ qwen-code, Р С”Р С•РЎвЂљР С•РЎР‚Р В°РЎРЏ Р В·Р В°Р С‘Р СРЎРѓРЎвЂљР Р†РЎС“Р ВµРЎвЂљ РЎРѓР С‘Р В»РЎРЉР Р…РЎвЂ№Р Вµ desktop-Р С—Р В°РЎвЂљРЎвЂљР ВµРЎР‚Р Р…РЎвЂ№ Claude Р В±Р ВµР В· Р В·Р В°Р Р†Р С‘РЎРѓР С‘Р СР С•РЎРѓРЎвЂљР С‘ Р С•РЎвЂљ Р С‘РЎвЂ¦ CLI.',
+    homeGreeting: 'Р вЂќР С•Р В±РЎР‚РЎвЂ№Р в„– Р Р†Р ВµРЎвЂЎР ВµРЎР‚, Daniel',
+    homeLead: 'Р В§Р ВµР С Р С—Р С•Р СР С•РЎвЂЎРЎРЉ РЎРѓ Р С—Р ВµРЎР‚Р ВµР Р…Р С•РЎРѓР С•Р С qwen-code Р С‘Р В· terminal shell Р Р† Р С—Р С•Р В»Р Р…Р С•РЎвЂ Р ВµР Р…Р Р…РЎвЂ№Р в„– desktop-Р С—РЎР‚Р С•Р Т‘РЎС“Р С”РЎвЂљ?',
     homeModeDescriptions: {
-      code: 'Реализация backend extraction, IPC-контрактов, renderer-поведения и session hosting.',
+      code: 'Р В Р ВµР В°Р В»Р С‘Р В·Р В°РЎвЂ Р С‘РЎРЏ backend extraction, IPC-Р С”Р С•Р Р…РЎвЂљРЎР‚Р В°Р С”РЎвЂљР С•Р Р†, renderer-Р С—Р С•Р Р†Р ВµР Т‘Р ВµР Р…Р С‘РЎРЏ Р С‘ session hosting.',
     },
     composerPlaceholder: {
-      code: 'Попроси реализацию backend extraction, IPC, renderer или compatibility hardening поверх qwen.',
+      code: 'Р СџР С•Р С—РЎР‚Р С•РЎРѓР С‘ РЎР‚Р ВµР В°Р В»Р С‘Р В·Р В°РЎвЂ Р С‘РЎР‹ backend extraction, IPC, renderer Р С‘Р В»Р С‘ compatibility hardening Р С—Р С•Р Р†Р ВµРЎР‚РЎвЂ¦ qwen.',
     },
     modelLabel: 'Qwen Max Preview',
-    sendLabel: 'Отправить',
-    sendingLabel: 'Запускаю turn...',
-    sessionHostLabel: 'Нативный session host',
-    sessionCreatedLabel: 'Сессия создана',
-    sessionUpdatedLabel: 'Сессия обновлена',
-    transcriptLabel: 'Транскрипт',
+    sendLabel: 'Р С›РЎвЂљР С—РЎР‚Р В°Р Р†Р С‘РЎвЂљРЎРЉ',
+    sendingLabel: 'Р вЂ”Р В°Р С—РЎС“РЎРѓР С”Р В°РЎР‹ turn...',
+    sessionHostLabel: 'Р СњР В°РЎвЂљР С‘Р Р†Р Р…РЎвЂ№Р в„– session host',
+    sessionCreatedLabel: 'Р РЋР ВµРЎРѓРЎРѓР С‘РЎРЏ РЎРѓР С•Р В·Р Т‘Р В°Р Р…Р В°',
+    sessionUpdatedLabel: 'Р РЋР ВµРЎРѓРЎРѓР С‘РЎРЏ Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р В°',
+    transcriptLabel: 'Р СћРЎР‚Р В°Р Р…РЎРѓР С”РЎР‚Р С‘Р С—РЎвЂљ',
     quickActions: [
-      { label: 'Писать', icon: 'write' },
-      { label: 'Учиться', icon: 'learn' },
-      { label: 'Код', icon: 'code' },
-      { label: 'Паттерны Claude', icon: 'spark' },
+      { label: 'Р СџР С‘РЎРѓР В°РЎвЂљРЎРЉ', icon: 'write' },
+      { label: 'Р Р€РЎвЂЎР С‘РЎвЂљРЎРЉРЎРѓРЎРЏ', icon: 'learn' },
+      { label: 'Р С™Р С•Р Т‘', icon: 'code' },
+      { label: 'Р СџР В°РЎвЂљРЎвЂљР ВµРЎР‚Р Р…РЎвЂ№ Claude', icon: 'spark' },
     ],
-    bridgeStatus: { connected: 'IPC подключен', local: 'Локальный превью-режим' },
-    chatSurfaceTitle: 'Сессии',
+    bridgeStatus: { connected: 'IPC Р С—Р С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р…', local: 'Р вЂєР С•Р С”Р В°Р В»РЎРЉР Р…РЎвЂ№Р в„– Р С—РЎР‚Р ВµР Р†РЎРЉРЎР‹-РЎР‚Р ВµР В¶Р С‘Р С' },
+    chatSurfaceTitle: 'Р РЋР ВµРЎРѓРЎРѓР С‘Р С‘',
     chatSurfaceSubtitle:
-      'Держите implementation-задачи, approvals и нативные runtime-сессии в одном desktop-индексе.',
-    emptySearch: 'По этому запросу пока ничего не нашлось.',
+      'Р вЂќР ВµРЎР‚Р В¶Р С‘РЎвЂљР Вµ implementation-Р В·Р В°Р Т‘Р В°РЎвЂЎР С‘, approvals Р С‘ Р Р…Р В°РЎвЂљР С‘Р Р†Р Р…РЎвЂ№Р Вµ runtime-РЎРѓР ВµРЎРѓРЎРѓР С‘Р С‘ Р Р† Р С•Р Т‘Р Р…Р С•Р С desktop-Р С‘Р Р…Р Т‘Р ВµР С”РЎРѓР Вµ.',
+    emptySearch: 'Р СџР С• РЎРЊРЎвЂљР С•Р СРЎС“ Р В·Р В°Р С—РЎР‚Р С•РЎРѓРЎС“ Р С—Р С•Р С”Р В° Р Р…Р С‘РЎвЂЎР ВµР С–Р С• Р Р…Р Вµ Р Р…Р В°РЎв‚¬Р В»Р С•РЎРѓРЎРЉ.',
     customizeTitle: 'Customize',
     customizeSubtitle:
-      'Используйте source mirrors и adoption patterns, чтобы разделить ответственность между qwen core, native host и renderer.',
-    customizeLibraryTitle: 'Библиотека паттернов',
-    customizeDetailTitle: 'Детали паттерна',
-    referenceFromQwen: 'Из qwen-code',
-    referenceFromClaude: 'Из claude-code',
-    desktopDecision: 'Решение для desktop',
-    deliveryState: 'Состояние реализации',
-    capabilityLanes: 'Рабочие контуры',
-    responsibilities: 'Ответственности',
-    projectsTitle: 'Проекты',
+      'Р ВРЎРѓР С—Р С•Р В»РЎРЉР В·РЎС“Р в„–РЎвЂљР Вµ runtime surfaces Р С‘ adoption patterns, РЎвЂЎРЎвЂљР С•Р В±РЎвЂ№ РЎР‚Р В°Р В·Р Т‘Р ВµР В»Р С‘РЎвЂљРЎРЉ Р С•РЎвЂљР Р†Р ВµРЎвЂљРЎРѓРЎвЂљР Р†Р ВµР Р…Р Р…Р С•РЎРѓРЎвЂљРЎРЉ Р СР ВµР В¶Р Т‘РЎС“ qwen core, native host Р С‘ renderer.',
+    customizeLibraryTitle: 'Р вЂР С‘Р В±Р В»Р С‘Р С•РЎвЂљР ВµР С”Р В° Р С—Р В°РЎвЂљРЎвЂљР ВµРЎР‚Р Р…Р С•Р Р†',
+    customizeDetailTitle: 'Р вЂќР ВµРЎвЂљР В°Р В»Р С‘ Р С—Р В°РЎвЂљРЎвЂљР ВµРЎР‚Р Р…Р В°',
+    referenceFromQwen: 'Р ВР В· qwen-code',
+    referenceFromClaude: 'Р ВР В· claude-code',
+    desktopDecision: 'Р В Р ВµРЎв‚¬Р ВµР Р…Р С‘Р Вµ Р Т‘Р В»РЎРЏ desktop',
+    deliveryState: 'Р РЋР С•РЎРѓРЎвЂљР С•РЎРЏР Р…Р С‘Р Вµ РЎР‚Р ВµР В°Р В»Р С‘Р В·Р В°РЎвЂ Р С‘Р С‘',
+    capabilityLanes: 'Р В Р В°Р В±Р С•РЎвЂЎР С‘Р Вµ Р С”Р С•Р Р…РЎвЂљРЎС“РЎР‚РЎвЂ№',
+    responsibilities: 'Р С›РЎвЂљР Р†Р ВµРЎвЂљРЎРѓРЎвЂљР Р†Р ВµР Р…Р Р…Р С•РЎРѓРЎвЂљР С‘',
+    projectsTitle: 'Р СџРЎР‚Р С•Р ВµР С”РЎвЂљРЎвЂ№',
     projectsSubtitle:
-      'Разделяйте runtime, native host и renderer на отдельные, но синхронизированные направления работы.',
-    artifactsTitle: 'Артефакты',
+      'Р В Р В°Р В·Р Т‘Р ВµР В»РЎРЏР в„–РЎвЂљР Вµ runtime, native host Р С‘ renderer Р Р…Р В° Р С•РЎвЂљР Т‘Р ВµР В»РЎРЉР Р…РЎвЂ№Р Вµ, Р Р…Р С• РЎРѓР С‘Р Р…РЎвЂ¦РЎР‚Р С•Р Р…Р С‘Р В·Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р Р…РЎвЂ№Р Вµ Р Р…Р В°Р С—РЎР‚Р В°Р Р†Р В»Р ВµР Р…Р С‘РЎРЏ РЎР‚Р В°Р В±Р С•РЎвЂљРЎвЂ№.',
+    artifactsTitle: 'Р С’РЎР‚РЎвЂљР ВµРЎвЂћР В°Р С”РЎвЂљРЎвЂ№',
     artifactsSubtitle:
-      'Превращайте архитектурные решения в явные desktop-артефакты, а не в скрытые terminal-конвенции.',
-    sourceMirrors: 'Source mirrors',
-    compatibilityGoals: 'Цели совместимости',
+      'Р СџРЎР‚Р ВµР Р†РЎР‚Р В°РЎвЂ°Р В°Р в„–РЎвЂљР Вµ Р В°РЎР‚РЎвЂ¦Р С‘РЎвЂљР ВµР С”РЎвЂљРЎС“РЎР‚Р Р…РЎвЂ№Р Вµ РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ Р Р† РЎРЏР Р†Р Р…РЎвЂ№Р Вµ desktop-Р В°РЎР‚РЎвЂљР ВµРЎвЂћР В°Р С”РЎвЂљРЎвЂ№, Р В° Р Р…Р Вµ Р Р† РЎРѓР С”РЎР‚РЎвЂ№РЎвЂљРЎвЂ№Р Вµ terminal-Р С”Р С•Р Р…Р Р†Р ВµР Р…РЎвЂ Р С‘Р С‘.',
+    compatibilityGoals: 'Р В¦Р ВµР В»Р С‘ РЎРѓР С•Р Р†Р СР ВµРЎРѓРЎвЂљР С‘Р СР С•РЎРѓРЎвЂљР С‘',
     runtimeProfileLabel: 'Runtime profile',
     runtimeApprovalLabel: 'Approval profile',
-    toolCatalogLabel: 'Каталог инструментов',
-    nativeHostLabel: 'Нативный host',
-    currentLocale: 'Язык',
+    toolCatalogLabel: 'Р С™Р В°РЎвЂљР В°Р В»Р С•Р С– Р С‘Р Р…РЎРѓРЎвЂљРЎР‚РЎС“Р СР ВµР Р…РЎвЂљР С•Р Р†',
+    nativeHostLabel: 'Р СњР В°РЎвЂљР С‘Р Р†Р Р…РЎвЂ№Р в„– host',
+    currentLocale: 'Р Р‡Р В·РЎвЂ№Р С”',
     workspaceTag: 'Workspace',
-    modeLabel: 'Поверхность',
-    searchPlaceholder: 'Поиск по сессиям, паттернам и исходникам...',
-    settingsLayersLabel: 'Слои настроек',
-    surfaceDirectoriesLabel: 'Поверхности совместимости',
+    modeLabel: 'Р СџР С•Р Р†Р ВµРЎР‚РЎвЂ¦Р Р…Р С•РЎРѓРЎвЂљРЎРЉ',
+    searchPlaceholder: 'Р СџР С•Р С‘РЎРѓР С” Р С—Р С• РЎРѓР ВµРЎРѓРЎРѓР С‘РЎРЏР С, Р С—Р В°РЎвЂљРЎвЂљР ВµРЎР‚Р Р…Р В°Р С Р С‘ Р С—Р С•Р Р†Р ВµРЎР‚РЎвЂ¦Р Р…Р С•РЎРѓРЎвЂљРЎРЏР С...',
+    settingsLayersLabel: 'Р РЋР В»Р С•Р С‘ Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р ВµР С”',
+    surfaceDirectoriesLabel: 'Р СџР С•Р Р†Р ВµРЎР‚РЎвЂ¦Р Р…Р С•РЎРѓРЎвЂљР С‘ РЎРѓР С•Р Р†Р СР ВµРЎРѓРЎвЂљР С‘Р СР С•РЎРѓРЎвЂљР С‘',
   },
 }
 

@@ -1,5 +1,5 @@
 using System.Reflection;
-using QwenCode.App.Attributes;
+using QwenCode.App.Ipc.Attributes;
 using QwenCode.App.Ipc;
 
 namespace QwenCode.IpcGen;

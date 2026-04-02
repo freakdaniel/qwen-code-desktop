@@ -1,51 +1,187 @@
-import type { ReactNode } from 'react'
-import { startTransition, useDeferredValue, useEffect, useState } from 'react'
+import { startTransition, useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import './App.css'
 import { Icon } from './AppIcons'
-import {
-  fallbackBootstrap,
-  formatSessionMode,
-  getCopy,
-} from './appData'
+import { fallbackBootstrap } from './appData'
+import qwenLogo from './assets/qwen-logo.svg'
 import type {
-  LocaleCopy,
-  NavItem,
-} from './appData'
-import type {
-  CapabilityLane,
+  ActiveTurnState,
+  AppBootstrapPayload,
   DesktopSessionDetail,
   DesktopSessionEntry,
+  DesktopSessionEvent,
   DesktopSessionTurnResult,
-  RuntimePortWorkItem,
   SessionPreview,
-  SourceMirrorStatus,
 } from './types/desktop'
+
+const SESSION_PAGE_SIZE = 120
+type UiCopy = {
+  newChat: string
+  searchChats: string
+  allChats: string
+  workspace: string
+  environment: string
+  connected: string
+  localPreview: string
+  activeTurns: string
+  nativeTools: string
+  focusLabel: string
+  heroEyebrow: string
+  heroTitle: string
+  heroSubtitle: string
+  heroNote: string
+  composerPlaceholder: string
+  continuePlaceholder: string
+  send: string
+  sending: string
+  loadOlder: string
+  loadNewer: string
+  noSessions: string
+  emptySession: string
+  loading: string
+  pendingApprovals: string
+  completedTools: string
+  failedTools: string
+  commands: string
+  tools: string
+  users: string
+  assistant: string
+  recoverableTurns: string
+  resumeInterrupted: string
+  dismissInterrupted: string
+  recoveryReason: string
+  liveTurn: string
+  cancelTurn: string
+  approveAndExecute: string
+  showing: string
+  of: string
+  suggestionsTitle: string
+  suggestions: string[]
+  architectureTitle: string
+  architectureSubtitle: string
+  toolPolicyTitle: string
+  toolPolicySubtitle: string
+  projectMemoryTitle: string
+  projectMemoryEmpty: string
+  surfacesTitle: string
+  sessionOverviewTitle: string
+  contextTitle: string
+  timelineTitle: string
+  transcriptTitle: string
+  detailsLabel: string
+  sourceLabel: string
+  changedFilesLabel: string
+  branchLabel: string
+  statusLabel: string
+  latestEventLabel: string
+  readinessLabel: string
+  approvalsLabel: string
+  allowedLabel: string
+  askLabel: string
+  noPendingApprovals: string
+  modeCodeLabel: string
+  projectSummaryLabel: string
+  updatedNowLabel: string
+}
 
 function App() {
   const { i18n } = useTranslation()
-  const [bootstrap, setBootstrap] = useState(fallbackBootstrap)
+  const [bootstrap, setBootstrap] = useState<AppBootstrapPayload>(fallbackBootstrap)
   const [query, setQuery] = useState('')
-  const [connected, setConnected] = useState(false)
-  const [activeView, setActiveView] = useState<NavItem['id']>('home')
-  const [selectedPatternIndex, setSelectedPatternIndex] = useState(0)
-  const [composerPrompt, setComposerPrompt] = useState('')
-  const [isStartingTurn, setIsStartingTurn] = useState(false)
+  const [homePrompt, setHomePrompt] = useState('')
+  const [sessionPrompt, setSessionPrompt] = useState('')
+  const [isSubmittingPrompt, setIsSubmittingPrompt] = useState(false)
   const [latestTurn, setLatestTurn] = useState<DesktopSessionTurnResult | null>(null)
+  const [latestSessionEvent, setLatestSessionEvent] = useState<DesktopSessionEvent | null>(null)
+  const [reattachedSessionId, setReattachedSessionId] = useState('')
+  const [streamingSnapshots, setStreamingSnapshots] = useState<Record<string, string>>({})
+  const [activeTurnSessions, setActiveTurnSessions] = useState<Record<string, true>>({})
   const [selectedSessionId, setSelectedSessionId] = useState('')
   const [selectedSessionDetail, setSelectedSessionDetail] = useState<DesktopSessionDetail | null>(null)
   const [isLoadingSession, setIsLoadingSession] = useState(false)
-  const [sessionReplyPrompt, setSessionReplyPrompt] = useState('')
-  const [isContinuingSession, setIsContinuingSession] = useState(false)
-  const [selectedSessionToolName, setSelectedSessionToolName] = useState('')
-  const [selectedSessionToolArgs, setSelectedSessionToolArgs] = useState('{}')
-  const [approveSessionToolExecution, setApproveSessionToolExecution] = useState(false)
-  const [approvingSessionToolEntryId, setApprovingSessionToolEntryId] = useState('')
+  const [approvingEntryId, setApprovingEntryId] = useState('')
+  const [recoveringSessionId, setRecoveringSessionId] = useState('')
+  const [dismissingSessionId, setDismissingSessionId] = useState('')
+  const didHydrateDesktopRef = useRef(false)
+  const selectedSessionIdRef = useRef(selectedSessionId)
+  const selectedSessionDetailRef = useRef<DesktopSessionDetail | null>(selectedSessionDetail)
   const deferredQuery = useDeferredValue(query)
-  const copy = getCopy(bootstrap.currentLocale)
+  const copy = getUiCopy(bootstrap.currentLocale)
+
+  const syncActiveTurns = (turns: ActiveTurnState[], preferredSessionId = '') => {
+    setActiveTurnSessions(Object.fromEntries(turns.map((turn) => [turn.sessionId, true] as const)))
+    setStreamingSnapshots(
+      Object.fromEntries(
+        turns
+          .filter((turn) => turn.contentSnapshot)
+          .map((turn) => [turn.sessionId, turn.contentSnapshot] as const),
+      ),
+    )
+
+    if (turns.length === 0) {
+      setReattachedSessionId('')
+      return
+    }
+
+    const sortedTurns = [...turns].sort((left, right) =>
+      Date.parse(right.lastUpdatedAtUtc) - Date.parse(left.lastUpdatedAtUtc))
+    const targetSessionId = preferredSessionId
+      || selectedSessionIdRef.current
+      || sortedTurns[0]?.sessionId
+      || ''
+
+    if (!targetSessionId) {
+      return
+    }
+
+    const activeTurn = sortedTurns.find((turn) => turn.sessionId === targetSessionId)
+    if (!activeTurn) {
+      return
+    }
+
+    setReattachedSessionId(activeTurn.sessionId)
+    setSelectedSessionId((current) => current || activeTurn.sessionId)
+    setLatestSessionEvent((current) => {
+      if (
+        current &&
+        current.sessionId === activeTurn.sessionId &&
+        current.kind !== 'turnCompleted' &&
+        current.kind !== 'turnCancelled'
+      ) {
+        return current
+      }
+
+      return {
+        sessionId: activeTurn.sessionId,
+        kind: 'turnReattached',
+        timestampUtc: activeTurn.lastUpdatedAtUtc,
+        message: activeTurn.contentSnapshot || `Reattached to active turn at ${activeTurn.stage}.`,
+        workingDirectory: activeTurn.workingDirectory,
+        gitBranch: activeTurn.gitBranch,
+        commandName: '',
+        toolName: activeTurn.toolName,
+        status: activeTurn.status,
+        contentDelta: '',
+        contentSnapshot: activeTurn.contentSnapshot,
+      }
+    })
+  }
 
   useEffect(() => {
-    let dispose: (() => void) | undefined
+    selectedSessionIdRef.current = selectedSessionId
+  }, [selectedSessionId])
+
+  useEffect(() => {
+    selectedSessionDetailRef.current = selectedSessionDetail
+  }, [selectedSessionDetail])
+
+  useEffect(() => {
+    if (didHydrateDesktopRef.current) {
+      return
+    }
+
+    didHydrateDesktopRef.current = true
+    const disposers: Array<() => void> = []
 
     const hydrate = async () => {
       if (!window.qwenDesktop) {
@@ -55,11 +191,10 @@ function App() {
 
       const payload = await window.qwenDesktop.bootstrap()
       setBootstrap(payload)
-      setSelectedSessionId(payload.recentSessions[0]?.sessionId ?? '')
-      setConnected(true)
+      syncActiveTurns(payload.activeTurns)
       await i18n.changeLanguage(payload.currentLocale)
 
-      dispose = window.qwenDesktop.subscribeStateChanged((event) => {
+      disposers.push(window.qwenDesktop.subscribeStateChanged((event) => {
         setBootstrap((current) => ({
           ...current,
           currentLocale: event.currentLocale,
@@ -68,12 +203,124 @@ function App() {
         startTransition(() => {
           void i18n.changeLanguage(event.currentLocale)
         })
-      })
+      }))
+
+      disposers.push(window.qwenDesktop.subscribeSessionEvents((event) => {
+        setLatestSessionEvent(event)
+        setActiveTurnSessions((current) => {
+          if (event.kind === 'turnStarted') {
+            setReattachedSessionId('')
+            return {
+              ...current,
+              [event.sessionId]: true,
+            }
+          }
+
+          if (event.kind === 'turnCompleted' || event.kind === 'turnCancelled') {
+            setReattachedSessionId((currentReattached) =>
+              currentReattached === event.sessionId ? '' : currentReattached)
+            if (!(event.sessionId in current)) {
+              return current
+            }
+
+            const next = { ...current }
+            delete next[event.sessionId]
+            return next
+          }
+
+          return current
+        })
+
+        setStreamingSnapshots((current) => {
+          if (event.kind === 'turnReattached' && event.contentSnapshot) {
+            return {
+              ...current,
+              [event.sessionId]: event.contentSnapshot,
+            }
+          }
+
+          if (event.kind === 'assistantStreaming' && event.contentSnapshot) {
+            return {
+              ...current,
+              [event.sessionId]: event.contentSnapshot,
+            }
+          }
+
+          if (
+            event.kind === 'assistantCompleted'
+            || event.kind === 'turnCompleted'
+            || event.kind === 'turnCancelled'
+          ) {
+            if (!(event.sessionId in current)) {
+              return current
+            }
+
+            const next = { ...current }
+            delete next[event.sessionId]
+            return next
+          }
+
+          return current
+        })
+
+        if (event.sessionId !== selectedSessionIdRef.current) {
+          return
+        }
+
+        const currentDetail = selectedSessionDetailRef.current
+        const request = currentDetail && currentDetail.hasNewerEntries
+          ? {
+              sessionId: event.sessionId,
+              offset: currentDetail.windowOffset,
+              limit: currentDetail.windowSize || SESSION_PAGE_SIZE,
+            }
+          : {
+              sessionId: event.sessionId,
+              offset: null,
+              limit: SESSION_PAGE_SIZE,
+            }
+
+        void window.qwenDesktop?.getSession(request).then((detail) => {
+          setSelectedSessionDetail(detail ?? null)
+        })
+      }))
     }
 
     void hydrate()
-    return () => dispose?.()
+    return () => {
+      disposers.forEach((dispose) => dispose())
+    }
   }, [i18n])
+
+  useEffect(() => {
+    if (!window.qwenDesktop) {
+      return
+    }
+
+    let disposed = false
+
+    const resyncActiveTurns = async () => {
+      const turns = await window.qwenDesktop?.getActiveTurns()
+      if (!disposed && turns) {
+        syncActiveTurns(turns)
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void resyncActiveTurns()
+      }
+    }
+
+    window.addEventListener('focus', resyncActiveTurns)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      disposed = true
+      window.removeEventListener('focus', resyncActiveTurns)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
 
   useEffect(() => {
     document.documentElement.dir = i18n.language === 'ar' ? 'rtl' : 'ltr'
@@ -87,80 +334,7 @@ function App() {
 
     if (!window.qwenDesktop) {
       if (latestTurn?.session.sessionId === selectedSessionId) {
-        setSelectedSessionDetail({
-          session: latestTurn.session,
-          transcriptPath: latestTurn.session.transcriptPath,
-          entryCount: 3,
-          summary: {
-            userCount: 1,
-            assistantCount: 1,
-            commandCount: latestTurn.resolvedCommand ? 1 : 0,
-            toolCount: 0,
-            pendingApprovalCount: 0,
-            completedToolCount: 0,
-            failedToolCount: 0,
-            lastTimestamp: '',
-          },
-          entries: [
-            {
-              id: `${latestTurn.session.sessionId}-user`,
-              type: 'user',
-              timestamp: '',
-              workingDirectory: latestTurn.session.workingDirectory,
-              gitBranch: latestTurn.session.gitBranch,
-              title: 'User',
-              body: latestTurn.session.title,
-              status: '',
-              approvalState: '',
-              exitCode: null,
-              arguments: '',
-              scope: '',
-              sourcePath: '',
-              resolutionStatus: '',
-              resolvedAt: '',
-              changedFiles: [],
-              toolName: '',
-            },
-            ...(latestTurn.resolvedCommand ? [{
-              id: `${latestTurn.session.sessionId}-command`,
-              type: 'command',
-              timestamp: '',
-              workingDirectory: latestTurn.session.workingDirectory,
-              gitBranch: latestTurn.session.gitBranch,
-              title: `/${latestTurn.resolvedCommand.name}`,
-              body: latestTurn.resolvedCommand.resolvedPrompt,
-              status: 'completed',
-              approvalState: '',
-              exitCode: null,
-              arguments: latestTurn.resolvedCommand.arguments,
-              scope: latestTurn.resolvedCommand.scope,
-              sourcePath: latestTurn.resolvedCommand.sourcePath,
-              resolutionStatus: '',
-              resolvedAt: '',
-              changedFiles: [],
-              toolName: latestTurn.resolvedCommand.name,
-            }] : []),
-            {
-              id: `${latestTurn.session.sessionId}-assistant`,
-              type: 'assistant',
-              timestamp: '',
-              workingDirectory: latestTurn.session.workingDirectory,
-              gitBranch: latestTurn.session.gitBranch,
-              title: 'Assistant',
-              body: latestTurn.assistantSummary,
-              status: '',
-              approvalState: '',
-              exitCode: null,
-              arguments: '',
-              scope: '',
-              sourcePath: '',
-              resolutionStatus: '',
-              resolvedAt: '',
-              changedFiles: [],
-              toolName: '',
-            },
-          ],
-        })
+        setSelectedSessionDetail(buildPreviewDetail(latestTurn))
       }
 
       return
@@ -172,7 +346,11 @@ function App() {
       setIsLoadingSession(true)
 
       try {
-        const detail = await window.qwenDesktop?.getSession({ sessionId: selectedSessionId })
+        const detail = await window.qwenDesktop?.getSession({
+          sessionId: selectedSessionId,
+          offset: null,
+          limit: SESSION_PAGE_SIZE,
+        })
         if (!cancelled) {
           setSelectedSessionDetail(detail ?? null)
         }
@@ -190,50 +368,23 @@ function App() {
     }
   }, [latestTurn, selectedSessionId])
 
-  const visibleSessions = bootstrap.recentSessions.filter((item) => {
-    const haystack = `${item.title} ${item.category} ${item.lastActivity}`.toLowerCase()
+  const visibleSessions = bootstrap.recentSessions.filter((session) => {
+    const haystack = `${session.title} ${session.category} ${session.lastActivity} ${session.gitBranch}`.toLowerCase()
     return haystack.includes(deferredQuery.toLowerCase())
   })
+  const groupedSessions = groupSessionsByProject(visibleSessions)
 
-  const visiblePatterns = bootstrap.adoptionPatterns.filter((item) => {
-    const haystack = `${item.area} ${item.qwenSource} ${item.claudeReference} ${item.desktopDirection}`.toLowerCase()
-    return haystack.includes(deferredQuery.toLowerCase())
-  })
-
-  const normalizedPatternIndex =
-    visiblePatterns.length === 0 || selectedPatternIndex < visiblePatterns.length
-      ? selectedPatternIndex
-      : 0
-
-  const selectedPattern =
-    visiblePatterns[normalizedPatternIndex] ??
-    bootstrap.adoptionPatterns[0] ??
-    fallbackBootstrap.adoptionPatterns[0]
-  const compatibilityPills = [
-    ...bootstrap.qwenCompatibility.commands.slice(0, 3).map((item) => `/${item.name}`),
-    ...bootstrap.qwenCompatibility.skills.slice(0, 3).map((item) => item.name),
-  ]
-
-  const primaryNav: NavItem[] = [
-    { id: 'home', label: copy.newChat, icon: 'plus' },
-    { id: 'search', label: copy.search, icon: 'search' },
-    { id: 'customize', label: copy.customize, icon: 'customize' },
-  ]
-
-  const libraryNav: NavItem[] = [
-    { id: 'chats', label: copy.chats, icon: 'chats' },
-    { id: 'projects', label: copy.projects, icon: 'projects' },
-    { id: 'artifacts', label: copy.artifacts, icon: 'artifacts' },
-  ]
-
-  const handleLocaleChange = (locale: string) => {
-    startTransition(() => {
-      void i18n.changeLanguage(locale)
-      setBootstrap((current) => ({ ...current, currentLocale: locale }))
-    })
-
-    void window.qwenDesktop?.setLocale(locale)
-  }
+  const latestProjectName = getWorkspaceName(
+    bootstrap.recentSessions[0]?.workingDirectory || bootstrap.workspaceRoot,
+  )
+  const selectedSessionPreview = selectedSessionDetail?.session
+    ?? bootstrap.recentSessions.find((session) => session.sessionId === selectedSessionId)
+    ?? null
+  const selectedSessionStreamingText = selectedSessionId
+    ? streamingSnapshots[selectedSessionId] ?? ''
+    : ''
+  const selectedSessionIsActive = Boolean(selectedSessionId && activeTurnSessions[selectedSessionId])
+  const selectedSessionWasReattached = Boolean(selectedSessionId && reattachedSessionId === selectedSessionId)
 
   const applyTurnResult = (result: DesktopSessionTurnResult) => {
     setLatestTurn(result)
@@ -251,44 +402,51 @@ function App() {
     })
   }
 
-  const handleSelectSession = (sessionId: string) => {
-    setSelectedSessionId(sessionId)
-    setActiveView('chats')
+  const handleStartNewChat = () => {
+    setSelectedSessionId('')
+    setSelectedSessionDetail(null)
+    setSessionPrompt('')
+    setHomePrompt('')
   }
 
-  const handleStartTurn = async () => {
-    const prompt = composerPrompt.trim()
-    if (!prompt || isStartingTurn) {
+  const handleSelectSession = (sessionId: string) => {
+    setSelectedSessionId(sessionId)
+    setSelectedSessionDetail(null)
+  }
+
+  const handleSubmitNewTurn = async (prompt: string, sessionId: string) => {
+    const trimmedPrompt = prompt.trim()
+    if (!trimmedPrompt || isSubmittingPrompt) {
       return
     }
 
-    setIsStartingTurn(true)
+    setIsSubmittingPrompt(true)
 
     try {
       if (!window.qwenDesktop) {
         const previewSession: SessionPreview = {
-          sessionId: `preview-${Date.now()}`,
-          title: prompt.length > 120 ? `${prompt.slice(0, 120)}...` : prompt,
-          lastActivity: 'Updated just now',
-          category: 'preview',
+          sessionId: sessionId || `preview-${Date.now()}`,
+          title: trimmedPrompt.length > 120 ? `${trimmedPrompt.slice(0, 120)}...` : trimmedPrompt,
+          lastActivity: copy.updatedNowLabel,
+          category: copy.modeCodeLabel,
           mode: 'code',
           status: 'resume-ready',
-          workingDirectory: bootstrap.sources.workspaceRoot,
-          gitBranch: 'preview',
+          workingDirectory: bootstrap.workspaceRoot,
+          gitBranch: 'main',
           messageCount: 2,
-          transcriptPath: `${bootstrap.sources.workspaceRoot}\\.qwen\\chats\\preview.jsonl`,
+          transcriptPath: `${bootstrap.workspaceRoot}/.qwen/chats/preview.jsonl`,
         }
 
         applyTurnResult({
           session: previewSession,
-          assistantSummary: 'Preview turn recorded without the native desktop bridge.',
-          createdNewSession: true,
+          assistantSummary: 'Preview turn appended without the native desktop bridge.',
+          createdNewSession: sessionId.length === 0,
           resolvedCommand: null,
           toolExecution: {
             toolName: '',
             status: 'not-requested',
             approvalState: 'allow',
-            workingDirectory: bootstrap.sources.workspaceRoot,
+            workingDirectory: bootstrap.workspaceRoot,
             output: '',
             errorMessage: '',
             exitCode: 0,
@@ -297,9 +455,9 @@ function App() {
         })
       } else {
         const result = await window.qwenDesktop.startSessionTurn({
-          sessionId: '',
-          prompt,
-          workingDirectory: bootstrap.sources.workspaceRoot,
+          sessionId,
+          prompt: trimmedPrompt,
+          workingDirectory: selectedSessionPreview?.workingDirectory ?? bootstrap.workspaceRoot,
           toolName: '',
           toolArgumentsJson: '{}',
           approveToolExecution: false,
@@ -308,82 +466,34 @@ function App() {
         applyTurnResult(result)
       }
 
-      setComposerPrompt('')
-      setActiveView('chats')
+      if (sessionId) {
+        setSessionPrompt('')
+      } else {
+        setHomePrompt('')
+      }
     } finally {
-      setIsStartingTurn(false)
+      setIsSubmittingPrompt(false)
     }
   }
 
-  const handleContinueSession = async () => {
-    const prompt = sessionReplyPrompt.trim()
-    if (!prompt || !selectedSessionId || isContinuingSession) {
+  const handleCancelTurn = async () => {
+    if (!selectedSessionId || !window.qwenDesktop) {
       return
     }
 
-    setIsContinuingSession(true)
-
-    try {
-      if (!window.qwenDesktop) {
-        if (selectedSessionDetail) {
-          const continuedSession: SessionPreview = {
-            ...selectedSessionDetail.session,
-            title: selectedSessionDetail.session.title,
-            lastActivity: 'Updated just now',
-            messageCount: selectedSessionDetail.session.messageCount + (selectedSessionToolName ? 3 : 2),
-          }
-
-          applyTurnResult({
-            session: continuedSession,
-            assistantSummary: 'Preview turn appended to the selected session without the native desktop bridge.',
-            createdNewSession: false,
-            resolvedCommand: null,
-            toolExecution: {
-              toolName: selectedSessionToolName,
-              status: selectedSessionToolName ? (approveSessionToolExecution ? 'completed' : 'approval-required') : 'not-requested',
-              approvalState: selectedSessionToolName ? 'ask' : 'allow',
-              workingDirectory: continuedSession.workingDirectory,
-              output: selectedSessionToolName ? 'Preview tool execution was not sent to the native desktop bridge.' : '',
-              errorMessage: '',
-              exitCode: 0,
-              changedFiles: [],
-            },
-          })
-        }
-      } else {
-        const result = await window.qwenDesktop.startSessionTurn({
-          sessionId: selectedSessionId,
-          prompt,
-          workingDirectory: selectedSessionDetail?.session.workingDirectory ?? bootstrap.sources.workspaceRoot,
-          toolName: selectedSessionToolName,
-          toolArgumentsJson: selectedSessionToolArgs.trim() || '{}',
-          approveToolExecution: approveSessionToolExecution,
-        })
-
-        applyTurnResult(result)
-      }
-
-      setSessionReplyPrompt('')
-      setSelectedSessionToolName('')
-      setSelectedSessionToolArgs('{}')
-      setApproveSessionToolExecution(false)
-    } finally {
-      setIsContinuingSession(false)
-    }
+    await window.qwenDesktop.cancelSessionTurn({
+      sessionId: selectedSessionId,
+    })
   }
 
   const handleApprovePendingTool = async (entryId: string) => {
-    if (!selectedSessionId || !entryId || approvingSessionToolEntryId) {
+    if (!selectedSessionId || !window.qwenDesktop || approvingEntryId) {
       return
     }
 
-    setApprovingSessionToolEntryId(entryId)
+    setApprovingEntryId(entryId)
 
     try {
-      if (!window.qwenDesktop) {
-        return
-      }
-
       const result = await window.qwenDesktop.approvePendingTool({
         sessionId: selectedSessionId,
         entryId,
@@ -391,822 +501,686 @@ function App() {
 
       applyTurnResult(result)
     } finally {
-      setApprovingSessionToolEntryId('')
+      setApprovingEntryId('')
+    }
+  }
+
+  const handleResumeInterruptedTurn = async (sessionId: string) => {
+    if (!window.qwenDesktop || recoveringSessionId) {
+      return
+    }
+
+    setRecoveringSessionId(sessionId)
+
+    try {
+      const result = await window.qwenDesktop.resumeInterruptedTurn({
+        sessionId,
+        recoveryNote: '',
+      })
+
+      setBootstrap((current) => ({
+        ...current,
+        recoverableTurns: current.recoverableTurns.filter((turn) => turn.sessionId !== sessionId),
+      }))
+      applyTurnResult(result)
+    } finally {
+      setRecoveringSessionId('')
+    }
+  }
+
+  const handleDismissInterruptedTurn = async (sessionId: string) => {
+    if (!window.qwenDesktop || dismissingSessionId) {
+      return
+    }
+
+    setDismissingSessionId(sessionId)
+
+    try {
+      await window.qwenDesktop.dismissInterruptedTurn({
+        sessionId,
+      })
+
+      setBootstrap((current) => ({
+        ...current,
+        recoverableTurns: current.recoverableTurns.filter((turn) => turn.sessionId !== sessionId),
+      }))
+    } finally {
+      setDismissingSessionId('')
+    }
+  }
+
+  const handleLoadOlderEntries = async () => {
+    if (!window.qwenDesktop || !selectedSessionDetail || isLoadingSession) {
+      return
+    }
+
+    setIsLoadingSession(true)
+
+    try {
+      const offset = Math.max(0, selectedSessionDetail.windowOffset - selectedSessionDetail.windowSize)
+      const detail = await window.qwenDesktop.getSession({
+        sessionId: selectedSessionDetail.session.sessionId,
+        offset,
+        limit: selectedSessionDetail.windowSize || SESSION_PAGE_SIZE,
+      })
+      setSelectedSessionDetail(detail ?? null)
+    } finally {
+      setIsLoadingSession(false)
+    }
+  }
+
+  const handleLoadNewerEntries = async () => {
+    if (!window.qwenDesktop || !selectedSessionDetail || isLoadingSession) {
+      return
+    }
+
+    setIsLoadingSession(true)
+
+    try {
+      const offset = Math.min(
+        Math.max(0, selectedSessionDetail.entryCount - selectedSessionDetail.windowSize),
+        selectedSessionDetail.windowOffset + selectedSessionDetail.windowSize,
+      )
+
+      const detail = await window.qwenDesktop.getSession({
+        sessionId: selectedSessionDetail.session.sessionId,
+        offset,
+        limit: selectedSessionDetail.windowSize || SESSION_PAGE_SIZE,
+      })
+      setSelectedSessionDetail(detail ?? null)
+    } finally {
+      setIsLoadingSession(false)
     }
   }
 
   return (
-    <div className="app-frame">
-      <header className="window-chrome">
-        <div className="chrome-actions">
-          <button className="chrome-icon" type="button"><Icon name="menu" /></button>
-          <button className="chrome-icon" type="button"><Icon name="split" /></button>
-          <button className="chrome-icon" type="button"><Icon name="back" /></button>
-          <button className="chrome-icon muted" type="button"><Icon name="forward" /></button>
-        </div>
-
-        <div className="chrome-status">
-          <span className={`status-pill ${connected ? 'connected' : ''}`}>
-            {connected ? copy.bridgeStatus.connected : copy.bridgeStatus.local}
-          </span>
-          <button className="ghost-button" type="button"><Icon name="ghost" /></button>
-        </div>
-      </header>
-
-      <div className="shell-layout">
-        <aside className="sidebar">
-          <div className="sidebar-top">
-            {primaryNav.map((item) => (
-              <button
-                className={`sidebar-action ${activeView === item.id ? 'active' : ''}`}
-                key={item.id}
-                onClick={() => setActiveView(item.id)}
-                type="button"
-              >
-                <span className="action-icon"><Icon name={item.icon} /></span>
-                <span>{item.label}</span>
-              </button>
-            ))}
+    <div className="app-shell">
+      <aside className="sidebar-shell">
+        <div className="sidebar-heading">
+          <div>
+            <span className="sidebar-heading__eyebrow">{copy.allChats}</span>
           </div>
 
-          <div className="sidebar-divider" />
+          <button className="icon-button" onClick={handleStartNewChat} type="button">
+            <Icon name="plus" />
+          </button>
+        </div>
 
-          <nav className="sidebar-nav">
-            {libraryNav.map((item) => (
+        <label className="search-field">
+          <Icon name="search" />
+          <input
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={copy.searchChats}
+            value={query}
+          />
+        </label>
+
+        <div className="sidebar-section">
+          <div className="session-list">
+            {visibleSessions.length === 0 && (
+              <div className="empty-note empty-note--sidebar">{copy.noSessions}</div>
+            )}
+
+            {groupedSessions.map((group) => (
+              <section className="project-group" key={group.projectKey}>
+                <div className="project-group__header">
+                  <span className="project-group__title">
+                    <Icon name="folder" />
+                    {group.projectName}
+                  </span>
+                </div>
+
+                <div className="project-group__sessions">
+                  {group.sessions.map((session) => {
+                    const isSelected = selectedSessionId === session.sessionId
+                    const isActive = Boolean(activeTurnSessions[session.sessionId])
+
+                    return (
+                      <button
+                        className={`session-list-item ${isSelected ? 'is-active' : ''}`}
+                        key={session.sessionId}
+                        onClick={() => handleSelectSession(session.sessionId)}
+                        type="button"
+                      >
+                        <div className="session-list-item__title">
+                          <strong>{session.title}</strong>
+                          <span>{formatActivityLabel(session.lastActivity)}</span>
+                        </div>
+
+                        <div className="session-list-item__footer">
+                          <span>{session.lastActivity}</span>
+                          {isActive && <span className="session-live-dot" />}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        </div>
+      </aside>
+
+      <main className="workspace-shell">
+        {bootstrap.recoverableTurns.length > 0 && (
+          <RecoverableStrip
+            copy={copy}
+            dismissingSessionId={dismissingSessionId}
+            onDismiss={handleDismissInterruptedTurn}
+            onResume={handleResumeInterruptedTurn}
+            recoveringSessionId={recoveringSessionId}
+            turns={bootstrap.recoverableTurns}
+          />
+        )}
+
+        {!selectedSessionId && (
+          <HomeWorkspace
+            copy={copy}
+            homePrompt={homePrompt}
+            isSubmittingPrompt={isSubmittingPrompt}
+            onPromptChange={setHomePrompt}
+            onSubmit={() => void handleSubmitNewTurn(homePrompt, '')}
+            projectName={latestProjectName}
+          />
+        )}
+
+        {selectedSessionId && (
+          <SessionWorkspace
+            approvingEntryId={approvingEntryId}
+            bootstrap={bootstrap}
+            copy={copy}
+            isLoadingSession={isLoadingSession}
+            isSubmittingPrompt={isSubmittingPrompt}
+            latestSessionEvent={latestSessionEvent}
+            onApprovePendingTool={handleApprovePendingTool}
+            onCancelTurn={() => void handleCancelTurn()}
+            onLoadNewerEntries={() => void handleLoadNewerEntries()}
+            onLoadOlderEntries={() => void handleLoadOlderEntries()}
+            onPromptChange={setSessionPrompt}
+            onSubmit={() => void handleSubmitNewTurn(sessionPrompt, selectedSessionId)}
+            selectedSessionDetail={selectedSessionDetail}
+            selectedSessionIsActive={selectedSessionIsActive}
+            selectedSessionStreamingText={selectedSessionStreamingText}
+            selectedSessionWasReattached={selectedSessionWasReattached}
+            sessionPrompt={sessionPrompt}
+          />
+        )}
+      </main>
+    </div>
+  )
+}
+
+function RecoverableStrip({
+  copy,
+  dismissingSessionId,
+  onDismiss,
+  onResume,
+  recoveringSessionId,
+  turns,
+}: {
+  copy: UiCopy
+  dismissingSessionId: string
+  onDismiss: (sessionId: string) => void
+  onResume: (sessionId: string) => void
+  recoveringSessionId: string
+  turns: AppBootstrapPayload['recoverableTurns']
+}) {
+  return (
+    <section className="recoverable-strip">
+      <div className="section-heading">
+        <div>
+          <span className="section-heading__eyebrow">{copy.recoverableTurns}</span>
+          <h2>{turns.length}</h2>
+        </div>
+        <p>{copy.recoveryReason}</p>
+      </div>
+
+      <div className="recoverable-strip__list">
+        {turns.slice(0, 3).map((turn) => (
+          <article className="recoverable-card" key={turn.sessionId}>
+            <div className="recoverable-card__copy">
+              <strong>{turn.prompt}</strong>
+              <p>{turn.recoveryReason}</p>
+              <span>{turn.gitBranch || 'main'} · {getWorkspaceName(turn.workingDirectory)}</span>
+            </div>
+
+            <div className="recoverable-card__actions">
               <button
-                className={`nav-item ${activeView === item.id ? 'active' : ''}`}
-                key={item.id}
-                onClick={() => setActiveView(item.id)}
+                className="button button--ghost"
+                disabled={recoveringSessionId === turn.sessionId}
+                onClick={() => onResume(turn.sessionId)}
                 type="button"
               >
-                <span className="action-icon"><Icon name={item.icon} /></span>
-                <span>{item.label}</span>
+                {recoveringSessionId === turn.sessionId ? copy.sending : copy.resumeInterrupted}
               </button>
-            ))}
-          </nav>
+              <button
+                className="button button--ghost"
+                disabled={dismissingSessionId === turn.sessionId}
+                onClick={() => onDismiss(turn.sessionId)}
+                type="button"
+              >
+                {dismissingSessionId === turn.sessionId ? copy.sending : copy.dismissInterrupted}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
 
-          <section className="recent-panel">
-            <div className="sidebar-label">{copy.recents}</div>
-            <div className="recent-list">
-              {bootstrap.recentSessions.map((session) => (
-                <button
-                  className="recent-item"
-                  key={session.sessionId}
-                  onClick={() => handleSelectSession(session.sessionId)}
-                  type="button"
-                >
-                  <span className="recent-title">{session.title}</span>
-                  <span className="recent-meta">{session.lastActivity}</span>
+function HomeWorkspace({
+  copy,
+  homePrompt,
+  isSubmittingPrompt,
+  onPromptChange,
+  onSubmit,
+  projectName,
+}: {
+  copy: UiCopy
+  homePrompt: string
+  isSubmittingPrompt: boolean
+  onPromptChange: (value: string) => void
+  onSubmit: () => void
+  projectName: string
+}) {
+  return (
+    <section className="home-workspace">
+      <div className="home-hero">
+        <img alt="Qwen" className="home-hero__logo" src={qwenLogo} />
+
+        <div className="home-hero__copy">
+          <span className="home-hero__headline">{copy.heroTitle}</span>
+          <button className="home-hero__project" type="button">
+            <span>{projectName}</span>
+            <span className="home-hero__chevron">v</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="composer-surface">
+        <Composer
+          isBusy={isSubmittingPrompt}
+          onChange={onPromptChange}
+          onSubmit={onSubmit}
+          placeholder={copy.composerPlaceholder}
+          submitLabel={copy.send}
+          submittingLabel={copy.sending}
+          value={homePrompt}
+        />
+      </div>
+    </section>
+  )
+}
+
+function SessionWorkspace({
+  approvingEntryId,
+  bootstrap,
+  copy,
+  isLoadingSession,
+  isSubmittingPrompt,
+  latestSessionEvent,
+  onApprovePendingTool,
+  onCancelTurn,
+  onLoadNewerEntries,
+  onLoadOlderEntries,
+  onPromptChange,
+  onSubmit,
+  selectedSessionDetail,
+  selectedSessionIsActive,
+  selectedSessionStreamingText,
+  selectedSessionWasReattached,
+  sessionPrompt,
+}: {
+  approvingEntryId: string
+  bootstrap: AppBootstrapPayload
+  copy: UiCopy
+  isLoadingSession: boolean
+  isSubmittingPrompt: boolean
+  latestSessionEvent: DesktopSessionEvent | null
+  onApprovePendingTool: (entryId: string) => void
+  onCancelTurn: () => void
+  onLoadNewerEntries: () => void
+  onLoadOlderEntries: () => void
+  onPromptChange: (value: string) => void
+  onSubmit: () => void
+  selectedSessionDetail: DesktopSessionDetail | null
+  selectedSessionIsActive: boolean
+  selectedSessionStreamingText: string
+  selectedSessionWasReattached: boolean
+  sessionPrompt: string
+}) {
+  if (isLoadingSession) {
+    return (
+      <section className="session-workspace session-workspace--centered">
+        <div className="empty-state">{copy.loading}</div>
+      </section>
+    )
+  }
+
+  if (!selectedSessionDetail) {
+    return (
+      <section className="session-workspace session-workspace--centered">
+        <div className="empty-state">{copy.emptySession}</div>
+      </section>
+    )
+  }
+
+  const sessionLatestEvent = latestSessionEvent?.sessionId === selectedSessionDetail.session.sessionId
+    ? latestSessionEvent
+    : null
+  const liveMessage = selectedSessionStreamingText
+    || sessionLatestEvent?.contentSnapshot
+    || sessionLatestEvent?.message
+    || ''
+  const shouldShowLiveTurn = selectedSessionIsActive
+    || selectedSessionWasReattached
+    || Boolean(sessionLatestEvent && liveMessage)
+  const pendingApprovalEntries = selectedSessionDetail.entries.filter((entry) =>
+    entry.type === 'tool' && entry.status === 'approval-required' && !entry.resolutionStatus)
+  const rangeStart = selectedSessionDetail.entries.length === 0
+    ? 0
+    : selectedSessionDetail.windowOffset + 1
+  const rangeEnd = selectedSessionDetail.windowOffset + selectedSessionDetail.entries.length
+
+  return (
+    <section className="session-workspace">
+      <div className="session-layout">
+        <div className="session-primary">
+          <header className="session-hero">
+            <div className="session-hero__copy">
+              <span className="section-heading__eyebrow">{copy.transcriptTitle}</span>
+              <h2>{selectedSessionDetail.session.title}</h2>
+              <p>{selectedSessionDetail.transcriptPath}</p>
+            </div>
+
+            <div className="inline-meta-list">
+              <span>{copy.branchLabel}: {selectedSessionDetail.session.gitBranch || 'main'}</span>
+              <span>{copy.statusLabel}: {formatTokenLabel(selectedSessionDetail.session.status)}</span>
+              <span>{copy.modeCodeLabel}</span>
+            </div>
+          </header>
+
+          {shouldShowLiveTurn && (
+            <div className="live-banner">
+              <div>
+                <span className="section-heading__eyebrow">{copy.liveTurn}</span>
+                <p>{liveMessage || 'Reattached to the current active turn.'}</p>
+              </div>
+
+              {selectedSessionIsActive && (
+                <button className="button button--ghost" onClick={onCancelTurn} type="button">
+                  {copy.cancelTurn}
                 </button>
+              )}
+            </div>
+          )}
+
+          <section className="surface-card surface-card--transcript">
+            <div className="surface-card__toolbar">
+              <div className="section-heading">
+                <div>
+                  <span className="section-heading__eyebrow">{copy.timelineTitle}</span>
+                  <h3>
+                    {copy.showing} {rangeStart}-{rangeEnd} {copy.of} {selectedSessionDetail.entryCount}
+                  </h3>
+                </div>
+              </div>
+
+              <div className="toolbar-actions">
+                {selectedSessionDetail.hasOlderEntries && (
+                  <button className="button button--ghost" onClick={onLoadOlderEntries} type="button">
+                    {copy.loadOlder}
+                  </button>
+                )}
+                {selectedSessionDetail.hasNewerEntries && (
+                  <button className="button button--ghost" onClick={onLoadNewerEntries} type="button">
+                    {copy.loadNewer}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="timeline-list">
+              {selectedSessionDetail.entries.length === 0 && (
+                <div className="empty-note">{copy.emptySession}</div>
+              )}
+
+              {selectedSessionDetail.entries.map((entry) => (
+                <SessionEntryCard
+                  approvingEntryId={approvingEntryId}
+                  copy={copy}
+                  entry={entry}
+                  key={entry.id}
+                  onApprovePendingTool={onApprovePendingTool}
+                />
               ))}
             </div>
           </section>
 
-          <footer className="profile-card">
-            <div className="profile-avatar">D</div>
-            <div className="profile-copy">
-              <strong>Daniel</strong>
-              <span>Pro plan</span>
-            </div>
-            <button className="profile-action" type="button"><Icon name="forward" /></button>
-          </footer>
-        </aside>
-
-        <main className="workspace">
-          {(activeView === 'home' || activeView === 'search') && (
-            <HomeView
-              bootstrap={bootstrap}
-              copy={copy}
-              composerPrompt={composerPrompt}
-              isStartingTurn={isStartingTurn}
-              latestTurn={latestTurn}
-              onLocaleChange={handleLocaleChange}
-              onPromptChange={setComposerPrompt}
-              onStartTurn={handleStartTurn}
+          <div className="composer-surface composer-surface--session">
+            <Composer
+              isBusy={isSubmittingPrompt}
+              onChange={onPromptChange}
+              onSubmit={onSubmit}
+              placeholder={copy.continuePlaceholder}
+              submitLabel={copy.send}
+              submittingLabel={copy.sending}
+              value={sessionPrompt}
             />
-          )}
+          </div>
+        </div>
 
-          {activeView === 'customize' && (
-            <CustomizeView
-              copy={copy}
-              compatibilityPills={compatibilityPills}
-              selectedPattern={selectedPattern}
-              selectedPatternIndex={normalizedPatternIndex}
-              setSelectedPatternIndex={setSelectedPatternIndex}
-              setActiveView={setActiveView}
-              visiblePatterns={visiblePatterns}
-              lanes={bootstrap.capabilityLanes}
-            />
-          )}
-
-          {activeView === 'chats' && (
-            <ChatsView
-              copy={copy}
-              query={query}
-              setQuery={setQuery}
-              sessions={visibleSessions}
-              selectedSessionId={selectedSessionId}
-              selectedSessionDetail={selectedSessionDetail}
-              isLoadingSession={isLoadingSession}
-              sessionReplyPrompt={sessionReplyPrompt}
-              setSessionReplyPrompt={setSessionReplyPrompt}
-              isContinuingSession={isContinuingSession}
-              selectedSessionToolName={selectedSessionToolName}
-              setSelectedSessionToolName={setSelectedSessionToolName}
-              selectedSessionToolArgs={selectedSessionToolArgs}
-              setSelectedSessionToolArgs={setSelectedSessionToolArgs}
-              approveSessionToolExecution={approveSessionToolExecution}
-              setApproveSessionToolExecution={setApproveSessionToolExecution}
-              availableTools={bootstrap.qwenNativeHost.tools.map((tool) => tool.name)}
-              approvingSessionToolEntryId={approvingSessionToolEntryId}
-              onApprovePendingTool={handleApprovePendingTool}
-              onContinueSession={handleContinueSession}
-              onSelectSession={handleSelectSession}
-              onNewChat={() => setActiveView('home')}
-            />
-          )}
-
-          {activeView === 'projects' && (
-            <LibraryView
-              title={copy.projectsTitle}
-              subtitle={copy.projectsSubtitle}
-            >
-              <div className="library-grid">
-                {bootstrap.qwenNativeHost.tools.map((tool) => (
-                  <NativeHostToolCard key={tool.name} tool={tool} />
-                ))}
-                {bootstrap.qwenTools.tools.map((tool) => (
-                  <ToolCard key={tool.name} tool={tool} />
-                ))}
-                {bootstrap.runtimePortPlan.map((item) => (
-                  <PortWorkItemCard key={item.id} item={item} />
-                ))}
-                {bootstrap.capabilityLanes.map((lane) => (
-                  <LaneCard copy={copy} key={lane.title} lane={lane} />
-                ))}
+        <aside className="session-rail">
+          <section className="surface-card surface-card--rail">
+            <div className="section-heading">
+              <div>
+                <span className="section-heading__eyebrow">{copy.sessionOverviewTitle}</span>
+                <h3>{selectedSessionDetail.session.title}</h3>
               </div>
-            </LibraryView>
-          )}
+            </div>
 
-          {activeView === 'artifacts' && (
-            <LibraryView
-              title={copy.artifactsTitle}
-              subtitle={copy.artifactsSubtitle}
-            >
-              <div className="library-grid">
-                {bootstrap.tracks.map((track) => (
-                  <article className="artifact-card" key={track.title}>
-                    <span>{copy.deliveryState}</span>
-                    <h2>{track.title}</h2>
-                    <p>{track.summary}</p>
+            <div className="rail-stats">
+              <article>
+                <span>{copy.users}</span>
+                <strong>{selectedSessionDetail.summary.userCount}</strong>
+              </article>
+              <article>
+                <span>{copy.assistant}</span>
+                <strong>{selectedSessionDetail.summary.assistantCount}</strong>
+              </article>
+              <article>
+                <span>{copy.commands}</span>
+                <strong>{selectedSessionDetail.summary.commandCount}</strong>
+              </article>
+              <article>
+                <span>{copy.tools}</span>
+                <strong>{selectedSessionDetail.summary.toolCount}</strong>
+              </article>
+              <article>
+                <span>{copy.pendingApprovals}</span>
+                <strong>{selectedSessionDetail.summary.pendingApprovalCount}</strong>
+              </article>
+              <article>
+                <span>{copy.completedTools}</span>
+                <strong>{selectedSessionDetail.summary.completedToolCount}</strong>
+              </article>
+              <article>
+                <span>{copy.failedTools}</span>
+                <strong>{selectedSessionDetail.summary.failedToolCount}</strong>
+              </article>
+              <article>
+                <span>{copy.nativeTools}</span>
+                <strong>{bootstrap.qwenNativeHost.readyCount}</strong>
+              </article>
+            </div>
+          </section>
+
+          <section className="surface-card surface-card--rail">
+            <div className="section-heading">
+              <div>
+                <span className="section-heading__eyebrow">{copy.contextTitle}</span>
+                <h3>{copy.latestEventLabel}</h3>
+              </div>
+            </div>
+
+            <div className="context-block">
+              <article>
+                <span>{copy.workspace}</span>
+                <strong>{getWorkspaceName(selectedSessionDetail.session.workingDirectory)}</strong>
+              </article>
+              <article>
+                <span>{copy.branchLabel}</span>
+                <strong>{selectedSessionDetail.session.gitBranch || 'main'}</strong>
+              </article>
+              <article>
+                <span>{copy.statusLabel}</span>
+                <strong>{formatTokenLabel(sessionLatestEvent?.status || selectedSessionDetail.session.status)}</strong>
+              </article>
+              {sessionLatestEvent && (
+                <article>
+                  <span>{copy.latestEventLabel}</span>
+                  <p>{sessionLatestEvent.message || formatTokenLabel(sessionLatestEvent.kind)}</p>
+                </article>
+              )}
+            </div>
+          </section>
+
+          <section className="surface-card surface-card--rail">
+            <div className="section-heading">
+              <div>
+                <span className="section-heading__eyebrow">{copy.approvalsLabel}</span>
+                <h3>{pendingApprovalEntries.length}</h3>
+              </div>
+            </div>
+
+            {pendingApprovalEntries.length === 0 ? (
+              <div className="empty-note">{copy.noPendingApprovals}</div>
+            ) : (
+              <div className="approval-list">
+                {pendingApprovalEntries.map((entry) => (
+                  <article className="approval-list__item" key={entry.id}>
+                    <strong>{entry.toolName || entry.title}</strong>
+                    <p>{entry.body || entry.arguments || entry.sourcePath}</p>
                   </article>
                 ))}
               </div>
-            </LibraryView>
-          )}
-        </main>
+            )}
+          </section>
+        </aside>
+      </div>
+    </section>
+  )
+}
+
+function Composer({
+  isBusy,
+  onChange,
+  onSubmit,
+  placeholder,
+  submitLabel,
+  submittingLabel,
+  value,
+}: {
+  isBusy: boolean
+  onChange: (value: string) => void
+  onSubmit: () => void
+  placeholder: string
+  submitLabel: string
+  submittingLabel: string
+  value: string
+}) {
+  return (
+    <div className="composer-bar">
+      <textarea
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            onSubmit()
+          }
+        }}
+        placeholder={placeholder}
+        rows={1}
+        value={value}
+      />
+
+      <div className="composer-actions">
+        <button
+          className="composer-action composer-action--primary"
+          disabled={isBusy || !value.trim()}
+          onClick={onSubmit}
+          type="button"
+        >
+          <Icon name="forward" />
+          <span>{isBusy ? submittingLabel : submitLabel}</span>
+        </button>
       </div>
     </div>
   )
 }
 
-function HomeView({
-  bootstrap,
-  copy,
-  composerPrompt,
-  isStartingTurn,
-  latestTurn,
-  onLocaleChange,
-  onPromptChange,
-  onStartTurn,
-}: {
-  bootstrap: typeof fallbackBootstrap
-  copy: LocaleCopy
-  composerPrompt: string
-  isStartingTurn: boolean
-  latestTurn: DesktopSessionTurnResult | null
-  onLocaleChange: (locale: string) => void
-  onPromptChange: (value: string) => void
-  onStartTurn: () => void
-}) {
-  return (
-    <>
-      <section className="view-header">
-        <div>
-          <div className="eyebrow">{copy.appLabel}</div>
-          <h1>{copy.rootViewTitle}</h1>
-          <p>{copy.rootViewSubtitle}</p>
-        </div>
-
-        <label className="locale-picker">
-          <span>{copy.currentLocale}</span>
-          <select
-            onChange={(event) => onLocaleChange(event.target.value)}
-            value={bootstrap.currentLocale}
-          >
-            {bootstrap.locales.map((locale) => (
-              <option key={locale.code} value={locale.code}>
-                {locale.nativeName}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-
-      <section className="home-shell">
-        <div className="greeting-panel">
-          <div className="greeting-mark"><Icon name="spark" /></div>
-          <div>
-            <h2>{copy.homeGreeting}</h2>
-            <p>{copy.homeLead}</p>
-          </div>
-        </div>
-
-        <div className="composer-card">
-          <textarea
-            aria-label="Prompt composer"
-            onChange={(event) => onPromptChange(event.target.value)}
-            placeholder={copy.composerPlaceholder[bootstrap.currentMode]}
-            rows={5}
-            value={composerPrompt}
-          />
-          <div className="composer-meta">
-            <button className="ghost-button align-left" type="button"><Icon name="plus" /></button>
-            <div className="composer-model">
-              <span>{copy.modelLabel}</span>
-              <strong>{formatSessionMode(bootstrap.currentMode)}</strong>
-            </div>
-            <button className="primary-button" onClick={onStartTurn} type="button">
-              <span>{isStartingTurn ? copy.sendingLabel : copy.sendLabel}</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="quick-actions">
-          {copy.quickActions.map((action) => (
-            <button className="quick-action" key={action.label} type="button">
-              <Icon name={action.icon} />
-              <span>{action.label}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="overview-grid">
-        <article className="panel">
-          <div className="panel-heading">{copy.modeLabel}</div>
-          <div className="mode-callout">
-            <span className="mode-badge">{formatSessionMode(bootstrap.currentMode)}</span>
-            <p>{copy.homeModeDescriptions[bootstrap.currentMode]}</p>
-          </div>
-        </article>
-
-        <article className="panel">
-          <div className="panel-heading">{copy.sessionHostLabel}</div>
-          {latestTurn ? (
-            <div className="source-list">
-              <div className="source-item">
-                <div className="source-topline">
-                  <span>{latestTurn.createdNewSession ? copy.sessionCreatedLabel : copy.sessionUpdatedLabel}</span>
-                  <strong className="mirror-status ready">{formatSessionMode(latestTurn.session.mode)}</strong>
-                </div>
-                <strong>{latestTurn.session.title}</strong>
-                <p className="source-summary">{latestTurn.assistantSummary}</p>
-                <div className="source-highlights">
-                  <span className="source-pill">{latestTurn.session.workingDirectory}</span>
-                  <span className="source-pill">{copy.transcriptLabel}: {latestTurn.session.transcriptPath}</span>
-                  {latestTurn.resolvedCommand && (
-                    <span className="source-pill">/{latestTurn.resolvedCommand.name}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="mode-callout">
-              <span className="mode-badge">.qwen</span>
-              <p>GUI composer now starts real desktop turns through the native .NET session host.</p>
-            </div>
-          )}
-        </article>
-
-        <article className="panel">
-          <div className="panel-heading">{copy.sourceMirrors}</div>
-          <div className="source-list">
-            {bootstrap.sourceStatuses.map((status) => (
-              <MirrorStatusCard key={status.id} mirror={status} />
-            ))}
-          </div>
-        </article>
-
-        <article className="panel wide">
-          <div className="panel-heading">{copy.compatibilityGoals}</div>
-          <div className="goal-list">
-            {bootstrap.compatibilityGoals.map((goal, index) => (
-              <div className="goal-item" key={goal}>
-                <span className="goal-index">{String(index + 1).padStart(2, '0')}</span>
-                <p>{goal}</p>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="panel wide">
-          <div className="panel-heading">{copy.settingsLayersLabel}</div>
-          <div className="source-list">
-            {bootstrap.qwenCompatibility.settingsLayers.map((layer) => (
-              <div className="source-item" key={layer.id}>
-                <div className="source-topline">
-                  <span>{layer.title}</span>
-                  <strong className={`mirror-status ${layer.exists ? 'ready' : 'missing'}`}>
-                    P{layer.priority}
-                  </strong>
-                </div>
-                <strong>{layer.path}</strong>
-                <p className="source-summary">{layer.scope}</p>
-                <div className="source-highlights">
-                  {(layer.categories.length > 0 ? layer.categories : ['No categories detected']).map((item) => (
-                    <span className="source-pill" key={item}>{item}</span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="panel wide">
-          <div className="panel-heading">{copy.surfaceDirectoriesLabel}</div>
-          <div className="source-list">
-            {bootstrap.qwenCompatibility.surfaceDirectories.map((surface) => (
-              <div className="source-item" key={surface.id}>
-                <div className="source-topline">
-                  <span>{surface.title}</span>
-                  <strong className={`mirror-status ${surface.exists ? 'ready' : 'missing'}`}>
-                    {surface.itemCount}
-                  </strong>
-                </div>
-                <strong>{surface.path}</strong>
-                <p className="source-summary">{surface.summary}</p>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="panel wide">
-          <div className="panel-heading">Commands and skills</div>
-          <div className="source-list">
-            <div className="source-item">
-              <div className="source-topline">
-                <span>Slash commands</span>
-                <strong className="mirror-status ready">{bootstrap.qwenCompatibility.commands.length}</strong>
-              </div>
-              <strong>{bootstrap.qwenCompatibility.commands.map((item) => item.name).slice(0, 3).join(' • ') || 'No commands discovered'}</strong>
-              <p className="source-summary">qwen-compatible markdown commands discovered from project and user .qwen surfaces.</p>
-              <div className="source-highlights">
-                {bootstrap.qwenCompatibility.commands.slice(0, 6).map((command) => (
-                  <span className="source-pill" key={command.id}>{command.scope}:{command.name}</span>
-                ))}
-              </div>
-            </div>
-
-            <div className="source-item">
-              <div className="source-topline">
-                <span>Skills</span>
-                <strong className="mirror-status ready">{bootstrap.qwenCompatibility.skills.length}</strong>
-              </div>
-              <strong>{bootstrap.qwenCompatibility.skills.map((item) => item.name).slice(0, 3).join(' • ') || 'No skills discovered'}</strong>
-              <p className="source-summary">Structured SKILL.md bundles are now native desktop surfaces instead of hidden compatibility folders.</p>
-              <div className="source-highlights">
-                {bootstrap.qwenCompatibility.skills.slice(0, 6).map((skill) => (
-                  <span className="source-pill" key={skill.id}>{skill.scope}:{skill.name}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <article className="panel wide">
-          <div className="panel-heading">{copy.runtimeProfileLabel}</div>
-          <div className="source-list">
-            <div className="source-item">
-              <div className="source-topline">
-                <span>Runtime base</span>
-                <strong className="mirror-status ready">{bootstrap.qwenRuntime.runtimeSource}</strong>
-              </div>
-              <strong>{bootstrap.qwenRuntime.runtimeBaseDirectory}</strong>
-              <p className="source-summary">{bootstrap.qwenRuntime.projectDataDirectory}</p>
-              <div className="source-highlights">
-                <span className="source-pill">{bootstrap.qwenRuntime.chatsDirectory}</span>
-                <span className="source-pill">{bootstrap.qwenRuntime.historyDirectory}</span>
-              </div>
-            </div>
-
-            <div className="source-item">
-              <div className="source-topline">
-                <span>{copy.runtimeApprovalLabel}</span>
-                <strong className="mirror-status ready">{bootstrap.qwenRuntime.approvalProfile.defaultMode}</strong>
-              </div>
-              <strong>{bootstrap.qwenRuntime.contextFileNames.join(', ')}</strong>
-              <p className="source-summary">{bootstrap.qwenRuntime.contextFilePaths.join(' • ')}</p>
-              <div className="source-highlights">
-                {[
-                  ...bootstrap.qwenRuntime.approvalProfile.allowRules.slice(0, 2),
-                  ...bootstrap.qwenRuntime.approvalProfile.askRules.slice(0, 1),
-                  ...bootstrap.qwenRuntime.approvalProfile.denyRules.slice(0, 1),
-                ].map((rule) => (
-                  <span className="source-pill" key={rule}>{rule}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <article className="panel wide">
-          <div className="panel-heading">{copy.toolCatalogLabel}</div>
-          <div className="source-list">
-            <div className="source-item">
-              <div className="source-topline">
-                <span>{bootstrap.qwenTools.sourceMode}</span>
-                <strong className="mirror-status ready">{bootstrap.qwenTools.totalCount}</strong>
-              </div>
-              <strong>
-                allow {bootstrap.qwenTools.allowedCount} • ask {bootstrap.qwenTools.askCount} • deny {bootstrap.qwenTools.denyCount}
-              </strong>
-              <p className="source-summary">qwen tool contracts and approval defaults interpreted by the .NET host.</p>
-              <div className="source-highlights">
-                {bootstrap.qwenTools.tools.slice(0, 6).map((tool) => (
-                  <span className="source-pill" key={tool.name}>{tool.displayName}:{tool.approvalState}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <article className="panel wide">
-          <div className="panel-heading">{copy.nativeHostLabel}</div>
-          <div className="source-list">
-            <div className="source-item">
-              <div className="source-topline">
-                <span>.NET native tool host</span>
-                <strong className="mirror-status ready">{bootstrap.qwenNativeHost.registeredCount}</strong>
-              </div>
-              <strong>
-                ready {bootstrap.qwenNativeHost.readyCount} • ask {bootstrap.qwenNativeHost.approvalRequiredCount} • implemented {bootstrap.qwenNativeHost.implementedCount}
-              </strong>
-              <p className="source-summary">Native qwen-compatible tools executed inside the desktop backend rather than through CLI stdout.</p>
-              <div className="source-highlights">
-                {bootstrap.qwenNativeHost.tools.slice(0, 7).map((tool) => (
-                  <span className="source-pill" key={tool.name}>{tool.displayName}:{tool.approvalState}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-        </article>
-      </section>
-    </>
-  )
-}
-
-function CustomizeView({
-  copy,
-  compatibilityPills,
-  selectedPattern,
-  selectedPatternIndex,
-  setSelectedPatternIndex,
-  setActiveView,
-  visiblePatterns,
-  lanes,
-}: {
-  copy: LocaleCopy
-  compatibilityPills: string[]
-  selectedPattern: typeof fallbackBootstrap.adoptionPatterns[number]
-  selectedPatternIndex: number
-  setSelectedPatternIndex: (index: number) => void
-  setActiveView: (view: NavItem['id']) => void
-  visiblePatterns: typeof fallbackBootstrap.adoptionPatterns
-  lanes: CapabilityLane[]
-}) {
-  return (
-    <section className="split-view">
-      <div className="split-pane nav-pane">
-        <div className="split-title">
-          <button className="ghost-button compact" onClick={() => setActiveView('home')} type="button">
-            <Icon name="chevronLeft" />
-          </button>
-          <div>
-            <h1>{copy.customizeTitle}</h1>
-            <p>{copy.customizeSubtitle}</p>
-          </div>
-        </div>
-
-        <div className="category-list">
-          <button className="category-item active" type="button"><span className="action-icon"><Icon name="customize" /></span><span>Skills</span></button>
-          <button className="category-item" type="button"><span className="action-icon"><Icon name="split" /></span><span>Connectors</span></button>
-          <button className="category-item" type="button"><span className="action-icon"><Icon name="spark" /></span><span>Plugins</span></button>
-        </div>
-      </div>
-
-      <div className="split-pane library-pane">
-        <div className="pane-head">
-          <div>
-            <div className="sidebar-label">{copy.customizeLibraryTitle}</div>
-            <h2>Adoption patterns</h2>
-          </div>
-          <button className="ghost-button compact" type="button"><Icon name="plus" /></button>
-        </div>
-
-        <div className="pattern-list">
-          {visiblePatterns.map((pattern, index) => (
-            <button
-              className={`pattern-item ${selectedPatternIndex === index ? 'active' : ''}`}
-              key={pattern.area}
-              onClick={() => setSelectedPatternIndex(index)}
-              type="button"
-            >
-              <span>{pattern.area}</span>
-              <small>{pattern.deliveryState}</small>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="split-pane detail-pane">
-        <div className="detail-header">
-          <div>
-            <h2>{selectedPattern.area}</h2>
-            <p>{copy.customizeDetailTitle}</p>
-          </div>
-          <span className="toggle-indicator">{selectedPattern.deliveryState}</span>
-        </div>
-
-        <div className="detail-stack">
-          <DetailCard body={selectedPattern.qwenSource} title={copy.referenceFromQwen} />
-          <DetailCard body={selectedPattern.claudeReference} title={copy.referenceFromClaude} />
-          <DetailCard body={selectedPattern.desktopDirection} title={copy.desktopDecision} />
-          <article className="detail-card">
-            <span>qwen compatibility surfaces</span>
-            <div className="source-highlights">
-              {compatibilityPills.map((item) => (
-                <span className="source-pill" key={item}>{item}</span>
-              ))}
-            </div>
-          </article>
-          <article className="detail-card">
-            <span>{copy.capabilityLanes}</span>
-            <div className="lane-list">
-              {lanes.map((lane) => (
-                <LaneCard copy={copy} key={lane.title} lane={lane} />
-              ))}
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function ChatsView({
-  copy,
-  query,
-  setQuery,
-  sessions,
-  selectedSessionId,
-  selectedSessionDetail,
-  isLoadingSession,
-  sessionReplyPrompt,
-  setSessionReplyPrompt,
-  isContinuingSession,
-  selectedSessionToolName,
-  setSelectedSessionToolName,
-  selectedSessionToolArgs,
-  setSelectedSessionToolArgs,
-  approveSessionToolExecution,
-  setApproveSessionToolExecution,
-  availableTools,
-  approvingSessionToolEntryId,
-  onApprovePendingTool,
-  onContinueSession,
-  onSelectSession,
-  onNewChat,
-}: {
-  copy: LocaleCopy
-  query: string
-  setQuery: (value: string) => void
-  sessions: SessionPreview[]
-  selectedSessionId: string
-  selectedSessionDetail: DesktopSessionDetail | null
-  isLoadingSession: boolean
-  sessionReplyPrompt: string
-  setSessionReplyPrompt: (value: string) => void
-  isContinuingSession: boolean
-  selectedSessionToolName: string
-  setSelectedSessionToolName: (value: string) => void
-  selectedSessionToolArgs: string
-  setSelectedSessionToolArgs: (value: string) => void
-  approveSessionToolExecution: boolean
-  setApproveSessionToolExecution: (value: boolean) => void
-  availableTools: string[]
-  approvingSessionToolEntryId: string
-  onApprovePendingTool: (entryId: string) => void
-  onContinueSession: () => void
-  onSelectSession: (sessionId: string) => void
-  onNewChat: () => void
-}) {
-  return (
-    <section className="chats-view">
-      <div className="view-header inline">
-        <div>
-          <h1>{copy.chatSurfaceTitle}</h1>
-          <p>{copy.chatSurfaceSubtitle}</p>
-        </div>
-        <button className="primary-button" onClick={onNewChat} type="button">
-          <Icon name="plus" />
-          <span>{copy.newChat}</span>
-        </button>
-      </div>
-
-      <label className="search-input">
-        <span className="action-icon"><Icon name="search" /></span>
-        <input
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={copy.searchPlaceholder}
-          value={query}
-        />
-      </label>
-
-      <div className="chat-list-header">
-        <span>{copy.allConversations}</span>
-        <button className="link-button" type="button">Select</button>
-      </div>
-
-      <div className="sessions-layout">
-        <div className="chat-list">
-          {sessions.length === 0 && <div className="empty-state">{copy.emptySearch}</div>}
-          {sessions.map((session) => (
-            <button
-              className={`chat-row ${selectedSessionId === session.sessionId ? 'active' : ''}`}
-              key={session.sessionId}
-              onClick={() => onSelectSession(session.sessionId)}
-              type="button"
-            >
-              <div>
-                <strong>{session.title}</strong>
-                <p>{session.lastActivity}</p>
-              </div>
-              <div className="chat-row-meta">
-                <span>{session.category}</span>
-                <span>{session.messageCount} msgs</span>
-                <span>{copy.modeLabel}: {formatSessionMode(session.mode)}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <article className="session-detail">
-          {!selectedSessionId && <div className="empty-state">Select a session to inspect its qwen transcript.</div>}
-          {selectedSessionId && isLoadingSession && <div className="empty-state">Loading transcript...</div>}
-          {selectedSessionId && !isLoadingSession && !selectedSessionDetail && (
-            <div className="empty-state">Transcript detail is not available for this session yet.</div>
-          )}
-          {selectedSessionDetail && (
-            <>
-              <div className="session-detail-header">
-                <div>
-                  <h2>{selectedSessionDetail.session.title}</h2>
-                  <p>{selectedSessionDetail.transcriptPath}</p>
-                </div>
-                <span className="source-pill">{selectedSessionDetail.entryCount} entries</span>
-              </div>
-
-              <div className="session-summary-grid">
-                <span className="source-pill">users {selectedSessionDetail.summary.userCount}</span>
-                <span className="source-pill">assistant {selectedSessionDetail.summary.assistantCount}</span>
-                <span className="source-pill">commands {selectedSessionDetail.summary.commandCount}</span>
-                <span className="source-pill">tools {selectedSessionDetail.summary.toolCount}</span>
-                <span className="source-pill">pending approvals {selectedSessionDetail.summary.pendingApprovalCount}</span>
-                <span className="source-pill">completed tools {selectedSessionDetail.summary.completedToolCount}</span>
-                {selectedSessionDetail.summary.failedToolCount > 0 && (
-                  <span className="source-pill">failed tools {selectedSessionDetail.summary.failedToolCount}</span>
-                )}
-                {selectedSessionDetail.summary.lastTimestamp && (
-                  <span className="source-pill">{selectedSessionDetail.summary.lastTimestamp}</span>
-                )}
-              </div>
-
-              <div className="session-entry-list">
-                {selectedSessionDetail.entries.map((entry) => (
-                  <SessionTimelineEntry
-                    approvingEntryId={approvingSessionToolEntryId}
-                    entry={entry}
-                    key={entry.id}
-                    onApprovePendingTool={onApprovePendingTool}
-                  />
-                ))}
-              </div>
-
-              <div className="session-reply">
-                <textarea
-                  aria-label="Session reply composer"
-                  onChange={(event) => setSessionReplyPrompt(event.target.value)}
-                  placeholder="Continue this code session..."
-                  rows={4}
-                  value={sessionReplyPrompt}
-                />
-                <div className="session-tool-config">
-                  <label className="session-tool-field">
-                    <span>Native tool</span>
-                    <select
-                      onChange={(event) => setSelectedSessionToolName(event.target.value)}
-                      value={selectedSessionToolName}
-                    >
-                      <option value="">No tool</option>
-                      {availableTools.map((tool) => (
-                        <option key={tool} value={tool}>{tool}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="session-tool-field wide">
-                    <span>Tool arguments JSON</span>
-                    <textarea
-                      onChange={(event) => setSelectedSessionToolArgs(event.target.value)}
-                      rows={4}
-                      value={selectedSessionToolArgs}
-                    />
-                  </label>
-
-                  <label className="session-tool-toggle">
-                    <input
-                      checked={approveSessionToolExecution}
-                      onChange={(event) => setApproveSessionToolExecution(event.target.checked)}
-                      type="checkbox"
-                    />
-                    <span>Pre-approve tool execution for this turn</span>
-                  </label>
-                </div>
-                <div className="session-reply-actions">
-                  <span className="source-summary">{selectedSessionDetail.session.workingDirectory}</span>
-                  <button className="primary-button" onClick={onContinueSession} type="button">
-                    <span>{isContinuingSession ? copy.sendingLabel : copy.sendLabel}</span>
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </article>
-      </div>
-    </section>
-  )
-}
-
-function SessionTimelineEntry({
-  entry,
+function SessionEntryCard({
   approvingEntryId,
+  copy,
+  entry,
   onApprovePendingTool,
 }: {
-  entry: DesktopSessionEntry
   approvingEntryId: string
+  copy: UiCopy
+  entry: DesktopSessionEntry
   onApprovePendingTool: (entryId: string) => void
 }) {
   const canApprove = entry.type === 'tool' && entry.status === 'approval-required' && !entry.resolutionStatus
   const isApproving = approvingEntryId === entry.id
+  const toneClass = getEntryToneClass(entry.type)
 
   return (
-    <article className={`session-entry ${entry.type}`}>
-      <div className="source-topline">
-        <strong>{entry.title}</strong>
-        <div className="source-highlights">
-          {entry.status && <span className="source-pill">{entry.status}</span>}
-          {entry.approvalState && <span className="source-pill">{entry.approvalState}</span>}
-          {entry.resolutionStatus && <span className="source-pill">{entry.resolutionStatus}</span>}
-          {entry.exitCode !== null && entry.exitCode !== undefined && <span className="source-pill">exit {entry.exitCode}</span>}
-          {entry.gitBranch && <span className="source-pill">{entry.gitBranch}</span>}
+    <article className={`timeline-entry ${toneClass}`}>
+      <div className="timeline-entry__header">
+        <div className="timeline-entry__copy">
+          <div className="timeline-entry__eyebrow">
+            <span>{formatTokenLabel(entry.type || entry.title)}</span>
+            {(entry.timestamp || entry.workingDirectory || entry.gitBranch) && (
+              <span>{entry.timestamp || entry.workingDirectory || entry.gitBranch}</span>
+            )}
+          </div>
+          <strong>{entry.title}</strong>
+        </div>
+
+        <div className="entry-tags">
+          {entry.status && <span>{formatTokenLabel(entry.status)}</span>}
+          {entry.toolName && <span>{entry.toolName}</span>}
+          {entry.approvalState && <span>{formatTokenLabel(entry.approvalState)}</span>}
+          {entry.exitCode !== null && entry.exitCode !== undefined && <span>exit {entry.exitCode}</span>}
         </div>
       </div>
-      <p className="source-summary">{entry.body || 'No text payload.'}</p>
-      <div className="source-highlights">
-        {entry.type && <span className="source-pill">{entry.type}</span>}
-        {entry.toolName && <span className="source-pill">{entry.toolName}</span>}
-        {entry.scope && <span className="source-pill">{entry.scope}</span>}
-        {entry.timestamp && <span className="source-pill">{entry.timestamp}</span>}
-        {entry.resolvedAt && <span className="source-pill">{entry.resolvedAt}</span>}
-      </div>
-      {(entry.arguments || entry.sourcePath || entry.changedFiles.length > 0 || entry.workingDirectory) && (
-        <div className="session-entry-meta">
-          {entry.arguments && <div className="session-entry-block"><strong>Args</strong><pre>{entry.arguments}</pre></div>}
-          {entry.sourcePath && <div className="session-entry-block"><strong>Source</strong><pre>{entry.sourcePath}</pre></div>}
-          {entry.changedFiles.length > 0 && <div className="session-entry-block"><strong>Changed files</strong><pre>{entry.changedFiles.join('\n')}</pre></div>}
-          {entry.workingDirectory && <div className="session-entry-block"><strong>Working directory</strong><pre>{entry.workingDirectory}</pre></div>}
+
+      <div className="timeline-entry__body">{entry.body || 'No content.'}</div>
+
+      {(entry.arguments || entry.sourcePath || entry.changedFiles.length > 0) && (
+        <div className="entry-detail-grid">
+          {entry.arguments && (
+            <DetailBlock label={copy.detailsLabel} value={entry.arguments} />
+          )}
+          {entry.sourcePath && (
+            <DetailBlock label={copy.sourceLabel} value={entry.sourcePath} />
+          )}
+          {entry.changedFiles.length > 0 && (
+            <DetailBlock label={copy.changedFilesLabel} value={entry.changedFiles.join('\n')} />
+          )}
         </div>
       )}
+
       {canApprove && (
-        <div className="session-entry-actions">
+        <div className="timeline-entry__actions">
           <button
-            className="primary-button compact"
+            className="button button--primary"
             disabled={isApproving}
             onClick={() => onApprovePendingTool(entry.id)}
             type="button"
           >
-            <span>{isApproving ? 'Approving...' : 'Approve and execute'}</span>
+            {isApproving ? copy.sending : copy.approveAndExecute}
           </button>
         </div>
       )}
@@ -1214,133 +1188,290 @@ function SessionTimelineEntry({
   )
 }
 
-function LibraryView({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string
-  subtitle: string
-  children: ReactNode
-}) {
+function DetailBlock({ label, value }: { label: string; value: string }) {
   return (
-    <section className="library-view">
-      <div className="view-header inline">
-        <div>
-          <h1>{title}</h1>
-          <p>{subtitle}</p>
-        </div>
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function DetailCard({ title, body }: { title: string; body: string }) {
-  return (
-    <article className="detail-card">
-      <span>{title}</span>
-      <p>{body}</p>
+    <article className="detail-block">
+      <span>{label}</span>
+      <pre>{value}</pre>
     </article>
   )
 }
 
-function LaneCard({ lane, copy }: { lane: CapabilityLane; copy: LocaleCopy }) {
-  return (
-    <article className="lane-card">
-      <span>{copy.capabilityLanes}</span>
-      <h3>{lane.title}</h3>
-      <p>{lane.summary}</p>
-      <div className="lane-responsibilities">
-        <strong>{copy.responsibilities}</strong>
-        {lane.responsibilities.map((item) => (
-          <div className="lane-pill" key={item}>{item}</div>
-        ))}
-      </div>
-    </article>
-  )
+function buildPreviewDetail(result: DesktopSessionTurnResult): DesktopSessionDetail {
+  return {
+    session: result.session,
+    transcriptPath: result.session.transcriptPath,
+    entryCount: 2,
+    windowOffset: 0,
+    windowSize: 2,
+    hasOlderEntries: false,
+    hasNewerEntries: false,
+    summary: {
+      userCount: 1,
+      assistantCount: 1,
+      commandCount: result.resolvedCommand ? 1 : 0,
+      toolCount: 0,
+      pendingApprovalCount: 0,
+      completedToolCount: 0,
+      failedToolCount: 0,
+      lastTimestamp: '',
+    },
+    entries: [
+      {
+        id: `${result.session.sessionId}-user`,
+        type: 'user',
+        timestamp: '',
+        workingDirectory: result.session.workingDirectory,
+        gitBranch: result.session.gitBranch,
+        title: 'User',
+        body: result.session.title,
+        status: '',
+        approvalState: '',
+        exitCode: null,
+        arguments: '',
+        scope: '',
+        sourcePath: '',
+        resolutionStatus: '',
+        resolvedAt: '',
+        changedFiles: [],
+        toolName: '',
+      },
+      {
+        id: `${result.session.sessionId}-assistant`,
+        type: 'assistant',
+        timestamp: '',
+        workingDirectory: result.session.workingDirectory,
+        gitBranch: result.session.gitBranch,
+        title: 'Assistant',
+        body: result.assistantSummary,
+        status: '',
+        approvalState: '',
+        exitCode: null,
+        arguments: '',
+        scope: '',
+        sourcePath: '',
+        resolutionStatus: '',
+        resolvedAt: '',
+        changedFiles: [],
+        toolName: '',
+      },
+    ],
+  }
 }
 
-function MirrorStatusCard({ mirror }: { mirror: SourceMirrorStatus }) {
-  const toneClass = `mirror-status ${mirror.status}`
-
-  return (
-    <div className="source-item">
-      <div className="source-topline">
-        <span>{mirror.title}</span>
-        <strong className={toneClass}>{mirror.status}</strong>
-      </div>
-      <strong>{mirror.path}</strong>
-      <p className="source-summary">{mirror.summary}</p>
-      <div className="source-highlights">
-        {mirror.highlights.map((item) => (
-          <span className="source-pill" key={item}>{item}</span>
-        ))}
-      </div>
-    </div>
-  )
+function getWorkspaceName(path: string) {
+  const normalized = path.replace(/\\/g, '/').split('/').filter(Boolean)
+  return normalized.at(-1) ?? path
 }
 
-function PortWorkItemCard({ item }: { item: RuntimePortWorkItem }) {
-  const toneClass = `mirror-status ${item.stage}`
-
-  return (
-    <article className="artifact-card port-work-item">
-      <div className="source-topline">
-        <span>{item.sourceSystem}</span>
-        <strong className={toneClass}>{item.stage}</strong>
-      </div>
-      <h2>{item.title}</h2>
-      <p>{item.summary}</p>
-      <div className="port-meta">
-        <span className="source-pill">{item.targetModule}</span>
-      </div>
-      <p className="source-summary">{item.compatibilityContract}</p>
-      <div className="source-highlights">
-        {item.evidencePaths.map((path) => (
-          <span className="source-pill" key={path}>{path}</span>
-        ))}
-      </div>
-    </article>
-  )
+function getEntryToneClass(type: string) {
+  switch (type) {
+    case 'user':
+      return 'timeline-entry--user'
+    case 'assistant':
+      return 'timeline-entry--assistant'
+    case 'tool':
+      return 'timeline-entry--tool'
+    case 'command':
+      return 'timeline-entry--command'
+    default:
+      return 'timeline-entry--neutral'
+  }
 }
 
-function ToolCard({ tool }: { tool: typeof fallbackBootstrap.qwenTools.tools[number] }) {
-  const toneClass = `mirror-status ${tool.approvalState}`
+function groupSessionsByProject(sessions: SessionPreview[]) {
+  const groups = new Map<string, { projectKey: string; projectName: string; sessions: SessionPreview[] }>()
 
-  return (
-    <article className="artifact-card port-work-item">
-      <div className="source-topline">
-        <span>{tool.kind}</span>
-        <strong className={toneClass}>{tool.approvalState}</strong>
-      </div>
-      <h2>{tool.displayName}</h2>
-      <p>{tool.approvalReason}</p>
-      <div className="port-meta">
-        <span className="source-pill">{tool.name}</span>
-      </div>
-      <p className="source-summary">{tool.sourcePath}</p>
-    </article>
-  )
+  sessions.forEach((session) => {
+    const projectKey = session.workingDirectory || 'workspace'
+    const projectName = getWorkspaceName(projectKey)
+    const current = groups.get(projectKey)
+
+    if (current) {
+      current.sessions.push(session)
+      return
+    }
+
+    groups.set(projectKey, {
+      projectKey,
+      projectName,
+      sessions: [session],
+    })
+  })
+
+  return Array.from(groups.values())
 }
 
-function NativeHostToolCard({ tool }: { tool: typeof fallbackBootstrap.qwenNativeHost.tools[number] }) {
-  const toneClass = `mirror-status ${tool.approvalState}`
+function formatActivityLabel(value: string) {
+  if (!value) {
+    return ''
+  }
 
-  return (
-    <article className="artifact-card port-work-item">
-      <div className="source-topline">
-        <span>{tool.kind}</span>
-        <strong className={toneClass}>{tool.approvalState}</strong>
-      </div>
-      <h2>{tool.displayName}</h2>
-      <p>{tool.approvalReason}</p>
-      <div className="port-meta">
-        <span className="source-pill">{tool.name}</span>
-        <span className="source-pill">{tool.isImplemented ? 'implemented' : 'planned'}</span>
-      </div>
-    </article>
-  )
+  return value.replace(/^updated\s+/i, '')
+}
+
+function formatTokenLabel(value: string) {
+  if (!value) {
+    return ''
+  }
+
+  return value
+    .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\w/, (char) => char.toUpperCase())
+}
+
+function getUiCopy(locale: string): UiCopy {
+  if (locale.startsWith('ru')) {
+    return {
+      newChat: 'Новая сессия',
+      searchChats: 'Поиск по сессиям',
+      allChats: 'Беседы',
+      workspace: 'Workspace',
+      environment: 'Среда',
+      connected: 'Bridge подключён',
+      localPreview: 'Локальный preview',
+      activeTurns: 'активных turn',
+      nativeTools: 'Нативные инструменты',
+      focusLabel: 'Рабочая поверхность',
+      heroEyebrow: 'Qwen-first desktop agent',
+      heroTitle: 'Давайте построим',
+      heroSubtitle: '',
+      heroNote: '',
+      composerPlaceholder: 'Что нужно сделать с кодом, архитектурой или runtime прямо сейчас?',
+      continuePlaceholder: 'Продолжить эту сессию...',
+      send: 'Отправить',
+      sending: 'Отправка...',
+      loadOlder: 'Старее',
+      loadNewer: 'Новее',
+      noSessions: 'Сессии пока не найдены.',
+      emptySession: 'Выберите сессию слева, чтобы открыть transcript.',
+      loading: 'Загружаю transcript...',
+      pendingApprovals: 'Ожидают approval',
+      completedTools: 'Инструменты завершены',
+      failedTools: 'Ошибки',
+      commands: 'Команды',
+      tools: 'Инструменты',
+      users: 'Пользователь',
+      assistant: 'Ассистент',
+      recoverableTurns: 'Незавершённые turn',
+      resumeInterrupted: 'Возобновить',
+      dismissInterrupted: 'Скрыть',
+      recoveryReason: 'Сессии, которые можно безопасно вернуть в работу.',
+      liveTurn: 'Живой turn',
+      cancelTurn: 'Остановить',
+      approveAndExecute: 'Подтвердить и выполнить',
+      showing: 'Показано',
+      of: 'из',
+      suggestionsTitle: 'Быстрые сценарии',
+      suggestions: [
+        'Переработай renderer под Qwen-first desktop shell',
+        'Собери typed IPC flow для новых UI-панелей',
+        'Разберись с approval UX и live transcript',
+        'Подготовь план миграции от текущего колхоза к системному интерфейсу',
+      ],
+      architectureTitle: 'Архитектурные треки',
+      architectureSubtitle: 'Главные направления, которые сейчас формируют продукт.',
+      toolPolicyTitle: 'Политика инструментов',
+      toolPolicySubtitle: 'Как runtime, approvals и native host выглядят прямо сейчас.',
+      projectMemoryTitle: 'Память проекта',
+      projectMemoryEmpty: 'История проекта ещё не собрана. Здесь появится summary и текущий план.',
+      surfacesTitle: 'Поверхности совместимости',
+      sessionOverviewTitle: 'Обзор сессии',
+      contextTitle: 'Контекст',
+      timelineTitle: 'Timeline',
+      transcriptTitle: 'Transcript',
+      detailsLabel: 'Аргументы',
+      sourceLabel: 'Исходный путь',
+      changedFilesLabel: 'Изменённые файлы',
+      branchLabel: 'Ветка',
+      statusLabel: 'Статус',
+      latestEventLabel: 'Последнее событие',
+      readinessLabel: 'Готово',
+      approvalsLabel: 'Approval',
+      allowedLabel: 'Allow',
+      askLabel: 'Ask',
+      noPendingApprovals: 'Сейчас нет инструментов, ожидающих подтверждения.',
+      modeCodeLabel: 'Code',
+      projectSummaryLabel: 'Текущая цель проекта',
+      updatedNowLabel: 'Обновлено только что',
+    }
+  }
+
+  return {
+    newChat: 'New session',
+    searchChats: 'Search sessions',
+    allChats: 'Conversations',
+    workspace: 'Workspace',
+    environment: 'Environment',
+    connected: 'Bridge connected',
+    localPreview: 'Local preview',
+    activeTurns: 'active turns',
+    nativeTools: 'Native tools',
+    focusLabel: 'Focused workspace',
+    heroEyebrow: 'Qwen-first desktop agent',
+    heroTitle: "Let's build",
+    heroSubtitle: '',
+    heroNote: '',
+    composerPlaceholder: 'What do you need done in code, architecture, or runtime right now?',
+    continuePlaceholder: 'Continue this session...',
+    send: 'Send',
+    sending: 'Sending...',
+    loadOlder: 'Older',
+    loadNewer: 'Newer',
+    noSessions: 'No sessions found yet.',
+    emptySession: 'Select a session from the sidebar to open its transcript.',
+    loading: 'Loading transcript...',
+    pendingApprovals: 'Pending approvals',
+    completedTools: 'Completed tools',
+    failedTools: 'Failures',
+    commands: 'Commands',
+    tools: 'Tools',
+    users: 'User',
+    assistant: 'Assistant',
+    recoverableTurns: 'Recoverable turns',
+    resumeInterrupted: 'Resume',
+    dismissInterrupted: 'Dismiss',
+    recoveryReason: 'Sessions that can be safely brought back into the workspace.',
+    liveTurn: 'Live turn',
+    cancelTurn: 'Cancel turn',
+    approveAndExecute: 'Approve and execute',
+    showing: 'Showing',
+    of: 'of',
+    suggestionsTitle: 'Quick prompts',
+    suggestions: [
+      'Redesign the renderer into a Qwen-first desktop shell',
+      'Build a typed IPC flow for the new workspace panels',
+      'Improve approval UX and live transcript states',
+      'Prepare a migration plan from the current UI to a system-grade interface',
+    ],
+    architectureTitle: 'Architecture tracks',
+    architectureSubtitle: 'The product directions that matter right now.',
+    toolPolicyTitle: 'Tool policy',
+    toolPolicySubtitle: 'How runtime, approvals, and the native host are configured today.',
+    projectMemoryTitle: 'Project memory',
+    projectMemoryEmpty: 'No project summary yet. This surface will show the current goal and plan.',
+    surfacesTitle: 'Compatibility surfaces',
+    sessionOverviewTitle: 'Session overview',
+    contextTitle: 'Context',
+    timelineTitle: 'Timeline',
+    transcriptTitle: 'Transcript',
+    detailsLabel: 'Arguments',
+    sourceLabel: 'Source path',
+    changedFilesLabel: 'Changed files',
+    branchLabel: 'Branch',
+    statusLabel: 'Status',
+    latestEventLabel: 'Latest event',
+    readinessLabel: 'Ready',
+    approvalsLabel: 'Approvals',
+    allowedLabel: 'Allow',
+    askLabel: 'Ask',
+    noPendingApprovals: 'There are no tools waiting for approval right now.',
+    modeCodeLabel: 'Code',
+    projectSummaryLabel: 'Current project goal',
+    updatedNowLabel: 'Updated just now',
+  }
 }
 
 export default App
