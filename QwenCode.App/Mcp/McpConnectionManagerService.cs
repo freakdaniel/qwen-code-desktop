@@ -5,9 +5,14 @@ namespace QwenCode.App.Mcp;
 
 public sealed class McpConnectionManagerService(
     IMcpRegistry registry,
-    HttpClient httpClient) : IMcpConnectionManager
+    IMcpToolRuntime mcpToolRuntime,
+    McpHealthMonitorOptions? healthOptions = null) : IMcpConnectionManager
 {
+    private readonly McpHealthMonitorOptions health = healthOptions ?? new McpHealthMonitorOptions();
     private readonly ConcurrentDictionary<string, McpReconnectResult> states = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> healthMonitors = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, int> consecutiveFailures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> reconnecting = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyList<McpServerDefinition> ListServersWithStatus(WorkspacePaths paths) =>
         registry.ListServers(paths)
@@ -37,7 +42,12 @@ public sealed class McpConnectionManagerService(
                     HasPersistedToken = server.HasPersistedToken,
                     Status = state.Status,
                     LastReconnectAttemptUtc = state.AttemptedAtUtc,
-                    LastError = state.Status == "connected" ? string.Empty : state.Message
+                    LastError = state.Status == "connected" ? string.Empty : state.Message,
+                    DiscoveredToolsCount = state.DiscoveredToolsCount,
+                    DiscoveredPromptsCount = state.DiscoveredPromptsCount,
+                    SupportsPrompts = state.SupportsPrompts,
+                    SupportsResources = state.SupportsResources,
+                    LastDiscoveryUtc = state.LastDiscoveryUtc
                 };
             })
             .ToArray();
@@ -54,22 +64,47 @@ public sealed class McpConnectionManagerService(
             return RecordState(paths, name, "missing", $"MCP server '{name}' is not configured.");
         }
 
-        var result = await ValidateConnectionAsync(server, cancellationToken);
+        var result = await ValidateConnectionAsync(paths, server, cancellationToken);
         states[BuildStateKey(paths, name)] = result;
+        if (string.Equals(result.Status, "connected", StringComparison.OrdinalIgnoreCase))
+        {
+            consecutiveFailures[BuildStateKey(paths, name)] = 0;
+            StartHealthMonitor(paths, name);
+        }
         return result;
     }
 
+    public async Task DisconnectAsync(
+        WorkspacePaths paths,
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        StopHealthMonitor(paths, name);
+        consecutiveFailures.TryRemove(BuildStateKey(paths, name), out _);
+        reconnecting.TryRemove(BuildStateKey(paths, name), out _);
+        await mcpToolRuntime.DisconnectServerAsync(paths, name, cancellationToken);
+    }
+
     private async Task<McpReconnectResult> ValidateConnectionAsync(
+        WorkspacePaths paths,
         McpServerDefinition server,
         CancellationToken cancellationToken)
     {
         var attemptedAt = DateTimeOffset.UtcNow;
         try
         {
-            return server.Transport.ToLowerInvariant() switch
+            var result = await mcpToolRuntime.ConnectServerAsync(paths, server.Name, cancellationToken);
+            return new McpReconnectResult
             {
-                "http" or "sse" => await ValidateHttpTransportAsync(server, attemptedAt, cancellationToken),
-                _ => ValidateStdioTransport(server, attemptedAt)
+                Name = result.Name,
+                Status = result.Status,
+                AttemptedAtUtc = attemptedAt,
+                Message = result.Message,
+                DiscoveredToolsCount = result.DiscoveredToolsCount,
+                DiscoveredPromptsCount = result.DiscoveredPromptsCount,
+                SupportsPrompts = result.SupportsPrompts,
+                SupportsResources = result.SupportsResources,
+                LastDiscoveryUtc = result.LastDiscoveryUtc
             };
         }
         catch (Exception exception)
@@ -79,87 +114,184 @@ public sealed class McpConnectionManagerService(
                 Name = server.Name,
                 Status = "disconnected",
                 AttemptedAtUtc = attemptedAt,
-                Message = exception.Message
+                Message = exception.Message,
+                DiscoveredToolsCount = 0,
+                DiscoveredPromptsCount = 0
             };
         }
     }
 
-    private async Task<McpReconnectResult> ValidateHttpTransportAsync(
-        McpServerDefinition server,
-        DateTimeOffset attemptedAtUtc,
-        CancellationToken cancellationToken)
+    private void StartHealthMonitor(WorkspacePaths paths, string name)
     {
-        if (!Uri.TryCreate(server.CommandOrUrl, UriKind.Absolute, out var uri))
+        if (!health.AutoReconnect)
         {
-            return new McpReconnectResult
-            {
-                Name = server.Name,
-                Status = "disconnected",
-                AttemptedAtUtc = attemptedAtUtc,
-                Message = "MCP server URL is invalid."
-            };
+            return;
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Head, uri);
-        foreach (var header in server.Headers)
+        StopHealthMonitor(paths, name);
+
+        var key = BuildStateKey(paths, name);
+        var cancellation = new CancellationTokenSource();
+        if (!healthMonitors.TryAdd(key, cancellation))
         {
-            request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            cancellation.Dispose();
+            return;
         }
 
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(TimeSpan.FromMilliseconds(server.TimeoutMs ?? 2000));
+        _ = Task.Run(() => MonitorServerAsync(paths, name, key, cancellation.Token), CancellationToken.None);
+    }
+
+    private void StopHealthMonitor(WorkspacePaths paths, string name)
+    {
+        var key = BuildStateKey(paths, name);
+        if (!healthMonitors.TryRemove(key, out var cancellation))
+        {
+            return;
+        }
 
         try
         {
-            using var response = await httpClient.SendAsync(request, timeoutSource.Token);
-            return new McpReconnectResult
-            {
-                Name = server.Name,
-                Status = response.IsSuccessStatusCode ? "connected" : "disconnected",
-                AttemptedAtUtc = attemptedAtUtc,
-                Message = $"MCP {server.Transport} endpoint responded with {(int)response.StatusCode}."
-            };
+            cancellation.Cancel();
         }
-        catch (HttpRequestException exception)
+        catch
         {
-            return new McpReconnectResult
+        }
+
+        cancellation.Dispose();
+    }
+
+    private async Task MonitorServerAsync(
+        WorkspacePaths paths,
+        string name,
+        string stateKey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
             {
-                Name = server.Name,
-                Status = "disconnected",
-                AttemptedAtUtc = attemptedAtUtc,
-                Message = exception.Message
-            };
+                await Task.Delay(health.CheckInterval, cancellationToken);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                await PerformHealthCheckAsync(paths, name, stateKey, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 
-    private static McpReconnectResult ValidateStdioTransport(
-        McpServerDefinition server,
-        DateTimeOffset attemptedAtUtc)
+    private async Task PerformHealthCheckAsync(
+        WorkspacePaths paths,
+        string name,
+        string stateKey,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(server.CommandOrUrl))
+        if (reconnecting.ContainsKey(stateKey))
         {
-            return new McpReconnectResult
-            {
-                Name = server.Name,
-                Status = "disconnected",
-                AttemptedAtUtc = attemptedAtUtc,
-                Message = "MCP stdio command is missing."
-            };
+            return;
         }
 
-        var isExecutableAvailable = Path.IsPathRooted(server.CommandOrUrl)
-            ? File.Exists(server.CommandOrUrl)
-            : ResolveCommandPath(server.CommandOrUrl) is not null;
-
-        return new McpReconnectResult
+        var server = registry.ListServers(paths)
+            .FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (server is null)
         {
-            Name = server.Name,
-            Status = isExecutableAvailable ? "connected" : "disconnected",
-            AttemptedAtUtc = attemptedAtUtc,
-            Message = isExecutableAvailable
-                ? $"MCP stdio command '{server.CommandOrUrl}' is available."
-                : $"MCP stdio command '{server.CommandOrUrl}' was not found."
-        };
+            StopHealthMonitor(paths, name);
+            states[stateKey] = new McpReconnectResult
+            {
+                Name = name,
+                Status = "missing",
+                AttemptedAtUtc = DateTimeOffset.UtcNow,
+                Message = $"MCP server '{name}' is not configured.",
+                DiscoveredToolsCount = 0,
+                DiscoveredPromptsCount = 0
+            };
+            return;
+        }
+
+        try
+        {
+            var result = await mcpToolRuntime.ProbeServerAsync(paths, name, cancellationToken);
+            states[stateKey] = result;
+            consecutiveFailures[stateKey] = 0;
+        }
+        catch (Exception exception)
+        {
+            var failures = consecutiveFailures.AddOrUpdate(stateKey, 1, static (_, current) => current + 1);
+            states[stateKey] = new McpReconnectResult
+            {
+                Name = name,
+                Status = "disconnected",
+                AttemptedAtUtc = DateTimeOffset.UtcNow,
+                Message = exception.Message,
+                DiscoveredToolsCount = 0,
+                DiscoveredPromptsCount = 0
+            };
+
+            if (failures >= health.MaxConsecutiveFailures)
+            {
+                await ReconnectFromHealthMonitorAsync(paths, name, stateKey, cancellationToken);
+            }
+        }
+    }
+
+    private async Task ReconnectFromHealthMonitorAsync(
+        WorkspacePaths paths,
+        string name,
+        string stateKey,
+        CancellationToken cancellationToken)
+    {
+        if (!reconnecting.TryAdd(stateKey, 0))
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Delay(health.ReconnectDelay, cancellationToken);
+            await mcpToolRuntime.DisconnectServerAsync(paths, name, cancellationToken);
+            var server = registry.ListServers(paths)
+                .FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (server is null)
+            {
+                states[stateKey] = new McpReconnectResult
+                {
+                    Name = name,
+                    Status = "missing",
+                    AttemptedAtUtc = DateTimeOffset.UtcNow,
+                    Message = $"MCP server '{name}' is not configured.",
+                    DiscoveredToolsCount = 0,
+                    DiscoveredPromptsCount = 0
+                };
+                return;
+            }
+
+            var result = await ValidateConnectionAsync(paths, server, cancellationToken);
+            states[stateKey] = result;
+            consecutiveFailures[stateKey] = string.Equals(result.Status, "connected", StringComparison.OrdinalIgnoreCase) ? 0 : health.MaxConsecutiveFailures;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            states[stateKey] = new McpReconnectResult
+            {
+                Name = name,
+                Status = "disconnected",
+                AttemptedAtUtc = DateTimeOffset.UtcNow,
+                Message = exception.Message,
+                DiscoveredToolsCount = 0,
+                DiscoveredPromptsCount = 0
+            };
+        }
+        finally
+        {
+            reconnecting.TryRemove(stateKey, out _);
+        }
     }
 
     private McpReconnectResult RecordState(WorkspacePaths paths, string name, string status, string message)
@@ -169,7 +301,9 @@ public sealed class McpConnectionManagerService(
             Name = name,
             Status = status,
             AttemptedAtUtc = DateTimeOffset.UtcNow,
-            Message = message
+            Message = message,
+            DiscoveredToolsCount = 0,
+            DiscoveredPromptsCount = 0
         };
         states[BuildStateKey(paths, name)] = state;
         return state;
@@ -177,31 +311,4 @@ public sealed class McpConnectionManagerService(
 
     private static string BuildStateKey(WorkspacePaths paths, string name) =>
         $"{Path.GetFullPath(paths.WorkspaceRoot ?? Environment.CurrentDirectory)}::{name}";
-
-    private static string? ResolveCommandPath(string command)
-    {
-        var pathValue = Environment.GetEnvironmentVariable("PATH");
-        if (string.IsNullOrWhiteSpace(pathValue))
-        {
-            return null;
-        }
-
-        var candidates = OperatingSystem.IsWindows()
-            ? new[] { command, $"{command}.exe", $"{command}.cmd", $"{command}.bat" }
-            : [command];
-
-        foreach (var segment in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-        {
-            foreach (var candidate in candidates)
-            {
-                var fullPath = Path.Combine(segment, candidate);
-                if (File.Exists(fullPath))
-                {
-                    return fullPath;
-                }
-            }
-        }
-
-        return null;
-    }
 }

@@ -3,6 +3,7 @@ global using System.Net.Http.Headers;
 global using System.Text;
 global using System.Text.Json;
 global using System.Text.Json.Nodes;
+global using Microsoft.Extensions.DependencyInjection;
 global using Microsoft.Extensions.Options;
 global using QwenCode.App.Agents;
 global using QwenCode.App.Compatibility;

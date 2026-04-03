@@ -37,4 +37,14 @@ public sealed class McpServerDefinition
     public string LastError { get; init; } = string.Empty;
 
     public bool HasPersistedToken { get; init; }
+
+    public int DiscoveredToolsCount { get; init; }
+
+    public int DiscoveredPromptsCount { get; init; }
+
+    public bool SupportsPrompts { get; init; }
+
+    public bool SupportsResources { get; init; }
+
+    public DateTimeOffset? LastDiscoveryUtc { get; init; }
 }

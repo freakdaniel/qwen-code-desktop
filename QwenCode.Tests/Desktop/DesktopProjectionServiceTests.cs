@@ -110,8 +110,11 @@ public sealed class DesktopProjectionServiceTests
                 new FakeAuthUrlLauncher());
             var toolRegistry = new ToolCatalogService(runtimeProfileService, approvalPolicyService);
             var toolExecutor = new NativeToolHostService(runtimeProfileService, approvalPolicyService);
-            var mcpRegistry = new McpRegistryService(runtimeProfileService, new FileMcpTokenStore(environmentPaths));
-            var mcpConnectionManager = new McpConnectionManagerService(mcpRegistry, new HttpClient());
+            var mcpTokenStore = new FileMcpTokenStore(environmentPaths);
+            var mcpRegistry = new McpRegistryService(runtimeProfileService, mcpTokenStore);
+            var mcpConnectionManager = new McpConnectionManagerService(
+                mcpRegistry,
+                new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient()));
             var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
             Directory.CreateDirectory(runtimeProfile.ChatsDirectory);

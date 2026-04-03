@@ -25,4 +25,6 @@ public sealed class DesktopSessionEvent
     public string ContentDelta { get; init; } = string.Empty;
 
     public string ContentSnapshot { get; init; } = string.Empty;
+
+    public string AgentName { get; init; } = string.Empty;
 }

@@ -10,4 +10,9 @@ public interface IMcpConnectionManager
         WorkspacePaths paths,
         string name,
         CancellationToken cancellationToken = default);
+
+    Task DisconnectAsync(
+        WorkspacePaths paths,
+        string name,
+        CancellationToken cancellationToken = default);
 }

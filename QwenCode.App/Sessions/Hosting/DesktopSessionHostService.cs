@@ -260,7 +260,7 @@ public sealed class DesktopSessionHostService(
                     ArgumentsJson = string.IsNullOrWhiteSpace(request.ToolArgumentsJson) ? "{}" : request.ToolArgumentsJson,
                     ApproveExecution = request.ApproveToolExecution
                 },
-                cancellationToken);
+                cancellationToken: cancellationToken);
 
             var toolUuid = Guid.NewGuid().ToString();
             await transcriptWriter.AppendEntryAsync(
@@ -516,7 +516,7 @@ public sealed class DesktopSessionHostService(
                 ArgumentsJson = string.IsNullOrWhiteSpace(pendingTool.Arguments) ? "{}" : pendingTool.Arguments,
                 ApproveExecution = true
             },
-            cancellationToken);
+            cancellationToken: cancellationToken);
 
         var resolutionTimestamp = DateTime.UtcNow;
         await transcriptWriter.MarkToolEntryResolvedAsync(

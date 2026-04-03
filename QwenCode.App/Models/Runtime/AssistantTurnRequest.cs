@@ -23,4 +23,8 @@ public sealed class AssistantTurnRequest
     public required NativeToolExecutionResult ToolExecution { get; init; }
 
     public bool IsApprovalResolution { get; init; }
+
+    public string SystemPromptOverride { get; init; } = string.Empty;
+
+    public IReadOnlyList<string> AllowedToolNames { get; init; } = [];
 }

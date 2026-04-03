@@ -8,6 +8,7 @@ using QwenCode.App.Infrastructure;
 using QwenCode.App.Mcp;
 using QwenCode.App.Models;
 using QwenCode.App.Permissions;
+using QwenCode.App.Runtime;
 
 namespace QwenCode.App.Tools;
 
@@ -72,6 +73,7 @@ public sealed class NativeToolHostService(
     public async Task<NativeToolExecutionResult> ExecuteAsync(
         WorkspacePaths paths,
         ExecuteNativeToolRequest request,
+        Action<AssistantRuntimeEvent>? eventSink = null,
         CancellationToken cancellationToken = default)
     {
         if (!ToolContractCatalog.ByName.TryGetValue(request.ToolName, out var tool) || !tool.IsImplemented)
@@ -148,7 +150,7 @@ public sealed class NativeToolHostService(
                 "edit" => await ExecuteEditAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
                 "todo_write" => await ExecuteTodoWriteAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
                 "save_memory" => await ExecuteSaveMemoryAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "agent" => await agents.ExecuteAsync(paths, runtimeProfile, document.RootElement, approval.State, cancellationToken),
+                "agent" => await agents.ExecuteAsync(paths, runtimeProfile, document.RootElement, approval.State, eventSink, cancellationToken),
                 "skill" => await ExecuteSkillAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
                 "exit_plan_mode" => ExecuteExitPlanMode(runtimeProfile, approval.State),
                 "web_fetch" => await ExecuteWebFetchAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
@@ -711,6 +713,28 @@ public sealed class NativeToolHostService(
 
         try
         {
+            if (TryGetString(arguments, "prompt_name", out var promptName))
+            {
+                if (!TryGetString(arguments, "server_name", out var promptServerName))
+                {
+                    return Error("mcp-client", "Parameter 'server_name' is required when invoking an MCP prompt.", runtimeProfile.ProjectRoot, approvalState);
+                }
+
+                var prompt = await mcpTools.GetPromptAsync(paths, promptServerName, promptName, arguments, cancellationToken);
+                return Success("mcp-client", approvalState, runtimeProfile.ProjectRoot, prompt.Output, []);
+            }
+
+            if (TryGetString(arguments, "uri", out var resourceUri))
+            {
+                if (!TryGetString(arguments, "server_name", out var serverName))
+                {
+                    return Error("mcp-client", "Parameter 'server_name' is required when reading an MCP resource.", runtimeProfile.ProjectRoot, approvalState);
+                }
+
+                var resource = await mcpTools.ReadResourceAsync(paths, serverName, resourceUri, cancellationToken);
+                return Success("mcp-client", approvalState, runtimeProfile.ProjectRoot, resource.Output, []);
+            }
+
             var output = await mcpTools.DescribeAsync(paths, arguments, cancellationToken);
             return Success("mcp-client", approvalState, runtimeProfile.ProjectRoot, output, []);
         }

@@ -70,6 +70,7 @@ export function useBootstrap(): BootstrapState {
       kind: 'turnReattached',
       timestampUtc: activeTurn.lastUpdatedAtUtc,
       message: activeTurn.contentSnapshot || `Reattached at ${activeTurn.stage}.`,
+      agentName: '',
       workingDirectory: activeTurn.workingDirectory,
       gitBranch: activeTurn.gitBranch,
       commandName: '',

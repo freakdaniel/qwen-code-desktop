@@ -25,8 +25,8 @@ public sealed class McpProjectionService(
 
     public Task<McpSnapshot> RemoveServerAsync(RemoveMcpServerRequest request)
     {
-        registry.RemoveServer(ResolveWorkspace(), request.Name, request.Scope);
-        return Task.FromResult(CreateSnapshot());
+        var workspace = ResolveWorkspace();
+        return RemoveServerCoreAsync(workspace, request);
     }
 
     public async Task<McpSnapshot> ReconnectServerAsync(
@@ -38,6 +38,13 @@ public sealed class McpProjectionService(
     }
 
     private WorkspacePaths ResolveWorkspace() => workspacePathResolver.Resolve(shellOptions.Workspace);
+
+    private async Task<McpSnapshot> RemoveServerCoreAsync(WorkspacePaths workspace, RemoveMcpServerRequest request)
+    {
+        await connectionManager.DisconnectAsync(workspace, request.Name);
+        registry.RemoveServer(workspace, request.Name, request.Scope);
+        return CreateSnapshot();
+    }
 
     private static McpSnapshot BuildSnapshot(IReadOnlyList<McpServerDefinition> servers) =>
         new()

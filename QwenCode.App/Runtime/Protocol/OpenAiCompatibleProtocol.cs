@@ -27,7 +27,7 @@ internal static class OpenAiCompatibleProtocol
             ["temperature"] = temperature,
             ["stream"] = false,
             ["messages"] = BuildMessages(request, promptContext, toolHistory, systemPrompt),
-            ["tools"] = BuildTools(),
+            ["tools"] = BuildTools(request.AllowedToolNames),
             ["tool_choice"] = "auto"
         };
 
@@ -276,9 +276,16 @@ Pending tasks:
 """;
     }
 
-    private static JsonArray BuildTools() =>
-        new(
-            ToolContractCatalog.Implemented
+    private static JsonArray BuildTools(IReadOnlyList<string> allowedToolNames)
+    {
+        var allowed = allowedToolNames.Count == 0
+            ? ToolContractCatalog.Implemented
+            : ToolContractCatalog.Implemented
+                .Where(tool => allowedToolNames.Contains(tool.Name, StringComparer.OrdinalIgnoreCase))
+                .ToArray();
+
+        return new JsonArray(
+            allowed
                 .Select(static tool =>
                     (JsonNode)new JsonObject
                     {
@@ -291,6 +298,7 @@ Pending tasks:
                         }
                     })
                 .ToArray());
+    }
 
     private static JsonObject BuildToolParameters(string toolName) =>
         toolName switch

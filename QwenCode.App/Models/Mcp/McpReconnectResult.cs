@@ -9,4 +9,14 @@ public sealed class McpReconnectResult
     public required DateTimeOffset AttemptedAtUtc { get; init; }
 
     public string Message { get; init; } = string.Empty;
+
+    public int DiscoveredToolsCount { get; init; }
+
+    public int DiscoveredPromptsCount { get; init; }
+
+    public bool SupportsPrompts { get; init; }
+
+    public bool SupportsResources { get; init; }
+
+    public DateTimeOffset? LastDiscoveryUtc { get; init; }
 }

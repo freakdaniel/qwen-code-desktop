@@ -42,7 +42,7 @@ public sealed class DashScopeAssistantResponseProvider(
         var payload = OpenAiCompatibleProtocol.BuildPayload(
             configuration.Model,
             options.Temperature,
-            options.SystemPrompt,
+            string.IsNullOrWhiteSpace(request.SystemPromptOverride) ? options.SystemPrompt : request.SystemPromptOverride,
             request,
             promptContext,
             toolHistory,

@@ -206,6 +206,7 @@ export interface DesktopSessionEvent {
   status: string;
   contentDelta: string;
   contentSnapshot: string;
+  agentName: string;
 }
 
 export type DesktopSessionEventKind = 'turnStarted' | 'commandCompleted' | 'toolApprovalRequired' | 'userInputRequired' | 'toolCompleted' | 'toolBlocked' | 'toolFailed' | 'toolApproved' | 'userInputReceived' | 'assistantPreparingContext' | 'assistantGenerating' | 'assistantStreaming' | 'assistantCompleted' | 'turnInterrupted' | 'turnReattached' | 'turnCancelled' | 'turnCompleted';

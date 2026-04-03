@@ -121,6 +121,27 @@ public sealed class AssistantTurnRuntime(
 
             foreach (var toolCall in response.ToolCalls)
             {
+                if (request.AllowedToolNames.Count > 0 &&
+                    !request.AllowedToolNames.Contains(toolCall.ToolName, StringComparer.OrdinalIgnoreCase))
+                {
+                    var deniedExecution = CreateDisallowedToolExecutionResult(toolCall.ToolName, request.RuntimeProfile.ProjectRoot);
+                    toolHistory.Add(new AssistantToolCallResult
+                    {
+                        ToolCall = toolCall,
+                        Execution = deniedExecution
+                    });
+
+                    eventSink?.Invoke(new AssistantRuntimeEvent
+                    {
+                        Stage = "tool-blocked",
+                        ProviderName = provider.Name,
+                        ToolName = toolCall.ToolName,
+                        Status = deniedExecution.Status,
+                        Message = BuildToolMessage(deniedExecution)
+                    });
+                    break;
+                }
+
                 eventSink?.Invoke(new AssistantRuntimeEvent
                 {
                     Stage = "tool-requested",
@@ -138,6 +159,7 @@ public sealed class AssistantTurnRuntime(
                         ArgumentsJson = string.IsNullOrWhiteSpace(toolCall.ArgumentsJson) ? "{}" : toolCall.ArgumentsJson,
                         ApproveExecution = false
                     },
+                    toolEvent => eventSink?.Invoke(CloneNestedToolEvent(toolEvent, provider.Name)),
                     cancellationToken);
 
                 var toolResult = new AssistantToolCallResult
@@ -194,5 +216,29 @@ public sealed class AssistantTurnRuntime(
             "blocked" => $"Assistant runtime requested native tool '{execution.ToolName}', but approval policy blocked it.",
             "error" => $"Assistant runtime requested native tool '{execution.ToolName}', but execution failed: {execution.ErrorMessage}",
             _ => $"Assistant runtime completed native tool '{execution.ToolName}'."
+        };
+
+    private static NativeToolExecutionResult CreateDisallowedToolExecutionResult(string toolName, string workingDirectory) =>
+        new()
+        {
+            ToolName = toolName,
+            Status = "blocked",
+            ApprovalState = "deny",
+            WorkingDirectory = workingDirectory,
+            ErrorMessage = $"Tool '{toolName}' is not available to this subagent runtime.",
+            ChangedFiles = []
+        };
+
+    private static AssistantRuntimeEvent CloneNestedToolEvent(AssistantRuntimeEvent runtimeEvent, string providerName) =>
+        new()
+        {
+            Stage = runtimeEvent.Stage,
+            Message = runtimeEvent.Message,
+            ProviderName = string.IsNullOrWhiteSpace(runtimeEvent.ProviderName) ? providerName : runtimeEvent.ProviderName,
+            ToolName = runtimeEvent.ToolName,
+            Status = runtimeEvent.Status,
+            ContentDelta = runtimeEvent.ContentDelta,
+            ContentSnapshot = runtimeEvent.ContentSnapshot,
+            AgentName = runtimeEvent.AgentName
         };
 }

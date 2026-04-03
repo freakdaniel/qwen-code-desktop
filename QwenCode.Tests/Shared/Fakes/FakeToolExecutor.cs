@@ -14,6 +14,7 @@ internal sealed class FakeToolExecutor : IToolExecutor
     public Task<NativeToolExecutionResult> ExecuteAsync(
         WorkspacePaths paths,
         ExecuteNativeToolRequest request,
+        Action<AssistantRuntimeEvent>? eventSink = null,
         CancellationToken cancellationToken = default) =>
         Task.FromResult(new NativeToolExecutionResult
         {

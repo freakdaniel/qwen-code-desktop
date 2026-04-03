@@ -20,5 +20,15 @@ public sealed class SubagentExecutionRecord
 
     public string Report { get; init; } = string.Empty;
 
+    public string ProviderName { get; init; } = string.Empty;
+
+    public string Model { get; init; } = string.Empty;
+
+    public string TranscriptPath { get; init; } = string.Empty;
+
+    public IReadOnlyList<string> AllowedTools { get; init; } = [];
+
+    public IReadOnlyList<SubagentToolExecutionRecord> ToolExecutions { get; init; } = [];
+
     public DateTime TimestampUtc { get; init; }
 }

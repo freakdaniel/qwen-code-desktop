@@ -72,7 +72,8 @@ public sealed class SessionEventFactory : ISessionEventFactory
             ToolName = string.IsNullOrWhiteSpace(runtimeEvent.ToolName) ? fallbackToolName : runtimeEvent.ToolName,
             Status = string.IsNullOrWhiteSpace(runtimeEvent.Status) ? runtimeEvent.Stage : runtimeEvent.Status,
             ContentDelta = runtimeEvent.ContentDelta,
-            ContentSnapshot = runtimeEvent.ContentSnapshot
+            ContentSnapshot = runtimeEvent.ContentSnapshot,
+            AgentName = runtimeEvent.AgentName
         };
 
     public DesktopSessionEvent CreateAssistantCompleted(
