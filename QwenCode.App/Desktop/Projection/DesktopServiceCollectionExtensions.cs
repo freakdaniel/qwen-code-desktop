@@ -10,7 +10,10 @@ public static class DesktopServiceCollectionExtensions
         services.AddSingleton<ILocaleStateService, LocaleStateService>();
         services.AddSingleton<IDesktopBootstrapProjectionService, BootstrapProjectionService>();
         services.AddSingleton<IDesktopAuthProjectionService, AuthProjectionService>();
+        services.AddSingleton<IDesktopChannelProjectionService, ChannelProjectionService>();
         services.AddSingleton<IDesktopMcpProjectionService, McpProjectionService>();
+        services.AddSingleton<IDesktopExtensionProjectionService, ExtensionProjectionService>();
+        services.AddSingleton<IDesktopWorkspaceProjectionService, WorkspaceProjectionService>();
         services.AddSingleton<IDesktopSessionProjectionService, SessionProjectionService>();
         services.AddSingleton<IDesktopProjectionService, DesktopAppService>();
 

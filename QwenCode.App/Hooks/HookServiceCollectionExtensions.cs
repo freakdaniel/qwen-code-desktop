@@ -9,6 +9,7 @@ public static class HookServiceCollectionExtensions
         services.AddSingleton<HookRegistryService>();
         services.AddSingleton<HookCommandRunner>();
         services.AddSingleton<HookOutputAggregator>();
+        services.AddSingleton<IHookLifecycleService, HookLifecycleService>();
         services.AddSingleton<IUserPromptHookService, UserPromptHookService>();
 
         return services;

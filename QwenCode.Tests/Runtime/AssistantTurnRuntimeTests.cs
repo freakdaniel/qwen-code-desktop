@@ -62,5 +62,67 @@ public sealed class AssistantTurnRuntimeTests
         }
     }
 
+    [Fact]
+    public async Task AssistantTurnRuntime_StopsOnRepeatedToolLoop()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-loop-stop-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var approvalPolicyService = new ApprovalPolicyService();
+            var runtime = new AssistantTurnRuntime(
+                new AssistantPromptAssembler(new ProjectSummaryService()),
+                [new RepeatingToolCallingAssistantResponseProvider(), new FallbackAssistantResponseProvider()],
+                new NativeToolHostService(runtimeProfileService, approvalPolicyService),
+                new LoopDetectionService(),
+                Options.Create(new NativeAssistantRuntimeOptions
+                {
+                    Provider = "loop-provider",
+                    MaxToolIterations = 6
+                }));
+
+            var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            var response = await runtime.GenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "tool-loop-detected",
+                    Prompt = "Keep trying the same tool forever.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "tool-loop-detected.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                });
+
+            Assert.Equal("loop-provider", response.ProviderName);
+            Assert.Contains("loop detection", response.Summary, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(4, response.ToolExecutions.Count);
+            Assert.All(response.ToolExecutions, item => Assert.Equal("read_file", item.Execution.ToolName));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
 
 }

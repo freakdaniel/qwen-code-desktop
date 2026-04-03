@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using QwenCode.App.Agents;
 using QwenCode.App.Compatibility;
+using QwenCode.App.Hooks;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Mcp;
 using QwenCode.App.Models;
@@ -21,7 +23,8 @@ public sealed class NativeToolHostService(
     IMcpToolRuntime? mcpToolRuntime = null,
     ILspToolService? lspToolService = null,
     ISkillToolService? skillToolService = null,
-    ISubagentCoordinator? subagentCoordinator = null) : IToolExecutor
+    ISubagentCoordinator? subagentCoordinator = null,
+    IHookLifecycleService? hookLifecycleService = null) : IToolExecutor
 {
     private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", ".electron", "dist"];
     private readonly ISubagentCoordinator agents = subagentCoordinator ?? CreateFallbackSubagentCoordinator(runtimeProfileService, approvalPolicyService);
@@ -31,6 +34,7 @@ public sealed class NativeToolHostService(
     private readonly IMcpToolRuntime? mcpTools = mcpToolRuntime;
     private readonly ILspToolService lspTools = lspToolService ?? new RoslynLspToolService();
     private readonly ISkillToolService skills = skillToolService ?? new SkillToolService(new QwenCompatibilityService(new DefaultDesktopEnvironmentPaths()));
+    private readonly IHookLifecycleService? hooks = hookLifecycleService;
 
     public NativeToolHostSnapshot Inspect(WorkspacePaths paths)
     {
@@ -123,12 +127,13 @@ public sealed class NativeToolHostService(
 
             if (string.Equals(request.ToolName, "ask_user_question", StringComparison.OrdinalIgnoreCase))
             {
-                return ExecuteAskUserQuestion(runtimeProfile, approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot, document.RootElement, approval.State);
+                var questionResult = ExecuteAskUserQuestion(runtimeProfile, approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot, document.RootElement, approval.State);
+                return await ApplyPostToolHooksAsync(runtimeProfile, request, document.RootElement, questionResult, cancellationToken);
             }
 
             if (approval.State == "ask" && !request.ApproveExecution)
             {
-                return new NativeToolExecutionResult
+                var approvalRequiredResult = new NativeToolExecutionResult
                 {
                     ToolName = request.ToolName,
                     Status = "approval-required",
@@ -137,35 +142,237 @@ public sealed class NativeToolHostService(
                     ErrorMessage = approval.Reason,
                     ChangedFiles = []
                 };
+                return await ApplyPermissionRequestHooksAsync(runtimeProfile, request, document.RootElement, approvalRequiredResult, cancellationToken);
             }
 
-            return request.ToolName switch
+            var preToolHook = await ExecuteHookAsync(
+                runtimeProfile,
+                request,
+                document.RootElement,
+                HookEventName.PreToolUse,
+                approval.State,
+                workingDirectory: approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot,
+                cancellationToken: cancellationToken);
+            if (preToolHook.IsBlocked)
             {
-                "read_file" => await ExecuteReadFileAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "list_directory" => ExecuteListDirectory(runtimeProfile, document.RootElement, approval.State),
-                "glob" => ExecuteGlob(runtimeProfile, document.RootElement, approval.State),
-                "grep_search" => ExecuteGrep(runtimeProfile, document.RootElement, approval.State),
-                "run_shell_command" => await ExecuteShellAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "write_file" => await ExecuteWriteFileAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "edit" => await ExecuteEditAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "todo_write" => await ExecuteTodoWriteAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "save_memory" => await ExecuteSaveMemoryAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "agent" => await agents.ExecuteAsync(paths, runtimeProfile, document.RootElement, approval.State, eventSink, cancellationToken),
-                "skill" => await ExecuteSkillAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "exit_plan_mode" => ExecuteExitPlanMode(runtimeProfile, approval.State),
-                "web_fetch" => await ExecuteWebFetchAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "web_search" => await ExecuteWebSearchAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "mcp-client" => await ExecuteMcpClientAsync(paths, runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "mcp-tool" => await ExecuteMcpToolAsync(paths, runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "lsp" => await lspTools.ExecuteAsync(runtimeProfile, document.RootElement, approval.State, cancellationToken),
-                "ask_user_question" => ExecuteAskUserQuestion(runtimeProfile, approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot, document.RootElement, approval.State),
-                "cron_create" => ExecuteCronCreate(document.RootElement, runtimeProfile, approval.State),
-                "cron_list" => ExecuteCronList(runtimeProfile, approval.State),
-                "cron_delete" => ExecuteCronDelete(document.RootElement, runtimeProfile, approval.State),
-                _ => Error(request.ToolName, "Tool is not implemented by the native .NET host yet.", runtimeProfile.ProjectRoot)
-            };
+                return CreateHookBlockedToolResult(
+                    request.ToolName,
+                    approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot,
+                    approval.State,
+                    preToolHook.BlockReason);
+            }
+
+            var result = await ExecuteToolCoreAsync(paths, request, runtimeProfile, document.RootElement, approval.State, eventSink, cancellationToken);
+            return await ApplyPostToolHooksAsync(runtimeProfile, request, document.RootElement, result, cancellationToken);
         }
     }
+
+    private Task<NativeToolExecutionResult> ExecuteToolCoreAsync(
+        WorkspacePaths paths,
+        ExecuteNativeToolRequest request,
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        Action<AssistantRuntimeEvent>? eventSink,
+        CancellationToken cancellationToken) =>
+        request.ToolName switch
+            {
+                "read_file" => ExecuteReadFileAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "list_directory" => Task.FromResult(ExecuteListDirectory(runtimeProfile, arguments, approvalState)),
+                "glob" => Task.FromResult(ExecuteGlob(runtimeProfile, arguments, approvalState)),
+                "grep_search" => Task.FromResult(ExecuteGrep(runtimeProfile, arguments, approvalState)),
+                "run_shell_command" => ExecuteShellAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "write_file" => ExecuteWriteFileAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "edit" => ExecuteEditAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "todo_write" => ExecuteTodoWriteAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "save_memory" => ExecuteSaveMemoryAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "agent" => agents.ExecuteAsync(paths, runtimeProfile, arguments, approvalState, eventSink, cancellationToken),
+                "skill" => ExecuteSkillAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "exit_plan_mode" => Task.FromResult(ExecuteExitPlanMode(runtimeProfile, approvalState)),
+                "web_fetch" => ExecuteWebFetchAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "web_search" => ExecuteWebSearchAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "mcp-client" => ExecuteMcpClientAsync(paths, runtimeProfile, arguments, approvalState, cancellationToken),
+                "mcp-tool" => ExecuteMcpToolAsync(paths, runtimeProfile, arguments, approvalState, cancellationToken),
+                "lsp" => lspTools.ExecuteAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "ask_user_question" => Task.FromResult(ExecuteAskUserQuestion(runtimeProfile, runtimeProfile.ProjectRoot, arguments, approvalState)),
+                "cron_create" => Task.FromResult(ExecuteCronCreate(arguments, runtimeProfile, approvalState)),
+                "cron_list" => Task.FromResult(ExecuteCronList(runtimeProfile, approvalState)),
+                "cron_delete" => Task.FromResult(ExecuteCronDelete(arguments, runtimeProfile, approvalState)),
+                _ => Task.FromResult(Error(request.ToolName, "Tool is not implemented by the native .NET host yet.", runtimeProfile.ProjectRoot))
+            };
+
+    private async Task<NativeToolExecutionResult> ApplyPermissionRequestHooksAsync(
+        QwenRuntimeProfile runtimeProfile,
+        ExecuteNativeToolRequest request,
+        JsonElement arguments,
+        NativeToolExecutionResult result,
+        CancellationToken cancellationToken)
+    {
+        var hookResult = await ExecuteHookAsync(
+            runtimeProfile,
+            request,
+            arguments,
+            HookEventName.PermissionRequest,
+            result.ApprovalState,
+            result.WorkingDirectory,
+            result,
+            cancellationToken);
+        if (hookResult.IsBlocked)
+        {
+            return CreateHookBlockedToolResult(result.ToolName, result.WorkingDirectory, "deny", hookResult.BlockReason);
+        }
+
+        return ApplyHookMessages(result, hookResult.AggregateOutput);
+    }
+
+    private async Task<NativeToolExecutionResult> ApplyPostToolHooksAsync(
+        QwenRuntimeProfile runtimeProfile,
+        ExecuteNativeToolRequest request,
+        JsonElement arguments,
+        NativeToolExecutionResult result,
+        CancellationToken cancellationToken)
+    {
+        var eventName = result.Status switch
+        {
+            "completed" => HookEventName.PostToolUse,
+            "error" or "blocked" => HookEventName.PostToolUseFailure,
+            _ => (HookEventName?)null
+        };
+
+        if (!eventName.HasValue)
+        {
+            return result;
+        }
+
+        var hookResult = await ExecuteHookAsync(
+            runtimeProfile,
+            request,
+            arguments,
+            eventName.Value,
+            result.ApprovalState,
+            result.WorkingDirectory,
+            result,
+            cancellationToken);
+        return ApplyHookMessages(result, hookResult.AggregateOutput);
+    }
+
+    private async Task<HookLifecycleResult> ExecuteHookAsync(
+        QwenRuntimeProfile runtimeProfile,
+        ExecuteNativeToolRequest request,
+        JsonElement arguments,
+        HookEventName eventName,
+        string approvalState,
+        string workingDirectory,
+        NativeToolExecutionResult? result = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (hooks is null)
+        {
+            return new HookLifecycleResult();
+        }
+
+        var sessionId = TryGetOptionalString(arguments, "session_id") ??
+                        TryGetOptionalString(arguments, "sessionId") ??
+                        string.Empty;
+        var transcriptPath = string.IsNullOrWhiteSpace(sessionId)
+            ? string.Empty
+            : Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
+        var metadata = new JsonObject
+        {
+            ["tool_contract_path"] = ToolContractCatalog.ByName.TryGetValue(request.ToolName, out var tool)
+                ? tool.ContractPath
+                : string.Empty
+        };
+
+        return await hooks.ExecuteAsync(
+            runtimeProfile,
+            new HookInvocationRequest
+            {
+                EventName = eventName,
+                SessionId = sessionId,
+                WorkingDirectory = workingDirectory,
+                TranscriptPath = transcriptPath,
+                ToolName = request.ToolName,
+                ToolStatus = result?.Status ?? string.Empty,
+                ApprovalState = approvalState,
+                ToolArgumentsJson = request.ArgumentsJson,
+                ToolOutput = result?.Output ?? string.Empty,
+                ToolErrorMessage = result?.ErrorMessage ?? string.Empty,
+                Reason = result?.ErrorMessage ?? string.Empty,
+                Metadata = metadata
+            },
+            cancellationToken);
+    }
+
+    private static NativeToolExecutionResult ApplyHookMessages(
+        NativeToolExecutionResult result,
+        HookOutput aggregateOutput)
+    {
+        var note = BuildHookNote(aggregateOutput);
+        if (string.IsNullOrWhiteSpace(note))
+        {
+            return result;
+        }
+
+        return string.Equals(result.Status, "completed", StringComparison.OrdinalIgnoreCase)
+            ? new NativeToolExecutionResult
+            {
+                ToolName = result.ToolName,
+                Status = result.Status,
+                ApprovalState = result.ApprovalState,
+                WorkingDirectory = result.WorkingDirectory,
+                Output = string.IsNullOrWhiteSpace(result.Output) ? note : $"{result.Output}{Environment.NewLine}{Environment.NewLine}{note}",
+                ErrorMessage = result.ErrorMessage,
+                ExitCode = result.ExitCode,
+                ChangedFiles = result.ChangedFiles,
+                Questions = result.Questions,
+                Answers = result.Answers
+            }
+            : new NativeToolExecutionResult
+            {
+                ToolName = result.ToolName,
+                Status = result.Status,
+                ApprovalState = result.ApprovalState,
+                WorkingDirectory = result.WorkingDirectory,
+                Output = result.Output,
+                ErrorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage) ? note : $"{result.ErrorMessage}{Environment.NewLine}{note}",
+                ExitCode = result.ExitCode,
+                ChangedFiles = result.ChangedFiles,
+                Questions = result.Questions,
+                Answers = result.Answers
+            };
+    }
+
+    private static string BuildHookNote(HookOutput aggregateOutput)
+    {
+        var lines = new List<string>();
+        if (!string.IsNullOrWhiteSpace(aggregateOutput.SystemMessage))
+        {
+            lines.Add(aggregateOutput.SystemMessage);
+        }
+
+        if (!string.IsNullOrWhiteSpace(aggregateOutput.AdditionalContext))
+        {
+            lines.Add(aggregateOutput.AdditionalContext);
+        }
+
+        return string.Join(Environment.NewLine, lines.Where(static value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static NativeToolExecutionResult CreateHookBlockedToolResult(
+        string toolName,
+        string workingDirectory,
+        string approvalState,
+        string reason) =>
+        new()
+        {
+            ToolName = toolName,
+            Status = "blocked",
+            ApprovalState = approvalState,
+            WorkingDirectory = workingDirectory,
+            ErrorMessage = reason,
+            ChangedFiles = []
+        };
 
     private NativeToolExecutionResult ExecuteAskUserQuestion(
         QwenRuntimeProfile runtimeProfile,

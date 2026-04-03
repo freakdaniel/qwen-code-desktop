@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using QwenCode.App.Auth;
+using QwenCode.App.Channels;
 using QwenCode.App.Compatibility;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
@@ -8,6 +9,7 @@ using QwenCode.App.Runtime;
 using QwenCode.App.Sessions;
 using QwenCode.App.Tools;
 using QwenCode.App.Mcp;
+using QwenCode.App.Extensions;
 
 namespace QwenCode.App.Desktop;
 
@@ -18,6 +20,9 @@ public sealed class BootstrapProjectionService(
     IProjectSummaryService projectSummaryService,
     IToolRegistry toolRegistry,
     IToolExecutor toolExecutor,
+    IChannelRegistryService channelRegistryService,
+    IExtensionCatalogService extensionCatalogService,
+    IWorkspaceInspectionService workspaceInspectionService,
     IAuthFlowService authFlowService,
     IMcpConnectionManager mcpConnectionManager,
     ITranscriptStore transcriptStore,
@@ -51,6 +56,9 @@ public sealed class BootstrapProjectionService(
             QwenRuntime = runtime,
             QwenTools = toolRegistry.Inspect(workspace),
             QwenNativeHost = toolExecutor.Inspect(workspace),
+            QwenChannels = channelRegistryService.Inspect(workspace),
+            QwenExtensions = extensionCatalogService.Inspect(workspace),
+            QwenWorkspace = workspaceInspectionService.Inspect(workspace),
             QwenAuth = authFlowService.GetStatus(workspace),
             QwenMcp = CreateMcpSnapshot(mcpConnectionManager.ListServersWithStatus(workspace))
         };

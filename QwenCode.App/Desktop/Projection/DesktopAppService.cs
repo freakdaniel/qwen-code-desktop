@@ -6,7 +6,10 @@ public sealed class DesktopAppService(
     ILocaleStateService localeStateService,
     IDesktopBootstrapProjectionService bootstrapProjectionService,
     IDesktopAuthProjectionService authProjectionService,
+    IDesktopChannelProjectionService channelProjectionService,
+    IDesktopWorkspaceProjectionService workspaceProjectionService,
     IDesktopMcpProjectionService mcpProjectionService,
+    IDesktopExtensionProjectionService extensionProjectionService,
     IDesktopSessionProjectionService sessionProjectionService) : IDesktopProjectionService
 {
     public event EventHandler<DesktopStateChangedEvent>? StateChanged;
@@ -54,6 +57,21 @@ public sealed class DesktopAppService(
     public Task<AuthStatusSnapshot> DisconnectAuthAsync(DisconnectAuthRequest request) =>
         authProjectionService.DisconnectAsync(request);
 
+    public Task<ChannelPairingSnapshot> GetChannelPairingsAsync(GetChannelPairingRequest request) =>
+        channelProjectionService.GetPairingsAsync(request);
+
+    public Task<ChannelPairingSnapshot> ApproveChannelPairingAsync(ApproveChannelPairingRequest request) =>
+        channelProjectionService.ApprovePairingAsync(request);
+
+    public Task<WorkspaceSnapshot> GetWorkspaceSnapshotAsync() =>
+        workspaceProjectionService.GetSnapshotAsync();
+
+    public Task<WorkspaceSnapshot> CreateManagedWorktreeAsync(CreateManagedWorktreeRequest request) =>
+        workspaceProjectionService.CreateManagedWorktreeAsync(request);
+
+    public Task<WorkspaceSnapshot> CleanupManagedSessionAsync(CleanupManagedWorktreeSessionRequest request) =>
+        workspaceProjectionService.CleanupManagedSessionAsync(request);
+
     public Task<McpSnapshot> AddMcpServerAsync(McpServerRegistrationRequest request) =>
         mcpProjectionService.AddServerAsync(request);
 
@@ -62,6 +80,21 @@ public sealed class DesktopAppService(
 
     public Task<McpSnapshot> ReconnectMcpServerAsync(ReconnectMcpServerRequest request) =>
         mcpProjectionService.ReconnectServerAsync(request);
+
+    public Task<ExtensionSettingsSnapshot> GetExtensionSettingsAsync(GetExtensionSettingsRequest request) =>
+        extensionProjectionService.GetSettingsAsync(request);
+
+    public Task<ExtensionSnapshot> InstallExtensionAsync(InstallExtensionRequest request) =>
+        extensionProjectionService.InstallAsync(request);
+
+    public Task<ExtensionSettingsSnapshot> SetExtensionSettingAsync(SetExtensionSettingValueRequest request) =>
+        extensionProjectionService.SetSettingAsync(request);
+
+    public Task<ExtensionSnapshot> SetExtensionEnabledAsync(SetExtensionEnabledRequest request) =>
+        extensionProjectionService.SetEnabledAsync(request);
+
+    public Task<ExtensionSnapshot> RemoveExtensionAsync(RemoveExtensionRequest request) =>
+        extensionProjectionService.RemoveAsync(request);
 
     public Task<DesktopSessionDetail?> GetSessionAsync(GetDesktopSessionRequest request) =>
         sessionProjectionService.GetSessionAsync(request);

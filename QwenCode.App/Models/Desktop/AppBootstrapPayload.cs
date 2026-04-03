@@ -41,4 +41,10 @@ public sealed class AppBootstrapPayload
     public required AuthStatusSnapshot QwenAuth { get; init; }
 
     public required McpSnapshot QwenMcp { get; init; }
+
+    public required ExtensionSnapshot QwenExtensions { get; init; }
+
+    public required ChannelSnapshot QwenChannels { get; init; }
+
+    public required WorkspaceSnapshot QwenWorkspace { get; init; }
 }

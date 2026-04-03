@@ -9,6 +9,7 @@ public sealed class AssistantTurnRuntime(
     IAssistantPromptAssembler promptAssembler,
     IEnumerable<IAssistantResponseProvider> providers,
     IToolExecutor toolExecutor,
+    ILoopDetectionService loopDetectionService,
     IOptions<NativeAssistantRuntimeOptions> options) : IAssistantTurnRuntime
 {
     private readonly IReadOnlyList<IAssistantResponseProvider> _providers = providers.ToArray();
@@ -19,6 +20,10 @@ public sealed class AssistantTurnRuntime(
         Action<AssistantRuntimeEvent>? eventSink = null,
         CancellationToken cancellationToken = default)
     {
+        loopDetectionService.Reset(request.SessionId);
+
+        try
+        {
         eventSink?.Invoke(new AssistantRuntimeEvent
         {
             Stage = "assembling-context",
@@ -63,6 +68,11 @@ public sealed class AssistantTurnRuntime(
         }
 
         throw new InvalidOperationException("No assistant runtime provider returned a response.");
+        }
+        finally
+        {
+            loopDetectionService.Complete(request.SessionId);
+        }
     }
 
     private IReadOnlyList<IAssistantResponseProvider> BuildProviderChain()
@@ -93,6 +103,7 @@ public sealed class AssistantTurnRuntime(
         Action<AssistantRuntimeEvent>? eventSink,
         CancellationToken cancellationToken)
     {
+        LoopDetectionDecision? detectedContentLoop = null;
         var maxIterations = Math.Max(1, _options.MaxToolIterations);
         for (var iteration = 0; iteration < maxIterations; iteration++)
         {
@@ -101,11 +112,43 @@ public sealed class AssistantTurnRuntime(
                 promptContext,
                 toolHistory,
                 _options,
-                eventSink,
+                runtimeEvent =>
+                {
+                    if (detectedContentLoop is null &&
+                        !string.IsNullOrWhiteSpace(runtimeEvent.ContentDelta))
+                    {
+                        var decision = loopDetectionService.ObserveContentDelta(request.SessionId, runtimeEvent.ContentDelta);
+                        if (decision.IsDetected)
+                        {
+                            detectedContentLoop = decision;
+                        }
+                    }
+
+                    eventSink?.Invoke(runtimeEvent);
+                },
                 cancellationToken);
             if (response is null)
             {
                 return null;
+            }
+
+            if (detectedContentLoop is { IsDetected: true })
+            {
+                eventSink?.Invoke(new AssistantRuntimeEvent
+                {
+                    Stage = "loop-detected",
+                    ProviderName = provider.Name,
+                    Status = "blocked",
+                    Message = detectedContentLoop.Reason
+                });
+
+                return new AssistantTurnResponse
+                {
+                    Summary = $"Assistant runtime stopped because loop detection found a repeated content pattern.",
+                    ProviderName = provider.Name,
+                    Model = response.Model,
+                    ToolExecutions = toolHistory.ToArray()
+                };
             }
 
             if (response.ToolCalls.Count == 0)
@@ -121,6 +164,27 @@ public sealed class AssistantTurnRuntime(
 
             foreach (var toolCall in response.ToolCalls)
             {
+                var loopDecision = loopDetectionService.ObserveToolCall(request.SessionId, toolCall);
+                if (loopDecision.IsDetected)
+                {
+                    eventSink?.Invoke(new AssistantRuntimeEvent
+                    {
+                        Stage = "loop-detected",
+                        ProviderName = provider.Name,
+                        ToolName = toolCall.ToolName,
+                        Status = "blocked",
+                        Message = loopDecision.Reason
+                    });
+
+                    return new AssistantTurnResponse
+                    {
+                        Summary = $"Assistant runtime stopped because loop detection found repeated tool calls for '{toolCall.ToolName}'.",
+                        ProviderName = provider.Name,
+                        Model = response.Model,
+                        ToolExecutions = toolHistory.ToArray()
+                    };
+                }
+
                 if (request.AllowedToolNames.Count > 0 &&
                     !request.AllowedToolNames.Contains(toolCall.ToolName, StringComparer.OrdinalIgnoreCase))
                 {

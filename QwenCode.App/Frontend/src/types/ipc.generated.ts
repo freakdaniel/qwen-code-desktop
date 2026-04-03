@@ -49,6 +49,9 @@ export interface AppBootstrapPayload {
   qwenNativeHost: NativeToolHostSnapshot;
   qwenAuth: AuthStatusSnapshot;
   qwenMcp: McpSnapshot;
+  qwenExtensions: ExtensionSnapshot;
+  qwenChannels: ChannelSnapshot;
+  qwenWorkspace: WorkspaceSnapshot;
 }
 
 export interface ApprovalProfile {
@@ -58,6 +61,11 @@ export interface ApprovalProfile {
   allowRules: string[];
   askRules: string[];
   denyRules: string[];
+}
+
+export interface ApproveChannelPairingRequest {
+  name: string;
+  code: string;
 }
 
 export interface ApproveDesktopSessionToolRequest {
@@ -103,6 +111,51 @@ export interface CapabilityLane {
   responsibilities: string[];
 }
 
+export interface ChannelDefinition {
+  name: string;
+  type: string;
+  scope: string;
+  description: string;
+  senderPolicy: string;
+  sessionScope: string;
+  workingDirectory: string;
+  approvalMode: string;
+  model: string;
+  status: string;
+  supportsPairing: boolean;
+  sessionCount: number;
+  pendingPairingCount: number;
+  allowlistCount: number;
+}
+
+export interface ChannelPairingRequest {
+  senderId: string;
+  senderName: string;
+  code: string;
+  createdAtUtc: string;
+  minutesAgo: number;
+}
+
+export interface ChannelPairingSnapshot {
+  channelName: string;
+  pendingCount: number;
+  allowlistCount: number;
+  pendingRequests: ChannelPairingRequest[];
+}
+
+export interface ChannelSnapshot {
+  isServiceRunning: boolean;
+  serviceProcessId: number | null;
+  serviceStartedAtUtc: string;
+  serviceUptimeText: string;
+  supportedTypes: string[];
+  channels: ChannelDefinition[];
+}
+
+export interface CleanupManagedWorktreeSessionRequest {
+  sessionId: string;
+}
+
 export interface ConfigureCodingPlanAuthRequest {
   scope: string;
   region: string;
@@ -127,6 +180,12 @@ export interface ConfigureQwenOAuthRequest {
   resourceUrl: string;
   idToken: string;
   expiresAtUtc: string | null;
+}
+
+export interface CreateManagedWorktreeRequest {
+  sessionId: string;
+  name: string;
+  baseBranch: string;
 }
 
 export type DesktopMode = 'code';
@@ -247,10 +306,111 @@ export interface ExecuteNativeToolRequest {
   approveExecution: boolean;
 }
 
+export interface ExtensionDefinition {
+  name: string;
+  version: string;
+  path: string;
+  wrapperPath: string;
+  status: string;
+  installType: string;
+  source: string;
+  userEnabled: boolean;
+  workspaceEnabled: boolean;
+  isActive: boolean;
+  description: string;
+  contextFiles: string[];
+  commands: string[];
+  skills: string[];
+  agents: string[];
+  mcpServers: string[];
+  channels: string[];
+  settingsCount: number;
+  hookEventCount: number;
+  lastError: string;
+}
+
+export interface ExtensionSettingsSnapshot {
+  extensionName: string;
+  version: string;
+  installType: string;
+  path: string;
+  settings: ExtensionSettingValue[];
+}
+
+export interface ExtensionSettingValue {
+  name: string;
+  description: string;
+  environmentVariable: string;
+  sensitive: boolean;
+  userValue: string;
+  workspaceValue: string;
+  effectiveValue: string;
+  hasUserValue: boolean;
+  hasWorkspaceValue: boolean;
+}
+
+export interface ExtensionSnapshot {
+  totalCount: number;
+  activeCount: number;
+  linkedCount: number;
+  missingCount: number;
+  extensions: ExtensionDefinition[];
+}
+
+export interface FileDiscoverySnapshot {
+  gitAware: boolean;
+  hasQwenIgnore: boolean;
+  candidateFileCount: number;
+  visibleFileCount: number;
+  gitIgnoredCount: number;
+  qwenIgnoredCount: number;
+  qwenIgnorePatternCount: number;
+  contextFiles: string[];
+  sampleVisibleFiles: string[];
+  sampleGitIgnoredFiles: string[];
+  sampleQwenIgnoredFiles: string[];
+}
+
+export interface GetChannelPairingRequest {
+  name: string;
+}
+
 export interface GetDesktopSessionRequest {
   sessionId: string;
   offset: number | null;
   limit: number | null;
+}
+
+export interface GetExtensionSettingsRequest {
+  name: string;
+}
+
+export interface GitRepositorySnapshot {
+  isGitAvailable: boolean;
+  isRepository: boolean;
+  worktreeSupported: boolean;
+  repositoryRoot: string;
+  currentBranch: string;
+  currentCommit: string;
+  gitVersion: string;
+  managedSessionCount: number;
+  managedWorktreesRoot: string;
+  worktrees: GitWorktreeEntry[];
+}
+
+export interface GitWorktreeEntry {
+  path: string;
+  branch: string;
+  head: string;
+  name: string;
+  sessionId: string;
+  isCurrent: boolean;
+  isManaged: boolean;
+}
+
+export interface InstallExtensionRequest {
+  sourcePath: string;
+  installMode: string;
 }
 
 export interface LocaleOption {
@@ -277,6 +437,11 @@ export interface McpServerDefinition {
   lastReconnectAttemptUtc: string | null;
   lastError: string;
   hasPersistedToken: boolean;
+  discoveredToolsCount: number;
+  discoveredPromptsCount: number;
+  supportsPrompts: boolean;
+  supportsResources: boolean;
+  lastDiscoveryUtc: string | null;
 }
 
 export interface McpServerRegistrationRequest {
@@ -403,6 +568,9 @@ export interface QwenRuntimeProfile {
   historyDirectory: string;
   contextFileNames: string[];
   contextFilePaths: string[];
+  folderTrustEnabled: boolean;
+  isWorkspaceTrusted: boolean;
+  workspaceTrustSource: string;
   approvalProfile: ApprovalProfile;
 }
 
@@ -437,6 +605,10 @@ export interface RecoverableTurnState {
   lastUpdatedAtUtc: string;
   contentSnapshot: string;
   toolName: string;
+}
+
+export interface RemoveExtensionRequest {
+  name: string;
 }
 
 export interface RemoveMcpServerRequest {
@@ -476,6 +648,19 @@ export interface SessionPreview {
   transcriptPath: string;
 }
 
+export interface SetExtensionEnabledRequest {
+  name: string;
+  scope: string;
+  enabled: boolean;
+}
+
+export interface SetExtensionSettingValueRequest {
+  name: string;
+  setting: string;
+  scope: string;
+  value: string;
+}
+
 export interface SetLocaleRequest {
   locale: string;
 }
@@ -511,6 +696,11 @@ export interface ToolDescriptor {
   approvalReason: string;
 }
 
+export interface WorkspaceSnapshot {
+  git: GitRepositorySnapshot;
+  discovery: FileDiscoverySnapshot;
+}
+
 export interface QwenDesktopBridge {
   bootstrap(): Promise<AppBootstrapPayload>;
   setLocale(request: SetLocaleRequest): Promise<DesktopStateChangedEvent>;
@@ -523,6 +713,13 @@ export interface QwenDesktopBridge {
   disconnectAuth(request: DisconnectAuthRequest): Promise<AuthStatusSnapshot>;
   startQwenOAuthDeviceFlow(request: StartQwenOAuthDeviceFlowRequest): Promise<AuthStatusSnapshot>;
   getAuthStatus(): Promise<AuthStatusSnapshot>;
+  approveChannelPairing(request: ApproveChannelPairingRequest): Promise<ChannelPairingSnapshot>;
+  getChannelPairings(request: GetChannelPairingRequest): Promise<ChannelPairingSnapshot>;
+  getExtensionSettings(request: GetExtensionSettingsRequest): Promise<ExtensionSettingsSnapshot>;
+  installExtension(request: InstallExtensionRequest): Promise<ExtensionSnapshot>;
+  removeExtension(request: RemoveExtensionRequest): Promise<ExtensionSnapshot>;
+  setExtensionEnabled(request: SetExtensionEnabledRequest): Promise<ExtensionSnapshot>;
+  setExtensionSetting(request: SetExtensionSettingValueRequest): Promise<ExtensionSettingsSnapshot>;
   addMcpServer(request: McpServerRegistrationRequest): Promise<McpSnapshot>;
   reconnectMcpServer(request: ReconnectMcpServerRequest): Promise<McpSnapshot>;
   removeMcpServer(request: RemoveMcpServerRequest): Promise<McpSnapshot>;
@@ -536,6 +733,9 @@ export interface QwenDesktopBridge {
   resumeInterruptedTurn(request: ResumeInterruptedTurnRequest): Promise<DesktopSessionTurnResult>;
   startSessionTurn(request: StartDesktopSessionTurnRequest): Promise<DesktopSessionTurnResult>;
   executeNativeTool(request: ExecuteNativeToolRequest): Promise<NativeToolExecutionResult>;
+  cleanupManagedSession(request: CleanupManagedWorktreeSessionRequest): Promise<WorkspaceSnapshot>;
+  createManagedWorktree(request: CreateManagedWorktreeRequest): Promise<WorkspaceSnapshot>;
+  getWorkspaceSnapshot(): Promise<WorkspaceSnapshot>;
 }
 
 export const qwenDesktopChannels = {
@@ -550,6 +750,13 @@ export const qwenDesktopChannels = {
   disconnectAuth: 'qwen-desktop:auth:disconnect',
   startQwenOAuthDeviceFlow: 'qwen-desktop:auth:start-qwen-oauth-device-flow',
   getAuthStatus: 'qwen-desktop:auth:status',
+  approveChannelPairing: 'qwen-desktop:channels:approve-pairing',
+  getChannelPairings: 'qwen-desktop:channels:get-pairings',
+  getExtensionSettings: 'qwen-desktop:extensions:get-settings',
+  installExtension: 'qwen-desktop:extensions:install',
+  removeExtension: 'qwen-desktop:extensions:remove',
+  setExtensionEnabled: 'qwen-desktop:extensions:set-enabled',
+  setExtensionSetting: 'qwen-desktop:extensions:set-setting',
   addMcpServer: 'qwen-desktop:mcp:add',
   reconnectMcpServer: 'qwen-desktop:mcp:reconnect',
   removeMcpServer: 'qwen-desktop:mcp:remove',
@@ -563,4 +770,7 @@ export const qwenDesktopChannels = {
   resumeInterruptedTurn: 'qwen-desktop:sessions:resume-interrupted',
   startSessionTurn: 'qwen-desktop:sessions:start-turn',
   executeNativeTool: 'qwen-desktop:tools:execute-native',
+  cleanupManagedSession: 'qwen-desktop:workspace:cleanup-managed-session',
+  createManagedWorktree: 'qwen-desktop:workspace:create-managed-worktree',
+  getWorkspaceSnapshot: 'qwen-desktop:workspace:get',
 } as const

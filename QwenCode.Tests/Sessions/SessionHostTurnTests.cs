@@ -413,5 +413,75 @@ public sealed class SessionHostTurnTests
         }
     }
 
+    [Fact]
+    public async Task DesktopSessionHostService_StartTurnAsync_AppendsCompressionCheckpointForLongSessions()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-session-compression-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService);
+            var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            Directory.CreateDirectory(runtimeProfile.ChatsDirectory);
+
+            var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "preloaded.jsonl");
+            using (var writer = new StreamWriter(transcriptPath))
+            {
+                for (var index = 0; index < 24; index++)
+                {
+                    var type = index % 2 == 0 ? "user" : "assistant";
+                    var role = type == "user" ? "user" : "assistant";
+                    writer.WriteLine(
+                        JsonSerializer.Serialize(new
+                        {
+                            uuid = Guid.NewGuid().ToString(),
+                            sessionId = "preloaded",
+                            timestamp = DateTime.UtcNow.AddMinutes(-30 + index).ToString("O"),
+                            type,
+                            cwd = workspaceRoot,
+                            version = "0.1.0",
+                            gitBranch = "main",
+                            message = new
+                            {
+                                role,
+                                parts = new[]
+                                {
+                                    new { text = $"Historical message {index}" }
+                                }
+                            }
+                        }));
+                }
+            }
+
+            var result = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    SessionId = "preloaded",
+                    Prompt = "Continue after a long transcript history.",
+                    WorkingDirectory = workspaceRoot
+                });
+
+            var transcript = File.ReadAllLines(result.Session.TranscriptPath);
+            Assert.Contains(transcript, line => line.Contains("\"status\":\"chat-compression\"", StringComparison.Ordinal));
+            Assert.Contains(transcript, line => line.Contains("Compression checkpoint:", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
 
 }

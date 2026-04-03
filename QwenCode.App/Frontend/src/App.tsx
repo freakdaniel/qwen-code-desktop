@@ -8,9 +8,12 @@ import { SettingsScreen } from '@/components/screens/SettingsScreen'
 import { UtilitiesScreen } from '@/components/screens/UtilitiesScreen'
 import { useAuth } from '@/hooks/useAuth'
 import { useBootstrap } from '@/hooks/useBootstrap'
+import { useChannels } from '@/hooks/useChannels'
+import { useExtensions } from '@/hooks/useExtensions'
 import { useMcp } from '@/hooks/useMcp'
 import { useSession } from '@/hooks/useSession'
 import { useUtilities } from '@/hooks/useUtilities'
+import { useWorkspace } from '@/hooks/useWorkspace'
 import type { DesktopSessionDetail } from '@/types/desktop'
 import type { AgentMode, WorkspaceSurface } from '@/types/ui'
 
@@ -34,9 +37,18 @@ function App() {
     selectedSessionDetailRef,
   })
   const auth = useAuth({ updateAuthSnapshot: bootstrap.updateAuthSnapshot })
+  const channels = useChannels({
+    setBootstrap: bootstrap.setBootstrap,
+  })
+  const extensions = useExtensions({
+    setBootstrap: bootstrap.setBootstrap,
+  })
   const mcp = useMcp({
     setBootstrap: bootstrap.setBootstrap,
     setMcpSnapshot: bootstrap.setMcpSnapshot,
+  })
+  const workspace = useWorkspace({
+    setBootstrap: bootstrap.setBootstrap,
   })
   const utilities = useUtilities(bootstrap.bootstrap)
 
@@ -82,15 +94,39 @@ function App() {
     if (surface === 'utilities') {
       return (
         <UtilitiesScreen
+          workspaceSnapshot={utilities.workspaceSnapshot}
           mcpServers={utilities.mcpServers}
+          channels={utilities.channels}
+          channelSnapshot={utilities.channelSnapshot}
+          extensions={utilities.extensions}
           tools={utilities.tools}
           agents={utilities.agents}
           isSavingMcp={mcp.isSavingMcp}
+          isInstallingExtension={extensions.isInstallingExtension}
+          loadingPairingsName={channels.loadingPairingsName}
+          approvingPairingKey={channels.approvingPairingKey}
           reconnectingMcpName={mcp.reconnectingMcpName}
           removingMcpName={mcp.removingMcpName}
+          togglingExtensionName={extensions.togglingExtensionName}
+          removingExtensionName={extensions.removingExtensionName}
+          loadingSettingsName={extensions.loadingSettingsName}
+          savingSettingKey={extensions.savingSettingKey}
+          isCreatingManagedWorktree={workspace.isCreatingManagedWorktree}
+          cleaningManagedSessionId={workspace.cleaningManagedSessionId}
+          pairingsByChannel={channels.pairingsByChannel}
+          settingsByExtension={extensions.settingsByExtension}
+          onCreateManagedWorktree={workspace.handleCreateManagedWorktree}
+          onCleanupManagedSession={workspace.handleCleanupManagedSession}
+          onLoadChannelPairings={channels.handleLoadChannelPairings}
+          onApproveChannelPairing={channels.handleApproveChannelPairing}
           onReconnect={mcp.handleReconnectMcpServer}
           onRemove={mcp.handleRemoveMcpServer}
           onAddServer={mcp.handleAddMcpServer}
+          onInstallExtension={extensions.handleInstallExtension}
+          onSetExtensionEnabled={extensions.handleSetExtensionEnabled}
+          onRemoveExtension={extensions.handleRemoveExtension}
+          onLoadExtensionSettings={extensions.handleLoadExtensionSettings}
+          onSetExtensionSetting={extensions.handleSetExtensionSetting}
         />
       )
     }

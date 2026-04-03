@@ -1,4 +1,6 @@
 using QwenCode.App.Auth;
+using QwenCode.App.Channels;
+using QwenCode.App.Extensions;
 
 namespace QwenCode.Tests.Desktop;
 
@@ -62,6 +64,8 @@ public sealed class DesktopProjectionServiceTests
             Assert.True(payload.QwenTools.TotalCount >= 0);
             Assert.True(payload.QwenNativeHost.RegisteredCount >= 0);
             Assert.False(string.IsNullOrWhiteSpace(payload.QwenAuth.SelectedType));
+            Assert.True(payload.QwenWorkspace.Discovery.VisibleFileCount >= 0);
+            Assert.True(payload.QwenWorkspace.Git.ManagedSessionCount >= 0);
         }
         finally
         {
@@ -107,9 +111,21 @@ public sealed class DesktopProjectionServiceTests
                 environmentPaths,
                 new FileQwenOAuthCredentialStore(environmentPaths),
                 new HttpClient(new RecordingHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)))),
-                new FakeAuthUrlLauncher());
+                new FakeAuthUrlLauncher(),
+                new QwenOAuthTokenManager(
+                    new FileQwenOAuthCredentialStore(environmentPaths),
+                    environmentPaths,
+                    new HttpClient(new RecordingHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))))));
             var toolRegistry = new ToolCatalogService(runtimeProfileService, approvalPolicyService);
             var toolExecutor = new NativeToolHostService(runtimeProfileService, approvalPolicyService);
+            var workspaceInspectionService = new WorkspaceInspectionService(
+                new GitWorktreeService(new GitCliService(), runtimeProfileService),
+                new FileDiscoveryService(new GitCliService(), runtimeProfileService));
+            var extensionCatalog = new ExtensionCatalogService(runtimeProfileService, environmentPaths);
+            var channelRegistry = new ChannelRegistryService(
+                environmentPaths,
+                settingsResolver,
+                extensionCatalog);
             var mcpTokenStore = new FileMcpTokenStore(environmentPaths);
             var mcpRegistry = new McpRegistryService(runtimeProfileService, mcpTokenStore);
             var mcpConnectionManager = new McpConnectionManagerService(
@@ -145,6 +161,9 @@ public sealed class DesktopProjectionServiceTests
                     projectSummaryService,
                     toolRegistry,
                     toolExecutor,
+                    channelRegistry,
+                    extensionCatalog,
+                    workspaceInspectionService,
                     authFlowService,
                     mcpConnectionManager,
                     transcriptStore,
@@ -154,11 +173,24 @@ public sealed class DesktopProjectionServiceTests
                     shellOptions,
                     workspacePathResolver,
                     authFlowService),
+                new ChannelProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    channelRegistry),
+                new WorkspaceProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    workspaceInspectionService,
+                    new GitWorktreeService(new GitCliService(), runtimeProfileService)),
                 new McpProjectionService(
                     shellOptions,
                     workspacePathResolver,
                     mcpRegistry,
                     mcpConnectionManager),
+                new ExtensionProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    extensionCatalog),
                 new SessionProjectionService(
                     shellOptions,
                     workspacePathResolver,

@@ -30,7 +30,9 @@ public sealed class SessionHostCancellationTests
                     compatibilityService,
                     new ToolCatalogService(runtimeProfileService, approvalPolicyService)),
                 CreateAssistantTurnRuntime(new CancellableAssistantResponseProvider()),
+                new ChatCompressionService(),
                 new NativeToolHostService(runtimeProfileService, approvalPolicyService),
+                new PassthroughHookLifecycleService(),
                 new UserQuestionToolService(),
                 new PassthroughUserPromptHookService(),
                 sessionCatalog,
@@ -103,5 +105,14 @@ public sealed class SessionHostCancellationTests
             {
                 EffectivePrompt = request.Prompt
             });
+    }
+
+    private sealed class PassthroughHookLifecycleService : IHookLifecycleService
+    {
+        public Task<HookLifecycleResult> ExecuteAsync(
+            QwenRuntimeProfile runtimeProfile,
+            HookInvocationRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new HookLifecycleResult());
     }
 }

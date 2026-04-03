@@ -53,13 +53,14 @@ public sealed class SessionHostHookTests
             var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
             var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
             var compatibilityService = new QwenCompatibilityService(environmentPaths);
+            var hookLifecycleService = new HookLifecycleService(
+                new HookRegistryService(environmentPaths),
+                new HookCommandRunner(),
+                new HookOutputAggregator());
             var sessionHost = CreateSessionHost(
                 runtimeProfileService,
                 compatibilityService,
-                userPromptHookService: new UserPromptHookService(
-                    new HookRegistryService(environmentPaths),
-                    new HookCommandRunner(),
-                    new HookOutputAggregator()));
+                userPromptHookService: new UserPromptHookService(hookLifecycleService));
 
             var result = await sessionHost.StartTurnAsync(
                 new WorkspacePaths { WorkspaceRoot = workspaceRoot },

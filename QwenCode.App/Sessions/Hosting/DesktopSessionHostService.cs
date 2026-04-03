@@ -10,7 +10,9 @@ public sealed class DesktopSessionHostService(
     QwenRuntimeProfileService runtimeProfileService,
     ICommandActionRuntime commandActionRuntime,
     IAssistantTurnRuntime assistantTurnRuntime,
+    IChatCompressionService chatCompressionService,
     IToolExecutor nativeToolHostService,
+    IHookLifecycleService hookLifecycleService,
     IUserQuestionToolService userQuestionToolService,
     IUserPromptHookService userPromptHookService,
     ITranscriptStore sessionCatalogService,
@@ -195,6 +197,15 @@ public sealed class DesktopSessionHostService(
             workingDirectory,
             gitBranch,
             hookResult,
+            cancellationToken);
+
+        parentUuid = await AppendCompressionCheckpointAsync(
+            runtimeProfile,
+            transcriptPath,
+            parentUuid,
+            sessionId,
+            workingDirectory,
+            gitBranch,
             cancellationToken);
 
         if (hookResult.IsBlocked)
@@ -955,6 +966,49 @@ public sealed class DesktopSessionHostService(
         }
 
         return currentParentUuid;
+    }
+
+    private async Task<string?> AppendCompressionCheckpointAsync(
+        QwenRuntimeProfile runtimeProfile,
+        string transcriptPath,
+        string? parentUuid,
+        string sessionId,
+        string workingDirectory,
+        string gitBranch,
+        CancellationToken cancellationToken)
+    {
+        var checkpoint = await chatCompressionService.TryCreateCheckpointAsync(transcriptPath, cancellationToken);
+        if (checkpoint is null)
+        {
+            return parentUuid;
+        }
+
+        _ = await hookLifecycleService.ExecuteAsync(
+            runtimeProfile,
+            new HookInvocationRequest
+            {
+                EventName = HookEventName.PreCompact,
+                SessionId = sessionId,
+                WorkingDirectory = workingDirectory,
+                TranscriptPath = transcriptPath,
+                Metadata =
+                {
+                    ["trigger"] = "auto",
+                    ["compressedEntries"] = checkpoint.CompressedEntryCount,
+                    ["preservedEntries"] = checkpoint.PreservedEntryCount
+                }
+            },
+            cancellationToken);
+
+        return await AppendSystemEntryAsync(
+            transcriptPath,
+            parentUuid,
+            sessionId,
+            workingDirectory,
+            gitBranch,
+            checkpoint.Summary,
+            "chat-compression",
+            cancellationToken);
     }
 
     private async Task<DesktopSessionTurnResult> BuildBlockedTurnResultAsync(

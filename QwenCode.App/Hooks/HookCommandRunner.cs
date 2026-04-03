@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using QwenCode.App.Models;
 
 namespace QwenCode.App.Hooks;
@@ -12,19 +13,11 @@ public sealed class HookCommandRunner
 
     public async Task<HookExecutionResult> ExecuteAsync(
         CommandHookConfiguration hook,
-        UserPromptHookRequest request,
+        HookInvocationRequest request,
         CancellationToken cancellationToken = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var payload = JsonSerializer.Serialize(new
-        {
-            session_id = request.SessionId,
-            transcript_path = request.TranscriptPath,
-            cwd = request.WorkingDirectory,
-            hook_event_name = HookEventName.UserPromptSubmit.ToString(),
-            timestamp = DateTimeOffset.UtcNow.ToString("O"),
-            prompt = request.Prompt
-        });
+        var payload = BuildPayload(request).ToJsonString();
 
         using var process = new Process
         {
@@ -116,6 +109,77 @@ public sealed class HookCommandRunner
                 Duration = Stopwatch.GetElapsedTime(startTimestamp)
             };
         }
+    }
+
+    private static JsonObject BuildPayload(HookInvocationRequest request)
+    {
+        var payload = new JsonObject
+        {
+            ["session_id"] = request.SessionId,
+            ["transcript_path"] = request.TranscriptPath,
+            ["cwd"] = request.WorkingDirectory,
+            ["hook_event_name"] = request.EventName.ToString(),
+            ["timestamp"] = DateTimeOffset.UtcNow.ToString("O")
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.Prompt))
+        {
+            payload["prompt"] = request.Prompt;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ToolName))
+        {
+            payload["tool_name"] = request.ToolName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ToolStatus))
+        {
+            payload["tool_status"] = request.ToolStatus;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ApprovalState))
+        {
+            payload["approval_state"] = request.ApprovalState;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ToolOutput))
+        {
+            payload["tool_output"] = request.ToolOutput;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ToolErrorMessage))
+        {
+            payload["tool_error_message"] = request.ToolErrorMessage;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.AgentName))
+        {
+            payload["agent_name"] = request.AgentName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Reason))
+        {
+            payload["reason"] = request.Reason;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ToolArgumentsJson))
+        {
+            try
+            {
+                payload["tool_arguments"] = JsonNode.Parse(request.ToolArgumentsJson);
+            }
+            catch
+            {
+                payload["tool_arguments_raw"] = request.ToolArgumentsJson;
+            }
+        }
+
+        foreach (var pair in request.Metadata)
+        {
+            payload[pair.Key] = pair.Value?.DeepClone();
+        }
+
+        return payload;
     }
 
     private static ProcessStartInfo CreateStartInfo(CommandHookConfiguration hook, string workingDirectory)

@@ -7,6 +7,9 @@ namespace QwenCode.App.Hooks;
 public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPaths)
 {
     public HookExecutionPlan BuildUserPromptSubmitPlan(QwenRuntimeProfile runtimeProfile)
+        => BuildPlan(runtimeProfile, HookEventName.UserPromptSubmit);
+
+    public HookExecutionPlan BuildPlan(QwenRuntimeProfile runtimeProfile, HookEventName eventName)
     {
         var projectSettingsPath = Path.Combine(runtimeProfile.ProjectRoot, ".qwen", "settings.json");
         var userSettingsPath = Path.Combine(runtimeProfile.GlobalQwenDirectory, "settings.json");
@@ -44,7 +47,7 @@ public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPath
             {
                 using var stream = File.OpenRead(layer.Path);
                 using var document = JsonDocument.Parse(stream);
-                if (!TryNavigate(document.RootElement, ["hooks", nameof(HookEventName.UserPromptSubmit)], out var definitions) ||
+                if (!TryNavigate(document.RootElement, ["hooks", eventName.ToString()], out var definitions) ||
                     definitions.ValueKind != JsonValueKind.Array)
                 {
                     continue;
@@ -62,7 +65,7 @@ public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPath
                     var sequential = TryGetBoolean(definition, "sequential");
                     foreach (var hookElement in hooksElement.EnumerateArray())
                     {
-                        if (!TryParseHook(hookElement, layer.Source, sequential, out var hook))
+                        if (!TryParseHook(hookElement, layer.Source, eventName, sequential, out var hook))
                         {
                             continue;
                         }
@@ -159,6 +162,7 @@ public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPath
     private static bool TryParseHook(
         JsonElement hookElement,
         HookConfigSource source,
+        HookEventName eventName,
         bool sequential,
         out CommandHookConfiguration hook)
     {
@@ -179,6 +183,7 @@ public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPath
             TimeoutMs = TryGetInt32(hookElement, "timeout", out var timeoutMs) && timeoutMs > 0 ? timeoutMs : 60_000,
             EnvironmentVariables = ReadEnvironmentVariables(hookElement),
             Source = source,
+            EventName = eventName,
             Sequential = sequential
         };
         return true;

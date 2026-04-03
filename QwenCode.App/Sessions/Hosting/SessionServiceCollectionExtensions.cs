@@ -7,6 +7,7 @@ public static class SessionServiceCollectionExtensions
 {
     public static IServiceCollection AddSessionServices(this IServiceCollection services)
     {
+        services.AddSingleton<IChatCompressionService, ChatCompressionService>();
         services.AddSingleton<ITranscriptStore, DesktopSessionCatalogService>();
         services.AddSingleton<IInterruptedTurnStore, InterruptedTurnStore>();
         services.AddSingleton<IActiveTurnRegistry, ActiveTurnRegistry>();

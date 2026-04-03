@@ -495,4 +495,86 @@ public sealed class NativeToolHostTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_BlocksToolWhenPreToolUseHookDeniesExecution()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-pretool-hook-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            var scriptPath = Path.Combine(root, "deny-pretool.ps1");
+            File.WriteAllText(
+                scriptPath,
+                """
+                [Console]::Error.Write('Tool execution denied by PreToolUse hook')
+                exit 2
+                """);
+
+            var command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "settings.json"),
+                $$"""
+                {
+                  "permissions": {
+                    "defaultMode": "yolo"
+                  },
+                  "hooksConfig": {
+                    "enabled": true
+                  },
+                  "hooks": {
+                    "PreToolUse": [
+                      {
+                        "hooks": [
+                          {
+                            "type": "command",
+                            "name": "deny-write",
+                            "command": "{{command}}"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """);
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
+            var hookLifecycleService = new HookLifecycleService(
+                new HookRegistryService(environmentPaths),
+                new HookCommandRunner(),
+                new HookOutputAggregator());
+            var host = new NativeToolHostService(
+                runtimeProfileService,
+                new ApprovalPolicyService(),
+                new InMemoryCronScheduler(),
+                hookLifecycleService: hookLifecycleService);
+
+            var targetFile = Path.Combine(workspaceRoot, "blocked.txt");
+            var result = await host.ExecuteAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new ExecuteNativeToolRequest
+                {
+                    ToolName = "write_file",
+                    ArgumentsJson = $$"""{"file_path":"{{targetFile.Replace("\\", "\\\\")}}","content":"should-not-be-written"}"""
+                });
+
+            Assert.Equal("blocked", result.Status);
+            Assert.Contains("PreToolUse", result.ErrorMessage);
+            Assert.False(File.Exists(targetFile));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

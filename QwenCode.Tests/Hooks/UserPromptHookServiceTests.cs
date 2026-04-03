@@ -61,10 +61,11 @@ public sealed class UserPromptHookServiceTests
             var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
             var runtimeProfile = new QwenRuntimeProfileService(environmentPaths)
                 .Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
-            var service = new UserPromptHookService(
+            var hookLifecycleService = new HookLifecycleService(
                 new HookRegistryService(environmentPaths),
                 new HookCommandRunner(),
                 new HookOutputAggregator());
+            var service = new UserPromptHookService(hookLifecycleService);
 
             var result = await service.ExecuteAsync(
                 runtimeProfile,
@@ -153,10 +154,11 @@ public sealed class UserPromptHookServiceTests
             var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
             var runtimeProfile = new QwenRuntimeProfileService(environmentPaths)
                 .Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
-            var service = new UserPromptHookService(
+            var hookLifecycleService = new HookLifecycleService(
                 new HookRegistryService(environmentPaths),
                 new HookCommandRunner(),
                 new HookOutputAggregator());
+            var service = new UserPromptHookService(hookLifecycleService);
 
             var result = await service.ExecuteAsync(
                 runtimeProfile,

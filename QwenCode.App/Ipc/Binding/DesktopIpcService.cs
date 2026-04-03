@@ -52,6 +52,26 @@ public sealed class DesktopIpcService(
     public Task<AuthStatusSnapshot> DisconnectAuth(DisconnectAuthRequest request)
         => desktopProjectionService.DisconnectAuthAsync(request);
 
+    [IpcInvoke("qwen-desktop:channels:get-pairings")]
+    public Task<ChannelPairingSnapshot> GetChannelPairings(GetChannelPairingRequest request)
+        => desktopProjectionService.GetChannelPairingsAsync(request);
+
+    [IpcInvoke("qwen-desktop:channels:approve-pairing")]
+    public Task<ChannelPairingSnapshot> ApproveChannelPairing(ApproveChannelPairingRequest request)
+        => desktopProjectionService.ApproveChannelPairingAsync(request);
+
+    [IpcInvoke("qwen-desktop:workspace:get")]
+    public Task<WorkspaceSnapshot> GetWorkspaceSnapshot()
+        => desktopProjectionService.GetWorkspaceSnapshotAsync();
+
+    [IpcInvoke("qwen-desktop:workspace:create-managed-worktree")]
+    public Task<WorkspaceSnapshot> CreateManagedWorktree(CreateManagedWorktreeRequest request)
+        => desktopProjectionService.CreateManagedWorktreeAsync(request);
+
+    [IpcInvoke("qwen-desktop:workspace:cleanup-managed-session")]
+    public Task<WorkspaceSnapshot> CleanupManagedSession(CleanupManagedWorktreeSessionRequest request)
+        => desktopProjectionService.CleanupManagedSessionAsync(request);
+
     [IpcInvoke("qwen-desktop:mcp:add")]
     public Task<McpSnapshot> AddMcpServer(McpServerRegistrationRequest request)
         => desktopProjectionService.AddMcpServerAsync(request);
@@ -63,6 +83,26 @@ public sealed class DesktopIpcService(
     [IpcInvoke("qwen-desktop:mcp:reconnect")]
     public Task<McpSnapshot> ReconnectMcpServer(ReconnectMcpServerRequest request)
         => desktopProjectionService.ReconnectMcpServerAsync(request);
+
+    [IpcInvoke("qwen-desktop:extensions:get-settings")]
+    public Task<ExtensionSettingsSnapshot> GetExtensionSettings(GetExtensionSettingsRequest request)
+        => desktopProjectionService.GetExtensionSettingsAsync(request);
+
+    [IpcInvoke("qwen-desktop:extensions:install")]
+    public Task<ExtensionSnapshot> InstallExtension(InstallExtensionRequest request)
+        => desktopProjectionService.InstallExtensionAsync(request);
+
+    [IpcInvoke("qwen-desktop:extensions:set-setting")]
+    public Task<ExtensionSettingsSnapshot> SetExtensionSetting(SetExtensionSettingValueRequest request)
+        => desktopProjectionService.SetExtensionSettingAsync(request);
+
+    [IpcInvoke("qwen-desktop:extensions:set-enabled")]
+    public Task<ExtensionSnapshot> SetExtensionEnabled(SetExtensionEnabledRequest request)
+        => desktopProjectionService.SetExtensionEnabledAsync(request);
+
+    [IpcInvoke("qwen-desktop:extensions:remove")]
+    public Task<ExtensionSnapshot> RemoveExtension(RemoveExtensionRequest request)
+        => desktopProjectionService.RemoveExtensionAsync(request);
 
     [IpcInvoke("qwen-desktop:tools:execute-native")]
     public Task<NativeToolExecutionResult> ExecuteNativeTool(ExecuteNativeToolRequest request)

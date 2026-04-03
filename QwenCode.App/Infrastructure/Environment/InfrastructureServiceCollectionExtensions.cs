@@ -9,6 +9,10 @@ public static class InfrastructureServiceCollectionExtensions
     {
         services.AddSingleton<IDesktopEnvironmentPaths, DesktopEnvironmentPaths>();
         services.AddSingleton<IWorkspacePathResolver, WorkspacePathResolver>();
+        services.AddSingleton<IGitCliService, GitCliService>();
+        services.AddSingleton<IGitWorktreeService, GitWorktreeService>();
+        services.AddSingleton<IFileDiscoveryService, FileDiscoveryService>();
+        services.AddSingleton<IWorkspaceInspectionService, WorkspaceInspectionService>();
 
         return services;
     }

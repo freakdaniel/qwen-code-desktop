@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Options;
 using QwenCode.App.Auth;
+using QwenCode.App.Channels;
+using QwenCode.App.Extensions;
+using QwenCode.App.Infrastructure;
 
 namespace QwenCode.Tests.Shared.Fixtures;
 
@@ -36,6 +39,14 @@ internal static class TestServiceFactory
         var projectSummaryService = new ProjectSummaryService();
         var toolRegistry = new ToolCatalogService(runtimeProfileService, approvalPolicyService);
         var toolExecutor = new NativeToolHostService(runtimeProfileService, approvalPolicyService);
+        var workspaceInspectionService = new WorkspaceInspectionService(
+            new GitWorktreeService(new GitCliService(), runtimeProfileService),
+            new FileDiscoveryService(new GitCliService(), runtimeProfileService));
+        var extensionCatalog = new ExtensionCatalogService(runtimeProfileService, environmentPaths);
+        var channelRegistry = new ChannelRegistryService(
+            environmentPaths,
+            settingsResolver,
+            extensionCatalog);
         var mcpRegistry = new McpRegistryService(
             runtimeProfileService,
             new FileMcpTokenStore(environmentPaths));
@@ -65,6 +76,9 @@ internal static class TestServiceFactory
                 projectSummaryService,
                 toolRegistry,
                 toolExecutor,
+                channelRegistry,
+                extensionCatalog,
+                workspaceInspectionService,
                 authFlowService,
                 mcpConnectionManager,
                 transcriptStore,
@@ -74,11 +88,24 @@ internal static class TestServiceFactory
                 shellOptions,
                 workspacePathResolver,
                 authFlowService),
+            new ChannelProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                channelRegistry),
+            new WorkspaceProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                workspaceInspectionService,
+                new GitWorktreeService(new GitCliService(), runtimeProfileService)),
             new McpProjectionService(
                 shellOptions,
                 workspacePathResolver,
                 mcpRegistry,
                 mcpConnectionManager),
+            new ExtensionProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                extensionCatalog),
             new SessionProjectionService(
                 shellOptions,
                 workspacePathResolver,
@@ -106,7 +133,9 @@ internal static class TestServiceFactory
                 compatibilityService,
                 new ToolCatalogService(runtimeProfileService, approvalPolicyService)),
             CreateAssistantTurnRuntime(),
+            new ChatCompressionService(),
             new NativeToolHostService(runtimeProfileService, approvalPolicyService),
+            new PassthroughHookLifecycleService(),
             new UserQuestionToolService(),
             userPromptHookService ?? new PassthroughUserPromptHookService(),
             transcriptStore ?? new DesktopSessionCatalogService(runtimeProfileService),
@@ -134,6 +163,7 @@ internal static class TestServiceFactory
                 ]
                 : [primaryProvider, new FallbackAssistantResponseProvider()],
             toolExecutor ?? new FakeToolExecutor(),
+            new LoopDetectionService(),
             Options.Create(new NativeAssistantRuntimeOptions
             {
                 Provider = primaryProvider?.Name ?? "fallback"
@@ -149,5 +179,14 @@ internal static class TestServiceFactory
             {
                 EffectivePrompt = request.Prompt
             });
+    }
+
+    private sealed class PassthroughHookLifecycleService : IHookLifecycleService
+    {
+        public Task<HookLifecycleResult> ExecuteAsync(
+            QwenRuntimeProfile runtimeProfile,
+            HookInvocationRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new HookLifecycleResult());
     }
 }

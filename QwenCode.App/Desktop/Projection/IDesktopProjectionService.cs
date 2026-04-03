@@ -32,11 +32,31 @@ public interface IDesktopProjectionService
 
     Task<AuthStatusSnapshot> DisconnectAuthAsync(DisconnectAuthRequest request);
 
+    Task<ChannelPairingSnapshot> GetChannelPairingsAsync(GetChannelPairingRequest request);
+
+    Task<ChannelPairingSnapshot> ApproveChannelPairingAsync(ApproveChannelPairingRequest request);
+
+    Task<WorkspaceSnapshot> GetWorkspaceSnapshotAsync();
+
+    Task<WorkspaceSnapshot> CreateManagedWorktreeAsync(CreateManagedWorktreeRequest request);
+
+    Task<WorkspaceSnapshot> CleanupManagedSessionAsync(CleanupManagedWorktreeSessionRequest request);
+
     Task<McpSnapshot> AddMcpServerAsync(McpServerRegistrationRequest request);
 
     Task<McpSnapshot> RemoveMcpServerAsync(RemoveMcpServerRequest request);
 
     Task<McpSnapshot> ReconnectMcpServerAsync(ReconnectMcpServerRequest request);
+
+    Task<ExtensionSettingsSnapshot> GetExtensionSettingsAsync(GetExtensionSettingsRequest request);
+
+    Task<ExtensionSnapshot> InstallExtensionAsync(InstallExtensionRequest request);
+
+    Task<ExtensionSettingsSnapshot> SetExtensionSettingAsync(SetExtensionSettingValueRequest request);
+
+    Task<ExtensionSnapshot> SetExtensionEnabledAsync(SetExtensionEnabledRequest request);
+
+    Task<ExtensionSnapshot> RemoveExtensionAsync(RemoveExtensionRequest request);
 
     Task<NativeToolExecutionResult> ExecuteNativeToolAsync(ExecuteNativeToolRequest request);
 

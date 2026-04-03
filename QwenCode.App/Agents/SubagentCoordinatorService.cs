@@ -1,8 +1,10 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using QwenCode.App.Compatibility;
+using QwenCode.App.Hooks;
 using QwenCode.App.Models;
 using QwenCode.App.Options;
 using QwenCode.App.Runtime;
@@ -14,6 +16,7 @@ public sealed class SubagentCoordinatorService(
     ISubagentCatalog subagentCatalog,
     IToolRegistry toolRegistry,
     QwenCompatibilityService compatibilityService,
+    IHookLifecycleService? hookLifecycleService = null,
     IServiceProvider? serviceProvider = null) : ISubagentCoordinator
 {
     public async Task<NativeToolExecutionResult> ExecuteAsync(
@@ -57,7 +60,31 @@ public sealed class SubagentCoordinatorService(
 
         var transcriptPath = Path.Combine(executionDirectory, $"{executionId}.jsonl");
         var artifactPath = Path.Combine(executionDirectory, $"{executionId}.json");
-        var runtimeRequest = BuildAssistantTurnRequest(executionId, description, prompt, agent, runtimeProfile, transcriptPath);
+        var startHook = await ExecuteHookAsync(
+            runtimeProfile,
+            HookEventName.SubagentStart,
+            executionId,
+            transcriptPath,
+            description,
+            prompt,
+            agent.Name,
+            "started",
+            cancellationToken);
+        if (startHook.IsBlocked)
+        {
+            return new NativeToolExecutionResult
+            {
+                ToolName = "agent",
+                Status = "blocked",
+                ApprovalState = approvalState,
+                WorkingDirectory = runtimeProfile.ProjectRoot,
+                ErrorMessage = startHook.BlockReason,
+                ChangedFiles = []
+            };
+        }
+
+        var effectivePrompt = ApplyHookPrompt(startHook.AggregateOutput, prompt);
+        var runtimeRequest = BuildAssistantTurnRequest(executionId, description, effectivePrompt, agent, runtimeProfile, transcriptPath);
         var runtime = ResolveRuntime();
         eventSink?.Invoke(CreateSubagentRuntimeEvent(
             "generating",
@@ -69,6 +96,17 @@ public sealed class SubagentCoordinatorService(
             runtimeRequest,
             runtimeEvent => eventSink?.Invoke(ForwardSubagentRuntimeEvent(agent.Name, runtimeEvent)),
             cancellationToken);
+        var stopHook = await ExecuteHookAsync(
+            runtimeProfile,
+            HookEventName.SubagentStop,
+            executionId,
+            transcriptPath,
+            description,
+            effectivePrompt,
+            agent.Name,
+            ResolveOverallStatus(response),
+            cancellationToken,
+            response.Summary);
         eventSink?.Invoke(CreateSubagentRuntimeEvent(
             MapCompletionStage(response),
             agent.Name,
@@ -84,7 +122,7 @@ public sealed class SubagentCoordinatorService(
             response,
             cancellationToken);
 
-        var report = BuildReport(agent, description, prompt, runtimeProfile, response);
+        var report = BuildReport(agent, description, effectivePrompt, runtimeProfile, response, stopHook.AggregateOutput);
         var status = ResolveOverallStatus(response);
         var reportApprovalState = ResolveApprovalState(response, approvalState);
         var record = new SubagentExecutionRecord
@@ -131,6 +169,47 @@ public sealed class SubagentCoordinatorService(
         };
     }
 
+    private async Task<HookLifecycleResult> ExecuteHookAsync(
+        QwenRuntimeProfile runtimeProfile,
+        HookEventName eventName,
+        string executionId,
+        string transcriptPath,
+        string description,
+        string prompt,
+        string agentName,
+        string status,
+        CancellationToken cancellationToken,
+        string toolOutput = "")
+    {
+        if (hookLifecycleService is null)
+        {
+            return new HookLifecycleResult();
+        }
+
+        return await hookLifecycleService.ExecuteAsync(
+            runtimeProfile,
+            new HookInvocationRequest
+            {
+                EventName = eventName,
+                SessionId = executionId,
+                WorkingDirectory = runtimeProfile.ProjectRoot,
+                TranscriptPath = transcriptPath,
+                Prompt = prompt,
+                AgentName = agentName,
+                ToolStatus = status,
+                ToolOutput = toolOutput,
+                Metadata = new JsonObject
+                {
+                    ["description"] = description,
+                    ["scope"] = runtimeProfile.ProjectRoot
+                }
+            },
+            cancellationToken);
+    }
+
+    private static string ApplyHookPrompt(HookOutput output, string prompt) =>
+        string.IsNullOrWhiteSpace(output.ModifiedPrompt) ? prompt : output.ModifiedPrompt;
+
     private IAssistantTurnRuntime ResolveRuntime()
     {
         if (serviceProvider?.GetService<IAssistantTurnRuntime>() is { } runtime)
@@ -142,6 +221,7 @@ public sealed class SubagentCoordinatorService(
             new AssistantPromptAssembler(new ProjectSummaryService()),
             [new FallbackAssistantResponseProvider()],
             new NoOpToolExecutor(),
+            new LoopDetectionService(),
             Microsoft.Extensions.Options.Options.Create(new NativeAssistantRuntimeOptions
             {
                 Provider = "fallback"
@@ -291,7 +371,8 @@ Operational rules:
         string description,
         string prompt,
         QwenRuntimeProfile runtimeProfile,
-        AssistantTurnResponse response)
+        AssistantTurnResponse response,
+        HookOutput stopHookOutput)
     {
         var compatibility = compatibilityService.Inspect(new WorkspacePaths { WorkspaceRoot = runtimeProfile.ProjectRoot });
         var toolNames = toolRegistry.Inspect(new WorkspacePaths { WorkspaceRoot = runtimeProfile.ProjectRoot }).Tools
@@ -335,7 +416,31 @@ Operational rules:
             }
         }
 
+        var hookNote = BuildHookNote(stopHookOutput);
+        if (!string.IsNullOrWhiteSpace(hookNote))
+        {
+            builder.AppendLine();
+            builder.AppendLine("Hook notes:");
+            builder.AppendLine(hookNote);
+        }
+
         return builder.ToString().Trim();
+    }
+
+    private static string BuildHookNote(HookOutput output)
+    {
+        var lines = new List<string>();
+        if (!string.IsNullOrWhiteSpace(output.SystemMessage))
+        {
+            lines.Add(output.SystemMessage);
+        }
+
+        if (!string.IsNullOrWhiteSpace(output.AdditionalContext))
+        {
+            lines.Add(output.AdditionalContext);
+        }
+
+        return string.Join(Environment.NewLine, lines.Where(static value => !string.IsNullOrWhiteSpace(value)));
     }
 
     private static string ResolveOverallStatus(AssistantTurnResponse response)
