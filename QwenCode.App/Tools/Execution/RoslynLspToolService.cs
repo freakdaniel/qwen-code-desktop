@@ -21,6 +21,11 @@ public sealed class RoslynLspToolService : ILspToolService
         string approvalState,
         CancellationToken cancellationToken = default)
     {
+        if (runtimeProfile.FolderTrustEnabled && !runtimeProfile.IsWorkspaceTrusted)
+        {
+            return Error("Workspace is not trusted. LSP operations are unavailable.", runtimeProfile.ProjectRoot, approvalState);
+        }
+
         var operation = TryGetRequiredString(arguments, "operation");
         if (string.IsNullOrWhiteSpace(operation))
         {

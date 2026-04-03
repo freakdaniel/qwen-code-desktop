@@ -206,6 +206,47 @@ public sealed class LspToolServiceTests
         }
     }
 
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_Lsp_UntrustedWorkspace_ReturnsTrustError()
+    {
+        var fixture = await CreateLspFixtureAsync();
+
+        try
+        {
+            var homeQwenRoot = Path.Combine(fixture.Root, "home", ".qwen");
+            Directory.CreateDirectory(homeQwenRoot);
+            await File.WriteAllTextAsync(
+                Path.Combine(homeQwenRoot, "settings.json"),
+                """
+                {
+                  "security": {
+                    "folderTrust": {
+                      "enabled": true
+                    }
+                  }
+                }
+                """);
+            await File.WriteAllTextAsync(
+                Path.Combine(homeQwenRoot, "trustedFolders.json"),
+                BuildTrustedFoldersJson(fixture.WorkspaceRoot, "DO_NOT_TRUST"));
+
+            var result = await fixture.Host.ExecuteAsync(
+                fixture.Workspace,
+                new ExecuteNativeToolRequest
+                {
+                    ToolName = "lsp",
+                    ArgumentsJson = $$"""{"operation":"documentSymbol","filePath":"{{fixture.FooFilePath.Replace("\\", "\\\\")}}"}"""
+                });
+
+            Assert.Equal("error", result.Status);
+            Assert.Contains("not trusted", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            fixture.Dispose();
+        }
+    }
+
     private static async Task<LspFixture> CreateLspFixtureAsync()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-lsp-tool-{Guid.NewGuid():N}");
@@ -309,4 +350,11 @@ public sealed class LspToolServiceTests
             }
         }
     }
+
+    private static string BuildTrustedFoldersJson(string workspaceRoot, string trustValue) =>
+        $$"""
+        {
+          "{{workspaceRoot.Replace("\\", "\\\\", StringComparison.Ordinal)}}": "{{trustValue}}"
+        }
+        """;
 }
