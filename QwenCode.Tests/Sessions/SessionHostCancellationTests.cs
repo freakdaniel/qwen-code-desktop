@@ -32,6 +32,7 @@ public sealed class SessionHostCancellationTests
                 CreateAssistantTurnRuntime(new CancellableAssistantResponseProvider()),
                 new NativeToolHostService(runtimeProfileService, approvalPolicyService),
                 new UserQuestionToolService(),
+                new PassthroughUserPromptHookService(),
                 sessionCatalog,
                 new ActiveTurnRegistry(interruptedTurnStore),
                 interruptedTurnStore,
@@ -90,5 +91,17 @@ public sealed class SessionHostCancellationTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private sealed class PassthroughUserPromptHookService : IUserPromptHookService
+    {
+        public Task<UserPromptHookResult> ExecuteAsync(
+            QwenRuntimeProfile runtimeProfile,
+            UserPromptHookRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new UserPromptHookResult
+            {
+                EffectivePrompt = request.Prompt
+            });
     }
 }

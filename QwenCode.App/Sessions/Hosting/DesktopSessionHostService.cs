@@ -1,5 +1,6 @@
 using QwenCode.App.Models;
 using QwenCode.App.Compatibility;
+using QwenCode.App.Hooks;
 using QwenCode.App.Runtime;
 using QwenCode.App.Tools;
 
@@ -11,6 +12,7 @@ public sealed class DesktopSessionHostService(
     IAssistantTurnRuntime assistantTurnRuntime,
     IToolExecutor nativeToolHostService,
     IUserQuestionToolService userQuestionToolService,
+    IUserPromptHookService userPromptHookService,
     ITranscriptStore sessionCatalogService,
     IActiveTurnRegistry activeTurnRegistry,
     IInterruptedTurnStore interruptedTurnStore,
@@ -171,18 +173,55 @@ public sealed class DesktopSessionHostService(
         var gitBranch = TryReadGitBranch(workingDirectory);
         var parentUuid = transcriptWriter.TryReadLastEntryUuid(transcriptPath);
         var timestampUtc = DateTime.UtcNow;
+        Directory.CreateDirectory(runtimeProfile.ChatsDirectory);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var hookResult = await userPromptHookService.ExecuteAsync(
+            runtimeProfile,
+            new UserPromptHookRequest
+            {
+                SessionId = sessionId,
+                Prompt = request.Prompt,
+                WorkingDirectory = workingDirectory,
+                TranscriptPath = transcriptPath
+            },
+            cancellationToken);
+        var effectivePrompt = hookResult.EffectivePrompt;
+
+        parentUuid = await AppendHookContextEntriesAsync(
+            transcriptPath,
+            parentUuid,
+            sessionId,
+            workingDirectory,
+            gitBranch,
+            hookResult,
+            cancellationToken);
+
+        if (hookResult.IsBlocked)
+        {
+            return await BuildBlockedTurnResultAsync(
+                paths,
+                sessionId,
+                transcriptPath,
+                workingDirectory,
+                gitBranch,
+                request.Prompt,
+                effectivePrompt,
+                hookResult,
+                createdNewSession,
+                parentUuid,
+                timestampUtc,
+                cancellationToken);
+        }
 
         PublishSessionEvent(sessionEventFactory.CreateTurnStarted(
             sessionId,
-            request.Prompt,
+            effectivePrompt,
             workingDirectory,
             gitBranch,
             request.ToolName ?? string.Empty));
 
-        Directory.CreateDirectory(runtimeProfile.ChatsDirectory);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var commandInvocation = await commandActionRuntime.TryInvokeAsync(paths, request.Prompt, workingDirectory, cancellationToken);
+        var commandInvocation = await commandActionRuntime.TryInvokeAsync(paths, effectivePrompt, workingDirectory, cancellationToken);
         var resolvedCommand = commandInvocation?.Command;
 
         var userUuid = Guid.NewGuid().ToString();
@@ -206,7 +245,7 @@ public sealed class DesktopSessionHostService(
                     {
                         new
                         {
-                            text = request.Prompt
+                            text = effectivePrompt
                         }
                     }
                 }
@@ -302,7 +341,7 @@ public sealed class DesktopSessionHostService(
         var assistantResponse = await assistantTurnRuntime.GenerateAsync(
             CreateAssistantTurnRequest(
                 sessionId,
-                request.Prompt,
+                effectivePrompt,
                 workingDirectory,
                 transcriptPath,
                 runtimeProfile,
@@ -377,7 +416,7 @@ public sealed class DesktopSessionHostService(
 
         var session = sessionCatalogService.ListSessions(paths, 64)
             .FirstOrDefault(item => string.Equals(item.SessionId, sessionId, StringComparison.Ordinal))
-            ?? BuildFallbackSession(sessionId, transcriptPath, workingDirectory, gitBranch, request.Prompt);
+            ?? BuildFallbackSession(sessionId, transcriptPath, workingDirectory, gitBranch, effectivePrompt);
 
         var result = new DesktopSessionTurnResult
         {
@@ -878,6 +917,170 @@ public sealed class DesktopSessionHostService(
         return result;
     }
 
+    private async Task<string?> AppendHookContextEntriesAsync(
+        string transcriptPath,
+        string? parentUuid,
+        string sessionId,
+        string workingDirectory,
+        string gitBranch,
+        UserPromptHookResult hookResult,
+        CancellationToken cancellationToken)
+    {
+        var currentParentUuid = parentUuid;
+
+        if (!string.IsNullOrWhiteSpace(hookResult.SystemMessage))
+        {
+            currentParentUuid = await AppendSystemEntryAsync(
+                transcriptPath,
+                currentParentUuid,
+                sessionId,
+                workingDirectory,
+                gitBranch,
+                hookResult.SystemMessage,
+                "hook-system-message",
+                cancellationToken);
+        }
+
+        if (!string.IsNullOrWhiteSpace(hookResult.AdditionalContext))
+        {
+            currentParentUuid = await AppendSystemEntryAsync(
+                transcriptPath,
+                currentParentUuid,
+                sessionId,
+                workingDirectory,
+                gitBranch,
+                hookResult.AdditionalContext,
+                "hook-additional-context",
+                cancellationToken);
+        }
+
+        return currentParentUuid;
+    }
+
+    private async Task<DesktopSessionTurnResult> BuildBlockedTurnResultAsync(
+        WorkspacePaths paths,
+        string sessionId,
+        string transcriptPath,
+        string workingDirectory,
+        string gitBranch,
+        string originalPrompt,
+        string effectivePrompt,
+        UserPromptHookResult hookResult,
+        bool createdNewSession,
+        string? parentUuid,
+        DateTime timestampUtc,
+        CancellationToken cancellationToken)
+    {
+        var userUuid = Guid.NewGuid().ToString();
+        await transcriptWriter.AppendEntryAsync(
+            transcriptPath,
+            new
+            {
+                uuid = userUuid,
+                parentUuid,
+                sessionId,
+                timestamp = timestampUtc,
+                type = "user",
+                cwd = workingDirectory,
+                version = "0.1.0",
+                gitBranch,
+                mode = DesktopMode.Code.ToString().ToLowerInvariant(),
+                message = new
+                {
+                    role = "user",
+                    parts = new[]
+                    {
+                        new
+                        {
+                            text = effectivePrompt
+                        }
+                    }
+                },
+                originalPrompt
+            },
+            cancellationToken);
+
+        var blockMessage = string.IsNullOrWhiteSpace(hookResult.BlockReason)
+            ? "Prompt was blocked by a configured hook."
+            : hookResult.BlockReason;
+        await AppendSystemEntryAsync(
+            transcriptPath,
+            userUuid,
+            sessionId,
+            workingDirectory,
+            gitBranch,
+            blockMessage,
+            "blocked",
+            cancellationToken);
+
+        var session = sessionCatalogService.ListSessions(paths, 64)
+            .FirstOrDefault(item => string.Equals(item.SessionId, sessionId, StringComparison.Ordinal))
+            ?? BuildFallbackSession(sessionId, transcriptPath, workingDirectory, gitBranch, effectivePrompt, "blocked");
+
+        session = new SessionPreview
+        {
+            SessionId = session.SessionId,
+            Title = session.Title,
+            LastActivity = session.LastActivity,
+            Category = session.Category,
+            Mode = session.Mode,
+            Status = "blocked",
+            WorkingDirectory = session.WorkingDirectory,
+            GitBranch = session.GitBranch,
+            MessageCount = session.MessageCount,
+            TranscriptPath = session.TranscriptPath
+        };
+
+        PublishSessionEvent(sessionEventFactory.CreateTurnCompleted(
+            sessionId,
+            blockMessage,
+            workingDirectory,
+            gitBranch,
+            string.Empty,
+            string.Empty,
+            "blocked"));
+
+        return new DesktopSessionTurnResult
+        {
+            Session = session,
+            AssistantSummary = blockMessage,
+            CreatedNewSession = createdNewSession,
+            ToolExecution = CreateBlockedHookExecutionResult(workingDirectory, blockMessage),
+            ResolvedCommand = null
+        };
+    }
+
+    private async Task<string> AppendSystemEntryAsync(
+        string transcriptPath,
+        string? parentUuid,
+        string sessionId,
+        string workingDirectory,
+        string gitBranch,
+        string message,
+        string status,
+        CancellationToken cancellationToken)
+    {
+        var systemUuid = Guid.NewGuid().ToString();
+        await transcriptWriter.AppendEntryAsync(
+            transcriptPath,
+            new
+            {
+                uuid = systemUuid,
+                parentUuid,
+                sessionId,
+                timestamp = DateTime.UtcNow,
+                type = "system",
+                cwd = workingDirectory,
+                version = "0.1.0",
+                gitBranch,
+                status,
+                messageText = message
+            },
+            cancellationToken);
+
+        return systemUuid;
+    }
+
     private async Task<DesktopSessionTurnResult> BuildCancelledTurnResultAsync(
         WorkspacePaths paths,
         string sessionId,
@@ -1138,6 +1341,19 @@ public sealed class DesktopSessionHostService(
             Output = string.Empty,
             ErrorMessage = string.Empty,
             ExitCode = 0,
+            ChangedFiles = []
+        };
+
+    private static NativeToolExecutionResult CreateBlockedHookExecutionResult(string workingDirectory, string reason) =>
+        new()
+        {
+            ToolName = "UserPromptSubmit",
+            Status = "blocked",
+            ApprovalState = "deny",
+            WorkingDirectory = workingDirectory,
+            Output = string.Empty,
+            ErrorMessage = reason,
+            ExitCode = 2,
             ChangedFiles = []
         };
 

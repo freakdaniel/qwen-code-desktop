@@ -93,7 +93,8 @@ internal static class TestServiceFactory
         QwenCompatibilityService compatibilityService,
         ITranscriptStore? transcriptStore = null,
         IActiveTurnRegistry? activeTurnRegistry = null,
-        IInterruptedTurnStore? interruptedTurnStore = null)
+        IInterruptedTurnStore? interruptedTurnStore = null,
+        IUserPromptHookService? userPromptHookService = null)
     {
         var approvalPolicyService = new ApprovalPolicyService();
         var effectiveInterruptedTurnStore = interruptedTurnStore ?? new InterruptedTurnStore();
@@ -107,6 +108,7 @@ internal static class TestServiceFactory
             CreateAssistantTurnRuntime(),
             new NativeToolHostService(runtimeProfileService, approvalPolicyService),
             new UserQuestionToolService(),
+            userPromptHookService ?? new PassthroughUserPromptHookService(),
             transcriptStore ?? new DesktopSessionCatalogService(runtimeProfileService),
             activeTurnRegistry ?? new ActiveTurnRegistry(effectiveInterruptedTurnStore),
             effectiveInterruptedTurnStore,
@@ -136,4 +138,16 @@ internal static class TestServiceFactory
             {
                 Provider = primaryProvider?.Name ?? "fallback"
             }));
+
+    private sealed class PassthroughUserPromptHookService : IUserPromptHookService
+    {
+        public Task<UserPromptHookResult> ExecuteAsync(
+            QwenRuntimeProfile runtimeProfile,
+            UserPromptHookRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new UserPromptHookResult
+            {
+                EffectivePrompt = request.Prompt
+            });
+    }
 }

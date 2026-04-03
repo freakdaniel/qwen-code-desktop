@@ -114,6 +114,7 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
             string? workingDirectory = null;
             string? gitBranch = null;
             string? firstUserPrompt = null;
+            string sessionStatus = "resume-ready";
             var messageIds = new HashSet<string>(StringComparer.Ordinal);
             var scannedLines = 0;
             string? line;
@@ -132,6 +133,10 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
                 sessionId ??= TryGetString(root, "sessionId");
                 workingDirectory ??= TryGetString(root, "cwd");
                 gitBranch ??= TryGetString(root, "gitBranch");
+                if (TryGetString(root, "status") is { Length: > 0 } status)
+                {
+                    sessionStatus = NormalizeSessionStatus(status);
+                }
 
                 if ((TryGetString(root, "type") is "user" or "assistant") &&
                     TryGetString(root, "uuid") is { Length: > 0 } uuid)
@@ -170,7 +175,7 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
                     ? runtimeProfile.ApprovalProfile.DefaultMode
                     : gitBranch,
                 Mode = DesktopMode.Code,
-                Status = "resume-ready",
+                Status = sessionStatus,
                 WorkingDirectory = effectiveWorkingDirectory,
                 GitBranch = gitBranch ?? string.Empty,
                 MessageCount = messageIds.Count,
@@ -298,6 +303,13 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
         TryGetProperty(root, propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var result)
             ? result
             : null;
+
+    private static string NormalizeSessionStatus(string status) =>
+        status switch
+        {
+            "completed" or "assistant-completed" or "tool-executed" or "answered" or "approved" or "started" => "resume-ready",
+            _ => status
+        };
 
     private static IReadOnlyList<string> TryGetStringArray(JsonElement root, string propertyName)
     {

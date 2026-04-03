@@ -4,6 +4,7 @@ using QwenCode.App.Agents;
 using QwenCode.App.Auth;
 using QwenCode.App.Compatibility;
 using QwenCode.App.Desktop;
+using QwenCode.App.Hooks;
 using QwenCode.App.Ipc;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Mcp;
@@ -31,6 +32,7 @@ public static class DesktopShellServiceCollectionExtensions
             .AddInfrastructureServices()
             .AddAuthServices()
             .AddCompatibilityServices()
+            .AddHookServices()
             .AddPermissionServices()
             .AddRuntimeServices()
             .AddMcpServices()
