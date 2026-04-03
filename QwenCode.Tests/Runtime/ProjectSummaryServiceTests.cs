@@ -29,7 +29,7 @@ public sealed class ProjectSummaryServiceTests
                 """
             );
 
-            var snapshot = new ProjectSummaryService().Read(workspaceRoot);
+            var snapshot = new ProjectSummaryService().Read(CreateRuntimeProfile(workspaceRoot, trusted: true));
 
             Assert.NotNull(snapshot);
             Assert.True(snapshot!.HasHistory);
@@ -53,4 +53,60 @@ public sealed class ProjectSummaryServiceTests
             }
         }
     }
+
+    [Fact]
+    public void Read_WhenWorkspaceIsUntrusted_ReturnsNull()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-project-summary-untrusted-{Guid.NewGuid():N}");
+        var workspaceRoot = Path.Combine(root, "workspace");
+        var summaryDirectory = Path.Combine(workspaceRoot, ".qwen");
+        Directory.CreateDirectory(summaryDirectory);
+
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(summaryDirectory, "PROJECT_SUMMARY.md"),
+                """
+                ## Overall Goal
+                Do not load this in untrusted mode.
+                """);
+
+            var snapshot = new ProjectSummaryService().Read(CreateRuntimeProfile(workspaceRoot, trusted: false));
+
+            Assert.Null(snapshot);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static QwenRuntimeProfile CreateRuntimeProfile(string workspaceRoot, bool trusted) =>
+        new()
+        {
+            ProjectRoot = workspaceRoot,
+            GlobalQwenDirectory = Path.Combine(Path.GetTempPath(), "qwen-tests-home"),
+            RuntimeBaseDirectory = Path.Combine(workspaceRoot, ".qwen-runtime"),
+            RuntimeSource = "test",
+            ProjectDataDirectory = Path.Combine(workspaceRoot, ".qwen-runtime", "project"),
+            ChatsDirectory = Path.Combine(workspaceRoot, ".qwen-runtime", "project", "chats"),
+            HistoryDirectory = Path.Combine(workspaceRoot, ".qwen-runtime", "history"),
+            ContextFileNames = ["QWEN.md", "AGENTS.md"],
+            ContextFilePaths = [],
+            FolderTrustEnabled = true,
+            IsWorkspaceTrusted = trusted,
+            WorkspaceTrustSource = trusted ? "file" : string.Empty,
+            ApprovalProfile = new ApprovalProfile
+            {
+                DefaultMode = "default",
+                ConfirmShellCommands = true,
+                ConfirmFileEdits = true,
+                AllowRules = [],
+                AskRules = [],
+                DenyRules = []
+            }
+        };
 }

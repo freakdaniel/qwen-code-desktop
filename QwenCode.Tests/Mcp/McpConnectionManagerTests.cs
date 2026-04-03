@@ -78,8 +78,9 @@ public sealed class McpConnectionManagerTests
 
             var paths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
             var environment = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environment);
             var registry = new McpRegistryService(
-                new QwenRuntimeProfileService(environment),
+                runtimeProfileService,
                 new FileMcpTokenStore(environment));
             registry.AddServer(paths, new McpServerRegistrationRequest
             {
@@ -101,7 +102,7 @@ public sealed class McpConnectionManagerTests
 
             var manager = new McpConnectionManagerService(
                 registry,
-                new McpToolRuntimeService(registry, new FileMcpTokenStore(environment), new HttpClient()));
+                new McpToolRuntimeService(registry, new FileMcpTokenStore(environment), new HttpClient(), runtimeProfileService));
             var result = await manager.ReconnectAsync(paths, "local-demo");
             var listed = Assert.Single(manager.ListServersWithStatus(paths));
 
@@ -132,8 +133,9 @@ public sealed class McpConnectionManagerTests
 
             var paths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
             var environment = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environment);
             var registry = new McpRegistryService(
-                new QwenRuntimeProfileService(environment),
+                runtimeProfileService,
                 new FileMcpTokenStore(environment));
             registry.AddServer(paths, new McpServerRegistrationRequest
             {
@@ -145,7 +147,7 @@ public sealed class McpConnectionManagerTests
 
             var manager = new McpConnectionManagerService(
                 registry,
-                new McpToolRuntimeService(registry, new FileMcpTokenStore(environment), new HttpClient()));
+                new McpToolRuntimeService(registry, new FileMcpTokenStore(environment), new HttpClient(), runtimeProfileService));
             var result = await manager.ReconnectAsync(paths, "broken-http");
 
             Assert.Equal("disconnected", result.Status);

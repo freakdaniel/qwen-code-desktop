@@ -7,14 +7,14 @@ public sealed partial class ProjectSummaryService : IProjectSummaryService
 {
     private const string SummaryFileName = "PROJECT_SUMMARY.md";
 
-    public ProjectSummarySnapshot? Read(string workspaceRoot)
+    public ProjectSummarySnapshot? Read(QwenRuntimeProfile runtimeProfile)
     {
-        if (string.IsNullOrWhiteSpace(workspaceRoot))
+        if (string.IsNullOrWhiteSpace(runtimeProfile.ProjectRoot) || !runtimeProfile.IsWorkspaceTrusted)
         {
             return null;
         }
 
-        var summaryPath = Path.Combine(Path.GetFullPath(workspaceRoot), ".qwen", SummaryFileName);
+        var summaryPath = Path.Combine(Path.GetFullPath(runtimeProfile.ProjectRoot), ".qwen", SummaryFileName);
         if (!File.Exists(summaryPath))
         {
             return null;

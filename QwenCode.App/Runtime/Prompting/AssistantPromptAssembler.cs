@@ -27,7 +27,7 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
     {
         var transcriptMessages = ReadTranscriptMessages(request.TranscriptPath);
         var contextFiles = ReadContextFiles(request.RuntimeProfile, request.WorkingDirectory);
-        var projectSummary = _projectSummaryService.Read(request.RuntimeProfile.ProjectRoot);
+        var projectSummary = _projectSummaryService.Read(request.RuntimeProfile);
         var sessionSummary = BuildSessionSummary(request, transcriptMessages, contextFiles, projectSummary);
 
         return Task.FromResult(new AssistantPromptContext
@@ -107,7 +107,7 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
         {
             try
             {
-                var content = ReadContextFileWithImports(path, new HashSet<string>(PathComparer), 0);
+                var content = ReadContextFileWithImports(runtimeProfile, path, new HashSet<string>(PathComparer), 0);
                 if (string.IsNullOrWhiteSpace(content))
                 {
                     continue;
@@ -142,11 +142,14 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
             TryAdd(globalPath);
         }
 
-        foreach (var directory in EnumerateWorkspaceDirectories(runtimeProfile.ProjectRoot, workingDirectory))
+        if (runtimeProfile.IsWorkspaceTrusted)
         {
-            foreach (var fileName in contextFileNames)
+            foreach (var directory in EnumerateWorkspaceDirectories(runtimeProfile.ProjectRoot, workingDirectory))
             {
-                TryAdd(Path.Combine(directory, fileName));
+                foreach (var fileName in contextFileNames)
+                {
+                    TryAdd(Path.Combine(directory, fileName));
+                }
             }
         }
 
@@ -203,7 +206,11 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
         return directories.ToArray();
     }
 
-    private static string ReadContextFileWithImports(string path, HashSet<string> visited, int depth)
+    private static string ReadContextFileWithImports(
+        QwenRuntimeProfile runtimeProfile,
+        string path,
+        HashSet<string> visited,
+        int depth)
     {
         var fullPath = Path.GetFullPath(path);
         if (!visited.Add(fullPath))
@@ -230,9 +237,14 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
                 var resolvedPath = Path.IsPathRooted(importPath)
                     ? importPath
                     : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(fullPath) ?? string.Empty, importPath));
+                if (!runtimeProfile.IsWorkspaceTrusted && IsWithinWorkspace(resolvedPath, runtimeProfile.ProjectRoot))
+                {
+                    continue;
+                }
+
                 if (File.Exists(resolvedPath))
                 {
-                    var importedContent = ReadContextFileWithImports(resolvedPath, visited, depth + 1);
+                    var importedContent = ReadContextFileWithImports(runtimeProfile, resolvedPath, visited, depth + 1);
                     if (!string.IsNullOrWhiteSpace(importedContent))
                     {
                         processedLines.Add(importedContent);
@@ -330,6 +342,15 @@ Approval resolution: {{request.IsApprovalResolution}}
         }
 
         return null;
+    }
+
+    private static bool IsWithinWorkspace(string path, string workspaceRoot)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var fullRoot = Path.GetFullPath(workspaceRoot);
+        return fullPath.StartsWith(
+            fullRoot,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     }
 
     private static string Trim(string value, int maxLength) =>

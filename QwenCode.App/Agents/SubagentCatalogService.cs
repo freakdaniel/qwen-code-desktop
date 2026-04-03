@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using QwenCode.App.Compatibility;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
 
@@ -11,13 +12,20 @@ public sealed partial class SubagentCatalogService(IDesktopEnvironmentPaths envi
         var workspaceRoot = string.IsNullOrWhiteSpace(paths.WorkspaceRoot)
             ? Environment.CurrentDirectory
             : paths.WorkspaceRoot;
+        var runtimeProfile = new QwenRuntimeProfileService(environmentPaths).Inspect(new WorkspacePaths
+        {
+            WorkspaceRoot = workspaceRoot
+        });
         var userAgentsRoot = Path.Combine(environmentPaths.HomeDirectory, ".qwen", "agents");
         var projectAgentsRoot = Path.Combine(workspaceRoot, ".qwen", "agents");
 
         var agents = new List<SubagentDescriptor>();
         agents.AddRange(BuiltinSubagentRegistry.All);
         agents.AddRange(DiscoverMarkdownAgents(userAgentsRoot, "user"));
-        agents.AddRange(DiscoverMarkdownAgents(projectAgentsRoot, "project"));
+        if (runtimeProfile.IsWorkspaceTrusted)
+        {
+            agents.AddRange(DiscoverMarkdownAgents(projectAgentsRoot, "project"));
+        }
 
         return agents
             .GroupBy(agent => agent.Name, StringComparer.OrdinalIgnoreCase)

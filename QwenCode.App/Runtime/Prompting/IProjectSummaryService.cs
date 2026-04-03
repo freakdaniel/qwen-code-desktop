@@ -4,5 +4,5 @@ namespace QwenCode.App.Runtime;
 
 public interface IProjectSummaryService
 {
-    ProjectSummarySnapshot? Read(string workspaceRoot);
+    ProjectSummarySnapshot? Read(QwenRuntimeProfile runtimeProfile);
 }

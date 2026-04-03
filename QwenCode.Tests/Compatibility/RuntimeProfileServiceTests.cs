@@ -104,5 +104,122 @@ public sealed class RuntimeProfileServiceTests
         }
     }
 
+    [Fact]
+    public void QwenRuntimeProfileService_Inspect_ResolvesWorkspaceTrustFromTrustedFoldersFile()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-runtime-trust-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
 
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "folderTrust": {
+                      "enabled": true
+                    }
+                  }
+                }
+                """);
+
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "trustedFolders.json"),
+                BuildTrustedFoldersJson(workspaceRoot, "DO_NOT_TRUST"));
+
+            var service = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var profile = service.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            Assert.True(profile.FolderTrustEnabled);
+            Assert.False(profile.IsWorkspaceTrusted);
+            Assert.Equal("file", profile.WorkspaceTrustSource);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void QwenRuntimeProfileService_Inspect_DoesNotMergeProjectSettingsInUntrustedWorkspace()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-runtime-untrusted-settings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "folderTrust": {
+                      "enabled": true
+                    }
+                  },
+                  "permissions": {
+                    "defaultMode": "default"
+                  },
+                  "context": {
+                    "fileName": ["QWEN.md", "AGENTS.md"]
+                  }
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "advanced": {
+                    "runtimeOutputDir": ".qwen-runtime"
+                  },
+                  "permissions": {
+                    "defaultMode": "auto-edit"
+                  },
+                  "context": {
+                    "fileName": ["TEAM.md"]
+                  }
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "trustedFolders.json"),
+                BuildTrustedFoldersJson(workspaceRoot, "DO_NOT_TRUST"));
+
+            var service = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var profile = service.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            Assert.True(profile.FolderTrustEnabled);
+            Assert.False(profile.IsWorkspaceTrusted);
+            Assert.Equal("default", profile.ApprovalProfile.DefaultMode);
+            Assert.DoesNotContain(".qwen-runtime", profile.RuntimeBaseDirectory, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(["QWEN.md", "AGENTS.md"], profile.ContextFileNames);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string BuildTrustedFoldersJson(string workspaceRoot, string trustValue) =>
+        $$"""
+        {
+          "{{workspaceRoot.Replace("\\", "\\\\", StringComparison.Ordinal)}}": "{{trustValue}}"
+        }
+        """;
 }

@@ -114,7 +114,7 @@ public sealed class DesktopProjectionServiceTests
             var mcpRegistry = new McpRegistryService(runtimeProfileService, mcpTokenStore);
             var mcpConnectionManager = new McpConnectionManagerService(
                 mcpRegistry,
-                new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient()));
+                new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
             var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
             Directory.CreateDirectory(runtimeProfile.ChatsDirectory);

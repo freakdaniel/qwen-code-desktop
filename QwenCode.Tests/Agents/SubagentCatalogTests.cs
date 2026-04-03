@@ -94,4 +94,72 @@ public sealed class SubagentCatalogTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void SubagentCatalogService_ListAgents_HidesProjectAgentsInUntrustedWorkspace()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-agent-untrusted-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen", "agents"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen", "agents"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "folderTrust": {
+                      "enabled": true
+                    }
+                  }
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "trustedFolders.json"),
+                BuildTrustedFoldersJson(workspaceRoot, "DO_NOT_TRUST"));
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "agents", "user-agent.md"),
+                """
+                ---
+                name: user-agent
+                description: user version
+                ---
+
+                User agent
+                """);
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "agents", "project-agent.md"),
+                """
+                ---
+                name: project-agent
+                description: project version
+                ---
+
+                Project agent
+                """);
+
+            var catalog = new SubagentCatalogService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var agents = catalog.ListAgents(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            Assert.Contains(agents, agent => agent.Name == "user-agent" && agent.Scope == "user");
+            Assert.DoesNotContain(agents, agent => agent.Name == "project-agent");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+    private static string BuildTrustedFoldersJson(string workspaceRoot, string trustValue) =>
+        $$"""
+        {
+          "{{workspaceRoot.Replace("\\", "\\\\", StringComparison.Ordinal)}}": "{{trustValue}}"
+        }
+        """;
 }

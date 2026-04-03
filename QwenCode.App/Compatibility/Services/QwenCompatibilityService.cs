@@ -18,6 +18,11 @@ public sealed partial class QwenCompatibilityService(IDesktopEnvironmentPaths en
         var projectQwenRoot = Path.Combine(projectRoot, ".qwen");
         var homeQwenRoot = Path.Combine(environmentPaths.HomeDirectory, ".qwen");
         var programDataRoot = ResolveProgramDataRoot();
+        var runtimeProfile = new QwenRuntimeProfileService(environmentPaths).Inspect(new WorkspacePaths
+        {
+            WorkspaceRoot = projectRoot
+        });
+        var includeProjectSurfaces = runtimeProfile.IsWorkspaceTrusted;
 
         return new QwenCompatibilitySnapshot
         {
@@ -56,12 +61,16 @@ public sealed partial class QwenCompatibilityService(IDesktopEnvironmentPaths en
             Commands =
             [
                 .. DiscoverCommands(Path.Combine(homeQwenRoot, "commands"), "user"),
-                .. DiscoverCommands(Path.Combine(projectQwenRoot, "commands"), "project")
+                .. (includeProjectSurfaces
+                    ? DiscoverCommands(Path.Combine(projectQwenRoot, "commands"), "project")
+                    : [])
             ],
             Skills =
             [
                 .. DiscoverSkills(Path.Combine(homeQwenRoot, "skills"), "user"),
-                .. DiscoverSkills(Path.Combine(projectQwenRoot, "skills"), "project")
+                .. (includeProjectSurfaces
+                    ? DiscoverSkills(Path.Combine(projectQwenRoot, "skills"), "project")
+                    : [])
             ]
         };
     }

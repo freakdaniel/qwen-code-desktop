@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using QwenCode.App.Compatibility;
 using QwenCode.App.Models;
 
 namespace QwenCode.App.Mcp;
@@ -11,7 +12,8 @@ namespace QwenCode.App.Mcp;
 public sealed class McpToolRuntimeService(
     IMcpRegistry registry,
     IMcpTokenStore tokenStore,
-    HttpClient httpClient) : IMcpToolRuntime
+    HttpClient httpClient,
+    QwenRuntimeProfileService runtimeProfileService) : IMcpToolRuntime
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -24,6 +26,7 @@ public sealed class McpToolRuntimeService(
         string serverName,
         CancellationToken cancellationToken = default)
     {
+        EnsureWorkspaceTrust(paths, "MCP tools and prompts are unavailable in untrusted folders.");
         var server = ResolveServer(paths, serverName);
         var session = await GetOrCreateSessionAsync(paths, server, forceReconnect: true, cancellationToken);
         var tools = await session.ListToolsAsync(cancellationToken);
@@ -47,6 +50,7 @@ public sealed class McpToolRuntimeService(
         string serverName,
         CancellationToken cancellationToken = default)
     {
+        EnsureWorkspaceTrust(paths, "MCP tools and prompts are unavailable in untrusted folders.");
         var server = ResolveServer(paths, serverName);
         var session = await GetOrCreateSessionAsync(paths, server, forceReconnect: false, cancellationToken);
         var tools = await session.ListToolsAsync(cancellationToken);
@@ -84,6 +88,7 @@ public sealed class McpToolRuntimeService(
         JsonElement arguments,
         CancellationToken cancellationToken = default)
     {
+        EnsureWorkspaceTrust(paths, "MCP tools and prompts are unavailable in untrusted folders.");
         var configuredServers = registry.ListServers(paths);
         if (configuredServers.Count == 0)
         {
@@ -130,6 +135,7 @@ public sealed class McpToolRuntimeService(
         string serverName,
         CancellationToken cancellationToken = default)
     {
+        EnsureWorkspaceTrust(paths, "MCP prompts are unavailable in untrusted folders.");
         var server = ResolveServer(paths, serverName);
         return await ListPromptsForServerAsync(paths, server, cancellationToken);
     }
@@ -140,6 +146,7 @@ public sealed class McpToolRuntimeService(
         string toolName,
         CancellationToken cancellationToken = default)
     {
+        EnsureWorkspaceTrust(paths, "MCP tools are unavailable in untrusted folders.");
         var server = ResolveServer(paths, serverName);
         var tools = await ListToolsForServerAsync(paths, server, cancellationToken);
         var resolved = tools.FirstOrDefault(item => string.Equals(item.Name, toolName, StringComparison.OrdinalIgnoreCase));
@@ -158,6 +165,7 @@ public sealed class McpToolRuntimeService(
         JsonElement arguments,
         CancellationToken cancellationToken = default)
     {
+        EnsureWorkspaceTrust(paths, "MCP tools are unavailable in untrusted folders.");
         var server = ResolveServer(paths, serverName);
         _ = await ResolveToolAsync(paths, serverName, toolName, cancellationToken);
 
@@ -179,6 +187,7 @@ public sealed class McpToolRuntimeService(
         string uri,
         CancellationToken cancellationToken = default)
     {
+        EnsureWorkspaceTrust(paths, "MCP resources are unavailable in untrusted folders.");
         var server = ResolveServer(paths, serverName);
         if (!server.Trust)
         {
@@ -203,6 +212,7 @@ public sealed class McpToolRuntimeService(
         JsonElement arguments,
         CancellationToken cancellationToken = default)
     {
+        EnsureWorkspaceTrust(paths, "MCP prompts are unavailable in untrusted folders.");
         var server = ResolveServer(paths, serverName);
         var prompts = await ListPromptsForServerAsync(paths, server, cancellationToken);
         if (!prompts.Any(item => string.Equals(item.Name, promptName, StringComparison.OrdinalIgnoreCase)))
@@ -290,6 +300,15 @@ public sealed class McpToolRuntimeService(
 
     private static string BuildSessionKey(WorkspacePaths paths, string serverName) =>
         $"{Path.GetFullPath(paths.WorkspaceRoot ?? Environment.CurrentDirectory)}::{serverName}";
+
+    private void EnsureWorkspaceTrust(WorkspacePaths paths, string message)
+    {
+        var runtimeProfile = runtimeProfileService.Inspect(paths);
+        if (!runtimeProfile.IsWorkspaceTrusted)
+        {
+            throw new InvalidOperationException(message);
+        }
+    }
 
     private static string FormatServerSummary(
         McpServerDefinition server,

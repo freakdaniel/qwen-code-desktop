@@ -23,13 +23,28 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
         var systemDefaultsPath = GetSystemDefaultsPath(systemRoot);
         var systemSettingsPath = GetSystemSettingsPath(systemRoot);
 
-        var mergedSettings = BuildMergedSettings(
+        var initialTrustSettings = BuildMergedSettings(
             [
-                systemDefaultsPath,
-                userSettingsPath,
-                projectSettingsPath,
-                systemSettingsPath
+                new SettingsLayer(systemDefaultsPath, "system-defaults"),
+                new SettingsLayer(userSettingsPath, "user-settings"),
+                new SettingsLayer(systemSettingsPath, "system-settings")
             ]);
+        var workspaceTrust = ResolveWorkspaceTrust(projectRoot, globalQwenDirectory, initialTrustSettings.FolderTrustEnabled);
+        var mergedSettings = BuildMergedSettings(
+            workspaceTrust.IsTrusted
+                ?
+                [
+                    new SettingsLayer(systemDefaultsPath, "system-defaults"),
+                    new SettingsLayer(userSettingsPath, "user-settings"),
+                    new SettingsLayer(projectSettingsPath, "project-settings"),
+                    new SettingsLayer(systemSettingsPath, "system-settings")
+                ]
+                :
+                [
+                    new SettingsLayer(systemDefaultsPath, "system-defaults"),
+                    new SettingsLayer(userSettingsPath, "user-settings"),
+                    new SettingsLayer(systemSettingsPath, "system-settings")
+                ]);
 
         var runtimeSource = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("QWEN_RUNTIME_DIR"))
             ? "environment"
@@ -40,6 +55,10 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
         var contextFileNames = mergedSettings.ContextFileNames.Count > 0
             ? mergedSettings.ContextFileNames
             : ["QWEN.md", "AGENTS.md"];
+        if (!workspaceTrust.IsTrusted && !mergedSettings.FolderTrustEnabled)
+        {
+            workspaceTrust = new WorkspaceTrustDecision(true, string.Empty);
+        }
 
         return new QwenRuntimeProfile
         {
@@ -54,6 +73,9 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
             ContextFilePaths = contextFileNames
                 .Select(fileName => Path.Combine(projectRoot, fileName))
                 .ToArray(),
+            FolderTrustEnabled = mergedSettings.FolderTrustEnabled,
+            IsWorkspaceTrusted = workspaceTrust.IsTrusted,
+            WorkspaceTrustSource = workspaceTrust.Source,
             ApprovalProfile = new ApprovalProfile
             {
                 DefaultMode = mergedSettings.DefaultApprovalMode,
@@ -67,7 +89,7 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
     }
 
     private static MergedQwenSettings BuildMergedSettings(
-        IReadOnlyList<string> settingsPaths)
+        IReadOnlyList<SettingsLayer> settingsLayers)
     {
         string? runtimeOutputDirectory = null;
         string runtimeSource = "default-home";
@@ -81,25 +103,20 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
         IReadOnlyList<string> legacyCore = [];
         IReadOnlyList<string> legacyExcluded = [];
         IReadOnlyList<string> contextFileNames = [];
+        bool folderTrustEnabled = false;
 
-        foreach (var path in settingsPaths.Where(File.Exists))
+        foreach (var layer in settingsLayers.Where(static item => File.Exists(item.Path)))
         {
             try
             {
-                using var stream = File.OpenRead(path);
+                using var stream = File.OpenRead(layer.Path);
                 using var document = JsonDocument.Parse(stream);
                 var root = document.RootElement;
 
                 if (TryGetString(root, ["advanced", "runtimeOutputDir"], out var runtimeOutputDir))
                 {
                     runtimeOutputDirectory = runtimeOutputDir;
-                    runtimeSource = PathComparer.Equals(path, settingsPaths[0])
-                        ? "system-defaults"
-                        : PathComparer.Equals(path, settingsPaths[1])
-                            ? "user-settings"
-                            : PathComparer.Equals(path, settingsPaths[2])
-                                ? "project-settings"
-                                : "system-settings";
+                    runtimeSource = layer.Source;
                 }
 
                 if (TryGetString(root, ["permissions", "defaultMode"], out var permissionDefaultMode))
@@ -151,6 +168,11 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
                     legacyExcluded = currentLegacyExcluded;
                 }
 
+                if (TryGetBoolean(root, ["security", "folderTrust", "enabled"], out var currentFolderTrustEnabled))
+                {
+                    folderTrustEnabled = currentFolderTrustEnabled;
+                }
+
                 if (TryGetStringArray(root, ["context", "fileName"], out var currentContextFiles))
                 {
                     contextFileNames = currentContextFiles;
@@ -176,7 +198,8 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
             AllowRules: MergeRules(allowRules, legacyAllowed, legacyCore),
             AskRules: askRules,
             DenyRules: MergeRules(denyRules, legacyExcluded),
-            ContextFileNames: contextFileNames.Count > 0 ? contextFileNames : ["QWEN.md", "AGENTS.md"]);
+            ContextFileNames: contextFileNames.Count > 0 ? contextFileNames : ["QWEN.md", "AGENTS.md"],
+            FolderTrustEnabled: folderTrustEnabled);
     }
 
     private static IReadOnlyList<string> MergeRules(params IReadOnlyList<string>[] ruleSets) =>
@@ -315,6 +338,118 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
+    private static WorkspaceTrustDecision ResolveWorkspaceTrust(
+        string projectRoot,
+        string globalQwenDirectory,
+        bool folderTrustEnabled)
+    {
+        if (!folderTrustEnabled)
+        {
+            return new WorkspaceTrustDecision(true, string.Empty);
+        }
+
+        var trustedFoldersPath = Environment.GetEnvironmentVariable("QWEN_CODE_TRUSTED_FOLDERS_PATH");
+        if (string.IsNullOrWhiteSpace(trustedFoldersPath))
+        {
+            trustedFoldersPath = Path.Combine(globalQwenDirectory, "trustedFolders.json");
+        }
+
+        if (!File.Exists(trustedFoldersPath))
+        {
+            return new WorkspaceTrustDecision(true, string.Empty);
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(trustedFoldersPath);
+            using var document = JsonDocument.Parse(
+                stream,
+                new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = true,
+                    CommentHandling = JsonCommentHandling.Skip
+                });
+
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return new WorkspaceTrustDecision(true, string.Empty);
+            }
+
+            var normalizedProjectRoot = NormalizePath(projectRoot);
+            var trustedPaths = new List<string>();
+            var untrustedPaths = new List<string>();
+
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var configuredPath = NormalizePath(property.Name);
+                switch (property.Value.GetString())
+                {
+                    case "TRUST_FOLDER":
+                        trustedPaths.Add(configuredPath);
+                        break;
+                    case "TRUST_PARENT":
+                        trustedPaths.Add(NormalizePath(Path.GetDirectoryName(configuredPath) ?? configuredPath));
+                        break;
+                    case "DO_NOT_TRUST":
+                        untrustedPaths.Add(configuredPath);
+                        break;
+                }
+            }
+
+            foreach (var trustedPath in trustedPaths)
+            {
+                if (IsWithinRoot(normalizedProjectRoot, trustedPath))
+                {
+                    return new WorkspaceTrustDecision(true, "file");
+                }
+            }
+
+            foreach (var untrustedPath in untrustedPaths)
+            {
+                if (PathComparer.Equals(normalizedProjectRoot, untrustedPath))
+                {
+                    return new WorkspaceTrustDecision(false, "file");
+                }
+            }
+
+            return new WorkspaceTrustDecision(true, string.Empty);
+        }
+        catch
+        {
+            return new WorkspaceTrustDecision(true, string.Empty);
+        }
+    }
+
+    private static bool IsWithinRoot(string location, string root)
+    {
+        if (string.IsNullOrWhiteSpace(location) || string.IsNullOrWhiteSpace(root))
+        {
+            return false;
+        }
+
+        if (PathComparer.Equals(location, root))
+        {
+            return true;
+        }
+
+        var normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var rootWithSeparator = $"{normalizedRoot}{Path.DirectorySeparatorChar}";
+        return location.StartsWith(rootWithSeparator, StringComparisonFromComparer(PathComparer));
+    }
+
+    private static string NormalizePath(string path) =>
+        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static StringComparison StringComparisonFromComparer(StringComparer comparer) =>
+        comparer == StringComparer.OrdinalIgnoreCase
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
     private sealed record MergedQwenSettings(
         string? RuntimeOutputDirectory,
         string RuntimeSource,
@@ -324,5 +459,10 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
         IReadOnlyList<string> AllowRules,
         IReadOnlyList<string> AskRules,
         IReadOnlyList<string> DenyRules,
-        IReadOnlyList<string> ContextFileNames);
+        IReadOnlyList<string> ContextFileNames,
+        bool FolderTrustEnabled);
+
+    private sealed record SettingsLayer(string Path, string Source);
+
+    private sealed record WorkspaceTrustDecision(bool IsTrusted, string Source);
 }

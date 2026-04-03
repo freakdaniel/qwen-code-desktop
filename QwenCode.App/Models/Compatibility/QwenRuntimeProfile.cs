@@ -20,5 +20,11 @@ public sealed class QwenRuntimeProfile
 
     public required IReadOnlyList<string> ContextFilePaths { get; init; }
 
+    public bool FolderTrustEnabled { get; init; }
+
+    public bool IsWorkspaceTrusted { get; init; }
+
+    public string WorkspaceTrustSource { get; init; } = string.Empty;
+
     public required ApprovalProfile ApprovalProfile { get; init; }
 }

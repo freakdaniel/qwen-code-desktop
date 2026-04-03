@@ -88,6 +88,9 @@ public sealed class AssistantPromptAssemblerTests
                         HistoryDirectory = Path.Combine(runtimeRoot, "history", "project-a"),
                         ContextFileNames = ["QWEN.md", "AGENTS.md"],
                         ContextFilePaths = [rootContextPath, nestedContextPath],
+                        FolderTrustEnabled = true,
+                        IsWorkspaceTrusted = true,
+                        WorkspaceTrustSource = "file",
                         ApprovalProfile = new ApprovalProfile
                         {
                             DefaultMode = "default",
@@ -135,5 +138,99 @@ public sealed class AssistantPromptAssemblerTests
         }
     }
 
+    [Fact]
+    public async Task AssistantPromptAssembler_AssembleAsync_UntrustedWorkspace_LoadsOnlyGlobalContext()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-context-untrusted-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
 
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var runtimeRoot = Path.Combine(root, "runtime");
+            var homeRoot = Path.Combine(root, "home");
+            var chatsRoot = Path.Combine(runtimeRoot, "projects", "project-a", "chats");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(chatsRoot);
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+
+            var nestedWorkingDirectory = Path.Combine(workspaceRoot, "src", "feature");
+            Directory.CreateDirectory(nestedWorkingDirectory);
+
+            var transcriptPath = Path.Combine(chatsRoot, "session-1.jsonl");
+            File.WriteAllText(
+                transcriptPath,
+                """{"uuid":"1","sessionId":"session-1","type":"user","message":{"parts":[{"text":"Continue the work."}]}}""");
+
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "QWEN.md"),
+                "# Global memory\nOnly global context should load.");
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, "QWEN.md"),
+                "# Project memory\nThis must stay hidden.");
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "PROJECT_SUMMARY.md"),
+                """
+                ## Overall Goal
+                Hidden in untrusted workspace.
+                """);
+
+            var assembler = new AssistantPromptAssembler(new ProjectSummaryService());
+            var promptContext = await assembler.AssembleAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "session-1",
+                    Prompt = "Continue the refactor.",
+                    WorkingDirectory = nestedWorkingDirectory,
+                    TranscriptPath = transcriptPath,
+                    RuntimeProfile = new QwenRuntimeProfile
+                    {
+                        ProjectRoot = workspaceRoot,
+                        GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+                        RuntimeBaseDirectory = runtimeRoot,
+                        RuntimeSource = "test",
+                        ProjectDataDirectory = Path.Combine(runtimeRoot, "projects", "project-a"),
+                        ChatsDirectory = chatsRoot,
+                        HistoryDirectory = Path.Combine(runtimeRoot, "history", "project-a"),
+                        ContextFileNames = ["QWEN.md", "AGENTS.md"],
+                        ContextFilePaths = [],
+                        FolderTrustEnabled = true,
+                        IsWorkspaceTrusted = false,
+                        WorkspaceTrustSource = "file",
+                        ApprovalProfile = new ApprovalProfile
+                        {
+                            DefaultMode = "default",
+                            ConfirmShellCommands = true,
+                            ConfirmFileEdits = true,
+                            AllowRules = [],
+                            AskRules = [],
+                            DenyRules = []
+                        }
+                    },
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                });
+
+            Assert.Single(promptContext.ContextFiles);
+            Assert.Contains("Only global context should load.", promptContext.ContextFiles[0]);
+            Assert.DoesNotContain("Project memory", promptContext.ContextFiles[0], StringComparison.Ordinal);
+            Assert.Null(promptContext.ProjectSummary);
+            Assert.Contains("Project summary: not found.", promptContext.SessionSummary);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

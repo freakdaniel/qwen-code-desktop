@@ -44,7 +44,8 @@ internal static class TestServiceFactory
             new McpToolRuntimeService(
                 mcpRegistry,
                 new FileMcpTokenStore(environmentPaths),
-                new HttpClient()));
+                new HttpClient(),
+                runtimeProfileService));
         var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
         var interruptedTurnStore = new InterruptedTurnStore();
         var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);

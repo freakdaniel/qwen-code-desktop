@@ -30,7 +30,7 @@ public sealed class BootstrapProjectionService(
     {
         var workspace = workspacePathResolver.Resolve(_options.Workspace);
         var runtime = settingsResolver.InspectRuntimeProfile(workspace);
-        var projectSummary = projectSummaryService.Read(workspace.WorkspaceRoot) ?? CreateEmptyProjectSummary(workspace.WorkspaceRoot);
+        var projectSummary = projectSummaryService.Read(runtime) ?? CreateEmptyProjectSummary(workspace.WorkspaceRoot);
 
         return new AppBootstrapPayload
         {

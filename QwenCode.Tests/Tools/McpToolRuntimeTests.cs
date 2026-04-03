@@ -328,6 +328,53 @@ public sealed class McpToolRuntimeTests
         }
     }
 
+    [Fact]
+    public async Task McpToolRuntimeService_DescribeAsync_DeniesUntrustedWorkspaceWhenFolderTrustEnabled()
+    {
+        await using var server = await FakeMcpHttpServer.StartAsync(
+            [CreateTool("read-doc", "Reads docs", readOnlyHint: true)]);
+
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-mcp-workspace-trust-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var (paths, environment, _, registry, runtime) = CreateRuntime(root);
+            File.WriteAllText(
+                Path.Combine(environment.HomeDirectory, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "folderTrust": {
+                      "enabled": true
+                    }
+                  }
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(environment.HomeDirectory, ".qwen", "trustedFolders.json"),
+                BuildTrustedFoldersJson(paths.WorkspaceRoot!, "DO_NOT_TRUST"));
+
+            registry.AddServer(paths, new McpServerRegistrationRequest
+            {
+                Name = "docs",
+                Scope = "project",
+                Transport = "http",
+                CommandOrUrl = server.Url,
+                Trust = true
+            });
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                runtime.DescribeAsync(paths, JsonDocument.Parse("""{"server_name":"docs"}""").RootElement));
+
+            Assert.Contains("untrusted folders", exception.Message);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static (WorkspacePaths Paths, FakeDesktopEnvironmentPaths Environment, QwenRuntimeProfileService RuntimeProfileService, McpRegistryService Registry, McpToolRuntimeService Runtime) CreateRuntime(string root)
     {
         var workspaceRoot = Path.Combine(root, "workspace");
@@ -335,7 +382,7 @@ public sealed class McpToolRuntimeTests
         var systemRoot = Path.Combine(root, "system");
 
         Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
-        Directory.CreateDirectory(homeRoot);
+        Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
         Directory.CreateDirectory(systemRoot);
 
         var paths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
@@ -343,7 +390,7 @@ public sealed class McpToolRuntimeTests
         var runtimeProfileService = new QwenRuntimeProfileService(environment);
         var tokenStore = new FileMcpTokenStore(environment);
         var registry = new McpRegistryService(runtimeProfileService, tokenStore);
-        var runtime = new McpToolRuntimeService(registry, tokenStore, new HttpClient());
+        var runtime = new McpToolRuntimeService(registry, tokenStore, new HttpClient(), runtimeProfileService);
         return (paths, environment, runtimeProfileService, registry, runtime);
     }
 
@@ -383,6 +430,13 @@ public sealed class McpToolRuntimeTests
                 ["required"] = false
             })
         };
+
+    private static string BuildTrustedFoldersJson(string workspaceRoot, string trustValue) =>
+        $$"""
+        {
+          "{{workspaceRoot.Replace("\\", "\\\\", StringComparison.Ordinal)}}": "{{trustValue}}"
+        }
+        """;
 
     private sealed class FakeMcpHttpServer : IAsyncDisposable
     {
