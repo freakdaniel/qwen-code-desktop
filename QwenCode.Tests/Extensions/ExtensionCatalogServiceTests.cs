@@ -211,6 +211,141 @@ public sealed class ExtensionCatalogServiceTests
         }
     }
 
+    [Fact]
+    public void Update_ReinstallsCopiedExtensionFromOriginalSource()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-ext-update-{Guid.NewGuid():N}");
+        var workspaceRoot = Path.Combine(root, "workspace");
+        var homeRoot = Path.Combine(root, "home");
+
+        Directory.CreateDirectory(workspaceRoot);
+        Directory.CreateDirectory(homeRoot);
+
+        try
+        {
+            var service = CreateService(homeRoot);
+            var sourcePath = CreateExtensionSource(root, "update-extension");
+            var workspace = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+
+            service.Install(
+                workspace,
+                new InstallExtensionRequest
+                {
+                    SourcePath = sourcePath,
+                    InstallMode = "copy",
+                    SourceType = "local",
+                    AutoUpdate = true
+                });
+
+            File.WriteAllText(
+                Path.Combine(sourcePath, "qwen-extension.json"),
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        name = "update-extension",
+                        version = "2.0.0",
+                        description = "Updated extension"
+                    },
+                    new JsonSerializerOptions { WriteIndented = true }));
+
+            var updated = service.Update(
+                workspace,
+                new UpdateExtensionRequest
+                {
+                    Name = "update-extension"
+                });
+
+            var extension = Assert.Single(updated.Extensions);
+            Assert.Equal("2.0.0", extension.Version);
+            Assert.Equal("local", extension.InstallType);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void CreateScaffold_CreatesTemplateFiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-ext-scaffold-{Guid.NewGuid():N}");
+        var workspaceRoot = Path.Combine(root, "workspace");
+        var homeRoot = Path.Combine(root, "home");
+        var targetPath = Path.Combine(root, "new-extension");
+
+        Directory.CreateDirectory(workspaceRoot);
+        Directory.CreateDirectory(homeRoot);
+
+        try
+        {
+            var service = CreateService(homeRoot);
+            var snapshot = service.CreateScaffold(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new CreateExtensionScaffoldRequest
+                {
+                    TargetPath = targetPath,
+                    Template = "skills"
+                });
+
+            Assert.Equal("new-extension", snapshot.Name);
+            Assert.Equal("skills", snapshot.Template);
+            Assert.True(File.Exists(Path.Combine(targetPath, "qwen-extension.json")));
+            Assert.True(File.Exists(Path.Combine(targetPath, "skills", "example-skill", "SKILL.md")));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void PreviewConsent_DescribesRisksAndInstalledSurfaces()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-ext-consent-{Guid.NewGuid():N}");
+        var workspaceRoot = Path.Combine(root, "workspace");
+        var homeRoot = Path.Combine(root, "home");
+
+        Directory.CreateDirectory(workspaceRoot);
+        Directory.CreateDirectory(homeRoot);
+
+        try
+        {
+            var service = CreateService(homeRoot);
+            var sourcePath = CreateExtensionSource(root, "consent-extension");
+
+            var consent = service.PreviewConsent(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new InstallExtensionRequest
+                {
+                    SourcePath = sourcePath,
+                    InstallMode = "copy",
+                    SourceType = "local"
+                });
+
+            Assert.Equal("consent-extension", consent.Name);
+            Assert.Contains("review:changes", consent.Commands);
+            Assert.Contains("quality-skill", consent.Skills);
+            Assert.Contains("worker-agent", consent.Agents);
+            Assert.Contains("filesystem", consent.McpServers);
+            Assert.Contains("telegram", consent.Channels);
+            Assert.Contains(consent.Warnings, static item => item.Contains("unexpected behavior", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(consent.Warnings, static item => item.Contains("MCP", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     private static ExtensionCatalogService CreateService(string homeRoot) =>
         new(
             new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, null, homeRoot, homeRoot)),

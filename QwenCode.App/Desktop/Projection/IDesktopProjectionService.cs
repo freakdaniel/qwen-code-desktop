@@ -68,6 +68,12 @@ public interface IDesktopProjectionService
 
     Task<ExtensionSnapshot> InstallExtensionAsync(InstallExtensionRequest request);
 
+    Task<ExtensionConsentSnapshot> PreviewExtensionConsentAsync(InstallExtensionRequest request);
+
+    Task<ExtensionScaffoldSnapshot> CreateExtensionScaffoldAsync(CreateExtensionScaffoldRequest request);
+
+    Task<ExtensionSnapshot> UpdateExtensionAsync(UpdateExtensionRequest request);
+
     Task<ExtensionSettingsSnapshot> SetExtensionSettingAsync(SetExtensionSettingValueRequest request);
 
     Task<ExtensionSnapshot> SetExtensionEnabledAsync(SetExtensionEnabledRequest request);

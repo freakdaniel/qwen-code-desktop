@@ -43,6 +43,7 @@ public sealed class QwenRuntimeProfileService(
             ModelName = snapshot.ModelName,
             EmbeddingModel = snapshot.EmbeddingModel,
             ChatCompression = snapshot.ChatCompression,
+            Telemetry = snapshot.Telemetry,
             Checkpointing = snapshot.Checkpointing,
             FolderTrustEnabled = snapshot.FolderTrustEnabled,
             IsWorkspaceTrusted = snapshot.IsWorkspaceTrusted,

@@ -75,6 +75,93 @@ public sealed class ChannelRegistryService(
         };
     }
 
+    public ChannelDefinition GetChannel(WorkspacePaths workspace, string name) =>
+        Inspect(workspace).Channels.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))
+        ?? throw new InvalidOperationException($"Channel \"{name}\" was not found in merged qwen settings.");
+
+    public ChannelRuntimeConfiguration GetRuntimeConfiguration(WorkspacePaths workspace, string name)
+    {
+        var runtime = settingsResolver.InspectRuntimeProfile(workspace);
+        return ReadConfiguredChannels(runtime, workspace)
+            .Where(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))
+            .Select(static item => new ChannelRuntimeConfiguration
+            {
+                Name = item.Name,
+                Type = item.Type,
+                SenderPolicy = item.SenderPolicy,
+                SessionScope = item.SessionScope,
+                WorkingDirectory = item.WorkingDirectory,
+                ApprovalMode = item.ApprovalMode,
+                Model = item.Model,
+                Instructions = item.Instructions,
+                GroupPolicy = item.GroupPolicy,
+                DispatchMode = item.DispatchMode,
+                RequireMentionByDefault = item.RequireMentionByDefault,
+                Groups = item.Groups
+            })
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException($"Channel \"{name}\" was not found in merged qwen settings.");
+    }
+
+    public ChannelSenderAccessDecision EvaluateSenderAccess(WorkspacePaths workspace, string channelName, string senderId, string senderName)
+    {
+        var channel = GetChannel(workspace, channelName);
+        var channelsRoot = GetChannelsRoot();
+        var allowlist = ReadAllowlist(channelsRoot, channelName);
+        if (allowlist.Contains(senderId, StringComparer.OrdinalIgnoreCase))
+        {
+            return new ChannelSenderAccessDecision
+            {
+                Allowed = true
+            };
+        }
+
+        if (string.Equals(channel.SenderPolicy, "open", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ChannelSenderAccessDecision
+            {
+                Allowed = true
+            };
+        }
+
+        if (string.Equals(channel.SenderPolicy, "allowlist", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ChannelSenderAccessDecision
+            {
+                Allowed = false,
+                Reason = $"Sender '{senderId}' is not in the allowlist for channel '{channelName}'."
+            };
+        }
+
+        var pending = ReadPendingPairings(channelsRoot, channelName);
+        var existing = pending.FirstOrDefault(item => string.Equals(item.SenderId, senderId, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            return new ChannelSenderAccessDecision
+            {
+                Allowed = false,
+                PairingCode = existing.Code,
+                Reason = $"Sender '{senderId}' must complete pairing with code '{existing.Code}'."
+            };
+        }
+
+        var created = new PairingRequestRecord
+        {
+            SenderId = senderId,
+            SenderName = senderName,
+            Code = GeneratePairingCode(),
+            CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+        pending.Add(created);
+        WritePendingPairings(channelsRoot, channelName, pending);
+        return new ChannelSenderAccessDecision
+        {
+            Allowed = false,
+            PairingCode = created.Code,
+            Reason = $"Sender '{senderId}' must complete pairing with code '{created.Code}'."
+        };
+    }
+
     public ChannelPairingSnapshot GetPairings(WorkspacePaths workspace, GetChannelPairingRequest request)
     {
         var runtime = settingsResolver.InspectRuntimeProfile(workspace);
@@ -272,15 +359,24 @@ public sealed class ChannelRegistryService(
             var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (var entry in document.RootElement.EnumerateObject())
             {
-                if (!entry.Value.TryGetProperty("target", out var target) ||
-                    target.ValueKind != JsonValueKind.Object ||
-                    !target.TryGetProperty("channelName", out var channelNameElement) ||
-                    channelNameElement.ValueKind != JsonValueKind.String)
+                string? channelName;
+                if (entry.Value.TryGetProperty("target", out var target) &&
+                    target.ValueKind == JsonValueKind.Object &&
+                    target.TryGetProperty("channelName", out var targetChannelNameElement) &&
+                    targetChannelNameElement.ValueKind == JsonValueKind.String)
+                {
+                    channelName = targetChannelNameElement.GetString();
+                }
+                else if (entry.Value.TryGetProperty("channelName", out var directChannelNameElement) &&
+                         directChannelNameElement.ValueKind == JsonValueKind.String)
+                {
+                    channelName = directChannelNameElement.GetString();
+                }
+                else
                 {
                     continue;
                 }
 
-                var channelName = channelNameElement.GetString();
                 if (string.IsNullOrWhiteSpace(channelName))
                 {
                     continue;
@@ -396,6 +492,13 @@ public sealed class ChannelRegistryService(
         return $"{Math.Max(0, duration.Seconds)}s";
     }
 
+    private static string GeneratePairingCode()
+    {
+        const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        var random = Random.Shared;
+        return new string(Enumerable.Range(0, 6).Select(_ => alphabet[random.Next(alphabet.Length)]).ToArray());
+    }
+
     private sealed class ChannelConfigAccumulator
     {
         public required string Name { get; init; }
@@ -408,6 +511,7 @@ public sealed class ChannelRegistryService(
         {
             var type = GetString("type");
             var cwd = GetString("cwd");
+            var groups = ReadGroups();
             return new ConfiguredChannel(
                 Name,
                 Type: type,
@@ -417,7 +521,12 @@ public sealed class ChannelRegistryService(
                 SessionScope: GetString("sessionScope", "user"),
                 WorkingDirectory: ResolvePath(string.IsNullOrWhiteSpace(cwd) ? projectRoot : cwd, projectRoot),
                 ApprovalMode: GetString("approvalMode"),
-                Model: GetString("model"));
+                Model: GetString("model"),
+                Instructions: GetString("instructions"),
+                GroupPolicy: GetString("groupPolicy", "disabled"),
+                DispatchMode: GetString("dispatchMode", "collect"),
+                RequireMentionByDefault: groups.TryGetValue("*", out var defaults) ? defaults.RequireMention : true,
+                Groups: groups.Values.OrderBy(static item => item.ChatId, StringComparer.OrdinalIgnoreCase).ToArray());
         }
 
         private string GetString(string key, string fallback = "")
@@ -428,6 +537,51 @@ public sealed class ChannelRegistryService(
             }
 
             return value.GetString() ?? fallback;
+        }
+
+        private Dictionary<string, ChannelGroupRuntimeConfiguration> ReadGroups()
+        {
+            if (!Properties.TryGetValue("groups", out var groupsElement) || groupsElement.ValueKind != JsonValueKind.Object)
+            {
+                return new Dictionary<string, ChannelGroupRuntimeConfiguration>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var result = new Dictionary<string, ChannelGroupRuntimeConfiguration>(StringComparer.OrdinalIgnoreCase);
+            foreach (var property in groupsElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var requireMention = true;
+                var dispatchMode = string.Empty;
+
+                if (property.Value.TryGetProperty("requireMention", out var requireMentionElement))
+                {
+                    requireMention = requireMentionElement.ValueKind switch
+                    {
+                        JsonValueKind.True => true,
+                        JsonValueKind.False => false,
+                        _ => true
+                    };
+                }
+
+                if (property.Value.TryGetProperty("dispatchMode", out var dispatchModeElement) &&
+                    dispatchModeElement.ValueKind == JsonValueKind.String)
+                {
+                    dispatchMode = dispatchModeElement.GetString() ?? string.Empty;
+                }
+
+                result[property.Name] = new ChannelGroupRuntimeConfiguration
+                {
+                    ChatId = property.Name,
+                    RequireMention = requireMention,
+                    DispatchMode = dispatchMode
+                };
+            }
+
+            return result;
         }
 
         private static string ResolvePath(string path, string projectRoot) =>
@@ -445,7 +599,12 @@ public sealed class ChannelRegistryService(
         string SessionScope,
         string WorkingDirectory,
         string ApprovalMode,
-        string Model);
+        string Model,
+        string Instructions,
+        string GroupPolicy,
+        string DispatchMode,
+        bool RequireMentionByDefault,
+        IReadOnlyList<ChannelGroupRuntimeConfiguration> Groups);
 
     private sealed class ChannelServiceInfo
     {

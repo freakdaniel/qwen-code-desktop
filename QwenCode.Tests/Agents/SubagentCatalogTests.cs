@@ -31,7 +31,9 @@ public sealed class SubagentCatalogTests
                 You are a repository exploration specialist.
                 """);
 
-            var catalog = new SubagentCatalogService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var catalog = new SubagentCatalogService(
+                new FakeDesktopEnvironmentPaths(homeRoot, systemRoot),
+                new SubagentValidationService(new SubagentModelSelectionService()));
             var agents = catalog.ListAgents(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
 
             Assert.Contains(agents, agent => agent.Name == "general-purpose" && agent.IsBuiltin);
@@ -82,7 +84,9 @@ public sealed class SubagentCatalogTests
                 Project agent
                 """);
 
-            var catalog = new SubagentCatalogService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var catalog = new SubagentCatalogService(
+                new FakeDesktopEnvironmentPaths(homeRoot, systemRoot),
+                new SubagentValidationService(new SubagentModelSelectionService()));
             var agent = catalog.FindAgent(new WorkspacePaths { WorkspaceRoot = workspaceRoot }, "custom");
 
             Assert.NotNull(agent);
@@ -145,7 +149,9 @@ public sealed class SubagentCatalogTests
                 Project agent
                 """);
 
-            var catalog = new SubagentCatalogService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var catalog = new SubagentCatalogService(
+                new FakeDesktopEnvironmentPaths(homeRoot, systemRoot),
+                new SubagentValidationService(new SubagentModelSelectionService()));
             var agents = catalog.ListAgents(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
 
             Assert.Contains(agents, agent => agent.Name == "user-agent" && agent.Scope == "user");
@@ -162,4 +168,53 @@ public sealed class SubagentCatalogTests
           "{{workspaceRoot.Replace("\\", "\\\\", StringComparison.Ordinal)}}": "{{trustValue}}"
         }
         """;
+
+    [Fact]
+    public void SubagentCatalogService_ListAgents_ParsesModelAndRunConfiguration()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-agent-model-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen", "agents"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen", "agents"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "agents", "planner.md"),
+                """
+                ---
+                name: planner
+                description: planning specialist
+                model: qwen-compatible:qwen3-coder-plus
+                color: blue
+                runConfig:
+                  max_turns: 7
+                  max_time_minutes: 12
+                tools:
+                  - read_file
+                ---
+
+                You plan carefully.
+                """);
+
+            var catalog = new SubagentCatalogService(
+                new FakeDesktopEnvironmentPaths(homeRoot, systemRoot),
+                new SubagentValidationService(new SubagentModelSelectionService()));
+            var planner = Assert.Single(catalog.ListAgents(new WorkspacePaths { WorkspaceRoot = workspaceRoot }), item => item.Name == "planner");
+
+            Assert.Equal("qwen-compatible:qwen3-coder-plus", planner.Model);
+            Assert.Equal("blue", planner.Color);
+            Assert.Equal(7, planner.RunConfiguration.MaxTurns);
+            Assert.Equal(12, planner.RunConfiguration.MaxTimeMinutes);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

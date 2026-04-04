@@ -26,6 +26,8 @@ public sealed class QwenRuntimeProfile
 
     public RuntimeChatCompressionSettings? ChatCompression { get; init; }
 
+    public RuntimeTelemetrySettings? Telemetry { get; init; }
+
     public bool Checkpointing { get; init; } = true;
 
     public bool FolderTrustEnabled { get; init; }

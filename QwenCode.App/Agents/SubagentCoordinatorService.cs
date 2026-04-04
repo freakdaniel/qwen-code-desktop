@@ -9,6 +9,7 @@ using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
 using QwenCode.App.Options;
 using QwenCode.App.Runtime;
+using QwenCode.App.Telemetry;
 using QwenCode.App.Tools;
 
 namespace QwenCode.App.Agents;
@@ -17,8 +18,11 @@ public sealed class SubagentCoordinatorService(
     ISubagentCatalog subagentCatalog,
     IToolRegistry toolRegistry,
     QwenCompatibilityService compatibilityService,
+    ISubagentModelSelectionService modelSelectionService,
+    ISubagentValidationService validationService,
     IHookLifecycleService? hookLifecycleService = null,
-    IServiceProvider? serviceProvider = null) : ISubagentCoordinator
+    IServiceProvider? serviceProvider = null,
+    ITelemetryService? telemetryService = null) : ISubagentCoordinator
 {
     public async Task<NativeToolExecutionResult> ExecuteAsync(
         WorkspacePaths paths,
@@ -54,6 +58,17 @@ public sealed class SubagentCoordinatorService(
             return Error($"Subagent '{subagentType}' not found. Available subagents: {availableAgents}", runtimeProfile.ProjectRoot, approvalState);
         }
 
+        var validation = validationService.Validate(agent);
+        if (!validation.IsValid)
+        {
+            return Error(
+                $"Subagent '{agent.Name}' is invalid: {string.Join("; ", validation.Errors)}",
+                runtimeProfile.ProjectRoot,
+                approvalState);
+        }
+
+        var modelSelection = modelSelectionService.Parse(agent.Model, "openai");
+
         var executionId = $"agent-{Guid.NewGuid():N}";
         var startedAtUtc = DateTime.UtcNow;
         var executionDirectory = Path.Combine(runtimeProfile.RuntimeBaseDirectory, "agents");
@@ -85,7 +100,7 @@ public sealed class SubagentCoordinatorService(
         }
 
         var effectivePrompt = ApplyHookPrompt(startHook.AggregateOutput, prompt);
-        var runtimeRequest = BuildAssistantTurnRequest(executionId, description, effectivePrompt, agent, runtimeProfile, transcriptPath);
+        var runtimeRequest = BuildAssistantTurnRequest(executionId, description, effectivePrompt, agent, runtimeProfile, transcriptPath, modelSelection);
         var runtime = ResolveRuntime();
         eventSink?.Invoke(CreateSubagentRuntimeEvent(
             "generating",
@@ -164,6 +179,19 @@ public sealed class SubagentCoordinatorService(
             artifactPath,
             JsonSerializer.Serialize(record, new JsonSerializerOptions { WriteIndented = true }),
             cancellationToken);
+
+        if (telemetryService is not null)
+        {
+            await telemetryService.TrackSubagentExecutionAsync(
+                runtimeProfile,
+                executionId,
+                agent.Name,
+                status,
+                Math.Max(0, (long)(endedAtUtc - startedAtUtc).TotalMilliseconds),
+                response.Model,
+                resolvedStopReason,
+                cancellationToken);
+        }
 
         return new NativeToolExecutionResult
         {
@@ -246,7 +274,8 @@ public sealed class SubagentCoordinatorService(
         string prompt,
         SubagentDescriptor agent,
         QwenRuntimeProfile runtimeProfile,
-        string transcriptPath) =>
+        string transcriptPath,
+        SubagentModelSelection modelSelection) =>
         new()
         {
             SessionId = executionId,
@@ -264,7 +293,9 @@ public sealed class SubagentCoordinatorService(
                 ChangedFiles = []
             },
             SystemPromptOverride = BuildSystemPrompt(agent),
-            AllowedToolNames = agent.Tools
+            AllowedToolNames = agent.Tools,
+            ModelOverride = modelSelection.Inherits ? string.Empty : modelSelection.ModelId,
+            AuthTypeOverride = modelSelection.Inherits ? string.Empty : modelSelection.AuthType
         };
 
     private static string BuildDelegatedPrompt(string description, string prompt, SubagentDescriptor agent) =>
@@ -272,6 +303,7 @@ public sealed class SubagentCoordinatorService(
 Task description: {{description}}
 Subagent type: {{agent.Name}}
 Subagent scope: {{agent.Scope}}
+{{BuildRunConfigurationSection(agent.RunConfiguration)}}
 
 Parent request:
 {{prompt.Trim()}}
@@ -279,6 +311,24 @@ Parent request:
 Return only the information the parent runtime needs to continue the task.
 Be concise, evidence-driven, and explicit about blockers, approvals, and changed files.
 """;
+
+    private static string BuildRunConfigurationSection(SubagentRunConfiguration configuration)
+    {
+        var parts = new List<string>();
+        if (configuration.MaxTurns is > 0)
+        {
+            parts.Add($"Max turns: {configuration.MaxTurns}");
+        }
+
+        if (configuration.MaxTimeMinutes is > 0)
+        {
+            parts.Add($"Max time minutes: {configuration.MaxTimeMinutes}");
+        }
+
+        return parts.Count == 0
+            ? string.Empty
+            : "Subagent runtime limits: " + string.Join(", ", parts);
+    }
 
     private static string BuildSystemPrompt(SubagentDescriptor agent)
     {

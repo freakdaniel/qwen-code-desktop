@@ -114,6 +114,15 @@ public sealed class DesktopAppService(
     public Task<ExtensionSnapshot> InstallExtensionAsync(InstallExtensionRequest request) =>
         extensionProjectionService.InstallAsync(request);
 
+    public Task<ExtensionConsentSnapshot> PreviewExtensionConsentAsync(InstallExtensionRequest request) =>
+        extensionProjectionService.PreviewConsentAsync(request);
+
+    public Task<ExtensionScaffoldSnapshot> CreateExtensionScaffoldAsync(CreateExtensionScaffoldRequest request) =>
+        extensionProjectionService.CreateScaffoldAsync(request);
+
+    public Task<ExtensionSnapshot> UpdateExtensionAsync(UpdateExtensionRequest request) =>
+        extensionProjectionService.UpdateAsync(request);
+
     public Task<ExtensionSettingsSnapshot> SetExtensionSettingAsync(SetExtensionSettingValueRequest request) =>
         extensionProjectionService.SetSettingAsync(request);
 

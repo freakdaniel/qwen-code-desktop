@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using QwenCode.App.Agents;
 using QwenCode.App.Compatibility;
@@ -10,6 +11,7 @@ using QwenCode.App.Mcp;
 using QwenCode.App.Models;
 using QwenCode.App.Permissions;
 using QwenCode.App.Runtime;
+using QwenCode.App.Telemetry;
 
 namespace QwenCode.App.Tools;
 
@@ -25,7 +27,8 @@ public sealed class NativeToolHostService(
     ISubagentCoordinator? subagentCoordinator = null,
     IAgentArenaService? agentArenaService = null,
     IHookLifecycleService? hookLifecycleService = null,
-    IShellExecutionService? shellExecutionService = null) : IToolExecutor
+    IShellExecutionService? shellExecutionService = null,
+    ITelemetryService? telemetryService = null) : IToolExecutor
 {
     private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", ".electron", "dist"];
     private readonly ISubagentCoordinator agents = subagentCoordinator ?? CreateFallbackSubagentCoordinator(runtimeProfileService, approvalPolicyService);
@@ -131,7 +134,9 @@ public sealed class NativeToolHostService(
             if (string.Equals(request.ToolName, "ask_user_question", StringComparison.OrdinalIgnoreCase))
             {
                 var questionResult = ExecuteAskUserQuestion(runtimeProfile, approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot, document.RootElement, approval.State);
-                return await ApplyPostToolHooksAsync(runtimeProfile, request, document.RootElement, questionResult, cancellationToken);
+                var askedResult = await ApplyPostToolHooksAsync(runtimeProfile, request, document.RootElement, questionResult, cancellationToken);
+                await TrackTelemetryAsync(runtimeProfile, request, askedResult, 0, approval.State, cancellationToken);
+                return askedResult;
             }
 
             if (approval.State == "ask" && !request.ApproveExecution)
@@ -145,7 +150,9 @@ public sealed class NativeToolHostService(
                     ErrorMessage = approval.Reason,
                     ChangedFiles = []
                 };
-                return await ApplyPermissionRequestHooksAsync(runtimeProfile, request, document.RootElement, approvalRequiredResult, cancellationToken);
+                var gatedResult = await ApplyPermissionRequestHooksAsync(runtimeProfile, request, document.RootElement, approvalRequiredResult, cancellationToken);
+                await TrackTelemetryAsync(runtimeProfile, request, gatedResult, 0, approval.State, cancellationToken);
+                return gatedResult;
             }
 
             var preToolHook = await ExecuteHookAsync(
@@ -165,8 +172,86 @@ public sealed class NativeToolHostService(
                     preToolHook.BlockReason);
             }
 
+            var stopwatch = Stopwatch.StartNew();
             var result = await ExecuteToolCoreAsync(paths, request, runtimeProfile, document.RootElement, approval.State, eventSink, cancellationToken);
-            return await ApplyPostToolHooksAsync(runtimeProfile, request, document.RootElement, result, cancellationToken);
+            var finalResult = await ApplyPostToolHooksAsync(runtimeProfile, request, document.RootElement, result, cancellationToken);
+            await TrackTelemetryAsync(runtimeProfile, request, finalResult, stopwatch.ElapsedMilliseconds, approval.State, cancellationToken);
+            return finalResult;
+        }
+    }
+
+    private async Task TrackTelemetryAsync(
+        QwenRuntimeProfile runtimeProfile,
+        ExecuteNativeToolRequest request,
+        NativeToolExecutionResult result,
+        long durationMs,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        if (telemetryService is null)
+        {
+            return;
+        }
+
+        await telemetryService.TrackToolCallAsync(
+            runtimeProfile,
+            ExtractSessionId(request.ArgumentsJson),
+            new AssistantToolCall
+            {
+                Id = $"{request.ToolName}-{Guid.NewGuid():N}",
+                ToolName = request.ToolName,
+                ArgumentsJson = string.IsNullOrWhiteSpace(request.ArgumentsJson) ? "{}" : request.ArgumentsJson
+            },
+            result,
+            durationMs,
+            ResolveToolType(request.ToolName),
+            ResolveDecision(request, result, approvalState),
+            ResolveMcpServerName(request.ArgumentsJson),
+            cancellationToken);
+    }
+
+    private static string ExtractSessionId(string argumentsJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson);
+            return TryGetOptionalString(document.RootElement, "session_id") ??
+                   TryGetOptionalString(document.RootElement, "sessionId") ??
+                   string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ResolveToolType(string toolName) =>
+        toolName.StartsWith("mcp-", StringComparison.OrdinalIgnoreCase) ? "mcp" : "native";
+
+    private static string? ResolveDecision(
+        ExecuteNativeToolRequest request,
+        NativeToolExecutionResult result,
+        string approvalState) =>
+        result.Status switch
+        {
+            "approval-required" => null,
+            "blocked" => "reject",
+            _ when request.ApproveExecution => "accept",
+            _ when string.Equals(approvalState, "allow", StringComparison.OrdinalIgnoreCase) => "auto_accept",
+            _ => null
+        };
+
+    private static string? ResolveMcpServerName(string argumentsJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson);
+            return TryGetOptionalString(document.RootElement, "server") ??
+                   TryGetOptionalString(document.RootElement, "serverName");
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -1241,10 +1326,14 @@ public sealed class NativeToolHostService(
         IApprovalPolicyEngine approvalPolicyService)
     {
         var environmentPaths = new DefaultDesktopEnvironmentPaths();
+        var modelSelectionService = new SubagentModelSelectionService();
+        var validationService = new SubagentValidationService(modelSelectionService);
         return new SubagentCoordinatorService(
-            new SubagentCatalogService(environmentPaths),
+            new SubagentCatalogService(environmentPaths, validationService),
             new ToolCatalogService(runtimeProfileService, approvalPolicyService),
-            new QwenCompatibilityService(environmentPaths));
+            new QwenCompatibilityService(environmentPaths),
+            modelSelectionService,
+            validationService);
     }
 
     private sealed record McpApprovalEvaluation(ApprovalDecision? Decision, NativeToolExecutionResult? ErrorResult);

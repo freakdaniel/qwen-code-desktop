@@ -120,6 +120,18 @@ public sealed class DesktopIpcService(
     public Task<ExtensionSnapshot> InstallExtension(InstallExtensionRequest request)
         => desktopProjectionService.InstallExtensionAsync(request);
 
+    [IpcInvoke("qwen-desktop:extensions:preview-consent")]
+    public Task<ExtensionConsentSnapshot> PreviewExtensionConsent(InstallExtensionRequest request)
+        => desktopProjectionService.PreviewExtensionConsentAsync(request);
+
+    [IpcInvoke("qwen-desktop:extensions:create-scaffold")]
+    public Task<ExtensionScaffoldSnapshot> CreateExtensionScaffold(CreateExtensionScaffoldRequest request)
+        => desktopProjectionService.CreateExtensionScaffoldAsync(request);
+
+    [IpcInvoke("qwen-desktop:extensions:update")]
+    public Task<ExtensionSnapshot> UpdateExtension(UpdateExtensionRequest request)
+        => desktopProjectionService.UpdateExtensionAsync(request);
+
     [IpcInvoke("qwen-desktop:extensions:set-setting")]
     public Task<ExtensionSettingsSnapshot> SetExtensionSetting(SetExtensionSettingValueRequest request)
         => desktopProjectionService.SetExtensionSettingAsync(request);

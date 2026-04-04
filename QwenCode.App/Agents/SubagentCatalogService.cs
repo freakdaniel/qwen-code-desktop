@@ -5,8 +5,12 @@ using QwenCode.App.Models;
 
 namespace QwenCode.App.Agents;
 
-public sealed partial class SubagentCatalogService(IDesktopEnvironmentPaths environmentPaths) : ISubagentCatalog
+public sealed partial class SubagentCatalogService(
+    IDesktopEnvironmentPaths environmentPaths,
+    ISubagentValidationService validationService) : ISubagentCatalog
 {
+    private readonly ISubagentValidationService _validationService = validationService;
+
     public IReadOnlyList<SubagentDescriptor> ListAgents(WorkspacePaths paths)
     {
         var workspaceRoot = string.IsNullOrWhiteSpace(paths.WorkspaceRoot)
@@ -40,7 +44,7 @@ public sealed partial class SubagentCatalogService(IDesktopEnvironmentPaths envi
         ListAgents(paths).FirstOrDefault(agent =>
             string.Equals(agent.Name, name, StringComparison.OrdinalIgnoreCase));
 
-    private static IReadOnlyList<SubagentDescriptor> DiscoverMarkdownAgents(string rootPath, string scope)
+    private IReadOnlyList<SubagentDescriptor> DiscoverMarkdownAgents(string rootPath, string scope)
     {
         if (!Directory.Exists(rootPath))
         {
@@ -67,9 +71,34 @@ public sealed partial class SubagentCatalogService(IDesktopEnvironmentPaths envi
                     Scope = scope,
                     FilePath = path,
                     SystemPrompt = body,
-                    Tools = ParseList(frontmatter, "tools")
+                    Tools = ParseList(frontmatter, "tools"),
+                    Model = frontmatter.TryGetValue("model", out var model) ? model : string.Empty,
+                    Color = frontmatter.TryGetValue("color", out var color) ? color : string.Empty,
+                    RunConfiguration = ParseRunConfiguration(frontmatter)
                 };
             })
+            .Select(descriptor =>
+            {
+                var validation = _validationService.Validate(descriptor);
+                return validation.IsValid
+                    ? new SubagentDescriptor
+                    {
+                        Name = descriptor.Name,
+                        Description = descriptor.Description,
+                        Scope = descriptor.Scope,
+                        FilePath = descriptor.FilePath,
+                        SystemPrompt = descriptor.SystemPrompt,
+                        IsBuiltin = descriptor.IsBuiltin,
+                        Tools = descriptor.Tools,
+                        Model = descriptor.Model,
+                        Color = descriptor.Color,
+                        RunConfiguration = descriptor.RunConfiguration,
+                        ValidationWarnings = validation.Warnings
+                    }
+                    : null;
+            })
+            .Where(static descriptor => descriptor is not null)
+            .Cast<SubagentDescriptor>()
             .ToArray();
     }
 
@@ -116,12 +145,14 @@ public sealed partial class SubagentCatalogService(IDesktopEnvironmentPaths envi
         var yaml = match.Groups["yaml"].Value;
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         string? activeListKey = null;
+        string? activeObjectKey = null;
         var listValues = new List<string>();
 
         foreach (var rawLine in yaml.Split('\n'))
         {
             var line = rawLine.TrimEnd();
             var trimmedLine = line.TrimStart();
+            var indentation = line.Length - trimmedLine.Length;
             if (string.IsNullOrWhiteSpace(line))
             {
                 continue;
@@ -134,7 +165,20 @@ public sealed partial class SubagentCatalogService(IDesktopEnvironmentPaths envi
                 continue;
             }
 
+            if (indentation > 0 && activeObjectKey is not null)
+            {
+                var nestedSeparatorIndex = trimmedLine.IndexOf(':');
+                if (nestedSeparatorIndex > 0)
+                {
+                    var nestedKey = trimmedLine[..nestedSeparatorIndex].Trim();
+                    var nestedValue = trimmedLine[(nestedSeparatorIndex + 1)..].Trim().Trim('"');
+                    result[$"{activeObjectKey}.{nestedKey}"] = nestedValue;
+                    continue;
+                }
+            }
+
             activeListKey = null;
+            activeObjectKey = null;
             listValues.Clear();
 
             var separatorIndex = line.IndexOf(':');
@@ -150,6 +194,7 @@ public sealed partial class SubagentCatalogService(IDesktopEnvironmentPaths envi
             if (string.IsNullOrWhiteSpace(value))
             {
                 activeListKey = key;
+                activeObjectKey = key;
             }
         }
 
@@ -160,6 +205,18 @@ public sealed partial class SubagentCatalogService(IDesktopEnvironmentPaths envi
         frontmatter.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)
             ? value.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             : [];
+
+    private static SubagentRunConfiguration ParseRunConfiguration(IReadOnlyDictionary<string, string> frontmatter) =>
+        new()
+        {
+            MaxTimeMinutes = TryParseInt(frontmatter, "runConfig.max_time_minutes") ?? TryParseInt(frontmatter, "max_time_minutes"),
+            MaxTurns = TryParseInt(frontmatter, "runConfig.max_turns") ?? TryParseInt(frontmatter, "max_turns")
+        };
+
+    private static int? TryParseInt(IReadOnlyDictionary<string, string> frontmatter, string key) =>
+        frontmatter.TryGetValue(key, out var value) && int.TryParse(value, out var parsed)
+            ? parsed
+            : null;
 
     [GeneratedRegex("^---\\n(?<yaml>[\\s\\S]*?)\\n---(?:\\n|$)", RegexOptions.Singleline)]
     private static partial Regex FrontmatterRegex();

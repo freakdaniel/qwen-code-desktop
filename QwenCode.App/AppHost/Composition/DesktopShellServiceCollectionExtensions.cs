@@ -8,6 +8,7 @@ using QwenCode.App.Config;
 using QwenCode.App.Desktop;
 using QwenCode.App.Extensions;
 using QwenCode.App.Hooks;
+using QwenCode.App.Ide;
 using QwenCode.App.Ipc;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Mcp;
@@ -17,6 +18,7 @@ using QwenCode.App.Prompts;
 using QwenCode.App.Runtime;
 using QwenCode.App.Sessions;
 using QwenCode.App.Tools;
+using QwenCode.App.Telemetry;
 using QwenCode.App.Followup;
 using QwenCode.App.Output;
 using QwenCode.App.Models;
@@ -42,7 +44,9 @@ public static class DesktopShellServiceCollectionExtensions
             .AddCompatibilityServices()
             .AddExtensionServices()
             .AddHookServices()
+            .AddIdeServices()
             .AddPermissionServices()
+            .AddTelemetryServices()
             .AddRuntimeServices()
             .AddMcpServices()
             .AddPromptServices()

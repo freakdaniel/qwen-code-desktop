@@ -257,6 +257,11 @@ export interface ConfigureQwenOAuthRequest {
   expiresAtUtc: string | null;
 }
 
+export interface CreateExtensionScaffoldRequest {
+  targetPath: string;
+  template: string;
+}
+
 export interface CreateGitCheckpointRequest {
   message: string;
 }
@@ -385,6 +390,20 @@ export interface ExecuteNativeToolRequest {
   approveExecution: boolean;
 }
 
+export interface ExtensionConsentSnapshot {
+  name: string;
+  installType: string;
+  source: string;
+  summary: string;
+  warnings: string[];
+  commands: string[];
+  skills: string[];
+  agents: string[];
+  mcpServers: string[];
+  channels: string[];
+  contextFiles: string[];
+}
+
 export interface ExtensionDefinition {
   name: string;
   version: string;
@@ -406,6 +425,14 @@ export interface ExtensionDefinition {
   settingsCount: number;
   hookEventCount: number;
   lastError: string;
+}
+
+export interface ExtensionScaffoldSnapshot {
+  name: string;
+  path: string;
+  template: string;
+  createdManifest: boolean;
+  createdFiles: string[];
 }
 
 export interface ExtensionSettingsSnapshot {
@@ -528,6 +555,11 @@ export interface GitWorktreeEntry {
 export interface InstallExtensionRequest {
   sourcePath: string;
   installMode: string;
+  sourceType: string;
+  ref: string;
+  autoUpdate: boolean;
+  allowPreRelease: boolean;
+  registryUrl: string;
 }
 
 export interface InvokePromptRegistryEntryRequest {
@@ -715,6 +747,7 @@ export interface QwenRuntimeProfile {
   modelName: string;
   embeddingModel: string;
   chatCompression: RuntimeChatCompressionSettings;
+  telemetry: RuntimeTelemetrySettings;
   checkpointing: boolean;
   folderTrustEnabled: boolean;
   isWorkspaceTrusted: boolean;
@@ -801,6 +834,16 @@ export interface RuntimeChatCompressionSettings {
   contextPercentageThreshold: number | null;
 }
 
+export interface RuntimeTelemetrySettings {
+  enabled: boolean;
+  target: string;
+  otlpEndpoint: string;
+  otlpProtocol: string;
+  logPrompts: boolean;
+  outfile: string;
+  useCollector: boolean;
+}
+
 export interface SessionPreview {
   sessionId: string;
   title: string;
@@ -865,6 +908,11 @@ export interface ToolDescriptor {
   approvalReason: string;
 }
 
+export interface UpdateExtensionRequest {
+  name: string;
+  updateAll: boolean;
+}
+
 export interface WorkspaceSnapshot {
   git: GitRepositorySnapshot;
   discovery: FileDiscoverySnapshot;
@@ -887,11 +935,14 @@ export interface QwenDesktopBridge {
   getAuthStatus(): Promise<AuthStatusSnapshot>;
   approveChannelPairing(request: ApproveChannelPairingRequest): Promise<ChannelPairingSnapshot>;
   getChannelPairings(request: GetChannelPairingRequest): Promise<ChannelPairingSnapshot>;
+  createExtensionScaffold(request: CreateExtensionScaffoldRequest): Promise<ExtensionScaffoldSnapshot>;
   getExtensionSettings(request: GetExtensionSettingsRequest): Promise<ExtensionSettingsSnapshot>;
   installExtension(request: InstallExtensionRequest): Promise<ExtensionSnapshot>;
+  previewExtensionConsent(request: InstallExtensionRequest): Promise<ExtensionConsentSnapshot>;
   removeExtension(request: RemoveExtensionRequest): Promise<ExtensionSnapshot>;
   setExtensionEnabled(request: SetExtensionEnabledRequest): Promise<ExtensionSnapshot>;
   setExtensionSetting(request: SetExtensionSettingValueRequest): Promise<ExtensionSettingsSnapshot>;
+  updateExtension(request: UpdateExtensionRequest): Promise<ExtensionSnapshot>;
   getFollowupSuggestions(request: GetFollowupSuggestionsRequest): Promise<FollowupSuggestionSnapshot>;
   addMcpServer(request: McpServerRegistrationRequest): Promise<McpSnapshot>;
   reconnectMcpServer(request: ReconnectMcpServerRequest): Promise<McpSnapshot>;
@@ -933,11 +984,14 @@ export const qwenDesktopChannels = {
   getAuthStatus: 'qwen-desktop:auth:status',
   approveChannelPairing: 'qwen-desktop:channels:approve-pairing',
   getChannelPairings: 'qwen-desktop:channels:get-pairings',
+  createExtensionScaffold: 'qwen-desktop:extensions:create-scaffold',
   getExtensionSettings: 'qwen-desktop:extensions:get-settings',
   installExtension: 'qwen-desktop:extensions:install',
+  previewExtensionConsent: 'qwen-desktop:extensions:preview-consent',
   removeExtension: 'qwen-desktop:extensions:remove',
   setExtensionEnabled: 'qwen-desktop:extensions:set-enabled',
   setExtensionSetting: 'qwen-desktop:extensions:set-setting',
+  updateExtension: 'qwen-desktop:extensions:update',
   getFollowupSuggestions: 'qwen-desktop:followup:get-suggestions',
   addMcpServer: 'qwen-desktop:mcp:add',
   reconnectMcpServer: 'qwen-desktop:mcp:reconnect',

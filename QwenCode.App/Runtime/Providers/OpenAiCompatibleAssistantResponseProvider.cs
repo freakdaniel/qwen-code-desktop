@@ -1,15 +1,19 @@
 using System.Net.Http.Headers;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using QwenCode.App.Models;
 using QwenCode.App.Options;
+using QwenCode.App.Telemetry;
 
 namespace QwenCode.App.Runtime;
 
 public sealed class OpenAiCompatibleAssistantResponseProvider(
     HttpClient httpClient,
     ProviderConfigurationResolver configurationResolver,
-    ITokenLimitService tokenLimitService) : IAssistantResponseProvider
+    ITokenLimitService tokenLimitService,
+    ITelemetryService? telemetryService = null) : IAssistantResponseProvider
 {
     public string Name => "openai-compatible";
 
@@ -44,6 +48,74 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(
             null,
             configuration.ExtraBody);
 
+        var preferStreaming = true;
+        var allowStreamingRecovery = true;
+
+        while (true)
+        {
+            payload["stream"] = preferStreaming;
+            using var response = await SendRequestAsync(
+                configuration,
+                payload,
+                request,
+                preferStreaming,
+                cancellationToken);
+            if (response is null)
+            {
+                return null;
+            }
+
+            var isStreamingResponse = response.Content.Headers.ContentType?.MediaType?.Contains("event-stream", StringComparison.OrdinalIgnoreCase) == true;
+            if (!isStreamingResponse)
+            {
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var providerResponse = OpenAiCompatibleProtocol.TryReadResponse(content);
+                if (providerResponse is null)
+                {
+                    return null;
+                }
+
+                return new AssistantTurnResponse
+                {
+                    Summary = providerResponse.Summary,
+                    ProviderName = Name,
+                    Model = configuration.Model,
+                    ToolCalls = providerResponse.ToolCalls
+                };
+            }
+
+            var streamingResult = await OpenAiCompatibleStreamingReader.ReadAsync(
+                response,
+                Name,
+                configuration.Model,
+                eventSink,
+                cancellationToken);
+            if (streamingResult.ShouldRetryNonStreaming && preferStreaming && allowStreamingRecovery)
+            {
+                allowStreamingRecovery = false;
+                preferStreaming = false;
+                eventSink?.Invoke(new AssistantRuntimeEvent
+                {
+                    Stage = "stream-retry",
+                    ProviderName = Name,
+                    Status = "retrying",
+                    Message = streamingResult.RetryReason
+                });
+
+                continue;
+            }
+
+            return streamingResult.Response;
+        }
+    }
+
+    private async Task<HttpResponseMessage?> SendRequestAsync(
+        ResolvedProviderConfiguration configuration,
+        JsonObject payload,
+        AssistantTurnRequest request,
+        bool preferStreaming,
+        CancellationToken cancellationToken)
+    {
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, configuration.Endpoint);
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", configuration.ApiKey);
         foreach (var header in configuration.Headers)
@@ -56,25 +128,33 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(
             Encoding.UTF8,
             "application/json");
 
-        using var response = await httpClient.SendAsync(httpRequest, cancellationToken);
+        var stopwatch = Stopwatch.StartNew();
+        var response = await httpClient.SendAsync(
+            httpRequest,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        if (telemetryService is not null)
+        {
+            var isStreaming = response.Content.Headers.ContentType?.MediaType?.Contains("event-stream", StringComparison.OrdinalIgnoreCase) == true;
+            await telemetryService.TrackApiRequestAsync(
+                request.RuntimeProfile,
+                request.SessionId,
+                Name,
+                configuration.Model,
+                stopwatch.ElapsedMilliseconds,
+                response.IsSuccessStatusCode ? "success" : "error",
+                (int)response.StatusCode,
+                response.IsSuccessStatusCode ? null : response.ReasonPhrase,
+                preferStreaming || isStreaming,
+                cancellationToken: cancellationToken);
+        }
+
         if (!response.IsSuccessStatusCode)
         {
+            response.Dispose();
             return null;
         }
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var providerResponse = OpenAiCompatibleProtocol.TryReadResponse(content);
-        if (providerResponse is null)
-        {
-            return null;
-        }
-
-        return new AssistantTurnResponse
-        {
-            Summary = providerResponse.Summary,
-            ProviderName = Name,
-            Model = configuration.Model,
-            ToolCalls = providerResponse.ToolCalls
-        };
+        return response;
     }
 }

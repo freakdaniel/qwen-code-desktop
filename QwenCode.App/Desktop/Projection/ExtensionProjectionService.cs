@@ -22,6 +22,15 @@ public sealed class ExtensionProjectionService(
     public Task<ExtensionSnapshot> InstallAsync(InstallExtensionRequest request) =>
         Task.FromResult(extensionCatalogService.Install(ResolveWorkspace(), request));
 
+    public Task<ExtensionConsentSnapshot> PreviewConsentAsync(InstallExtensionRequest request) =>
+        Task.FromResult(extensionCatalogService.PreviewConsent(ResolveWorkspace(), request));
+
+    public Task<ExtensionScaffoldSnapshot> CreateScaffoldAsync(CreateExtensionScaffoldRequest request) =>
+        Task.FromResult(extensionCatalogService.CreateScaffold(ResolveWorkspace(), request));
+
+    public Task<ExtensionSnapshot> UpdateAsync(UpdateExtensionRequest request) =>
+        Task.FromResult(extensionCatalogService.Update(ResolveWorkspace(), request));
+
     public Task<ExtensionSettingsSnapshot> SetSettingAsync(SetExtensionSettingValueRequest request) =>
         Task.FromResult(extensionCatalogService.SetSetting(ResolveWorkspace(), request));
 

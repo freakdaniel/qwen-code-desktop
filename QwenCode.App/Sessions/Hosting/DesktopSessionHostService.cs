@@ -2,6 +2,7 @@ using QwenCode.App.Models;
 using QwenCode.App.Compatibility;
 using QwenCode.App.Hooks;
 using QwenCode.App.Runtime;
+using QwenCode.App.Telemetry;
 using QwenCode.App.Tools;
 using System.Text.Json.Nodes;
 
@@ -22,7 +23,8 @@ public sealed class DesktopSessionHostService(
     IInterruptedTurnStore interruptedTurnStore,
     ISessionTranscriptWriter transcriptWriter,
     ISessionEventFactory sessionEventFactory,
-    ISessionMessageBus sessionMessageBus) : ISessionHost
+    ISessionMessageBus sessionMessageBus,
+    ITelemetryService? telemetryService = null) : ISessionHost
 {
     public event EventHandler<DesktopSessionEvent>? SessionEvent;
 
@@ -180,6 +182,11 @@ public sealed class DesktopSessionHostService(
         Directory.CreateDirectory(runtimeProfile.ChatsDirectory);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (createdNewSession && telemetryService is not null)
+        {
+            await telemetryService.TrackSessionConfiguredAsync(runtimeProfile, sessionId, cancellationToken);
+        }
+
         var sessionStartHook = await ExecuteLifecycleHookAsync(
             runtimeProfile,
             HookEventName.SessionStart,
@@ -304,6 +311,17 @@ public sealed class DesktopSessionHostService(
                 }
             },
             cancellationToken);
+
+        if (telemetryService is not null)
+        {
+            await telemetryService.TrackUserPromptAsync(
+                runtimeProfile,
+                sessionId,
+                userUuid,
+                effectivePrompt,
+                runtimeProfile.Telemetry?.Target ?? string.Empty,
+                cancellationToken);
+        }
 
         parentUuid = userUuid;
         if (commandInvocation is not null)
@@ -1161,6 +1179,11 @@ public sealed class DesktopSessionHostService(
         if (checkpoint is null)
         {
             return parentUuid;
+        }
+
+        if (telemetryService is not null)
+        {
+            await telemetryService.TrackChatCompressionAsync(runtimeProfile, sessionId, checkpoint, cancellationToken);
         }
 
         _ = await hookLifecycleService.ExecuteAsync(

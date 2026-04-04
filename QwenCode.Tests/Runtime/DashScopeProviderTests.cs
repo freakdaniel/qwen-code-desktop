@@ -315,5 +315,438 @@ public sealed class DashScopeProviderTests
         }
     }
 
+    [Fact]
+    public async Task DashScopeAssistantResponseProvider_TryGenerateAsync_ParsesInterleavedStreamingToolCalls()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-provider-stream-tools-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "env": {
+                    "DASHSCOPE_API_KEY": "dashscope-settings-key"
+                  },
+                  "model": {
+                    "name": "qwen3-coder-plus"
+                  }
+                }
+                """);
+
+            var runtimeProfile = new QwenRuntimeProfile
+            {
+                ProjectRoot = workspaceRoot,
+                GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeBaseDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeSource = "project-settings",
+                ProjectDataDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test"),
+                ChatsDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test", "chats"),
+                HistoryDirectory = Path.Combine(homeRoot, ".qwen", "history", "test"),
+                ContextFileNames = ["QWEN.md"],
+                ContextFilePaths = [],
+                ApprovalProfile = new ApprovalProfile
+                {
+                    DefaultMode = "default",
+                    ConfirmShellCommands = true,
+                    ConfirmFileEdits = true,
+                    AllowRules = [],
+                    AskRules = [],
+                    DenyRules = []
+                }
+            };
+
+            var streamingPayload = """
+                data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"read_file","arguments":"{\"file_"}}]}}]}
+
+                data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call-2","function":{"name":"list_directory","arguments":"{\"path\":\"D:\\\\demo"}}]}}]}
+
+                data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"path\":\"D:\\\\demo\\\\a.txt\"}"}}]}}]}
+
+                data: {"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"\"}"}}]}}]}
+
+                data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"tool_calls"}]}
+
+                data: [DONE]
+                """;
+
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((_, _) =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(streamingPayload, Encoding.UTF8, "text/event-stream")
+                };
+                response.Content.Headers.ContentType = new MediaTypeHeaderValue("text/event-stream");
+                return Task.FromResult(response);
+            }));
+
+            var provider = new DashScopeAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                new TokenLimitService());
+
+            var response = await provider.TryGenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "provider-session",
+                    Prompt = "Continue after tool execution.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "provider-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                },
+                new AssistantPromptContext
+                {
+                    SessionSummary = "Transcript messages loaded: 0",
+                    HistoryHighlights = [],
+                    ContextFiles = [],
+                    Messages = []
+                },
+                [],
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "qwen-compatible",
+                    ApiKeyEnvironmentVariable = "DASHSCOPE_API_KEY"
+                });
+
+            Assert.NotNull(response);
+            Assert.Equal("ok", response!.Summary);
+            Assert.Equal(2, response.ToolCalls.Count);
+            Assert.Equal("read_file", response.ToolCalls[0].ToolName);
+            Assert.Equal("""{"file_path":"D:\\demo\\a.txt"}""", response.ToolCalls[0].ArgumentsJson);
+            Assert.Equal("list_directory", response.ToolCalls[1].ToolName);
+            Assert.Equal("""{"path":"D:\\demo"}""", response.ToolCalls[1].ArgumentsJson);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DashScopeAssistantResponseProvider_TryGenerateAsync_RetriesOnceWithoutStreamingWhenToolCallPayloadIsTruncated()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-provider-stream-retry-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "env": {
+                    "DASHSCOPE_API_KEY": "dashscope-settings-key"
+                  },
+                  "model": {
+                    "name": "qwen3-coder-plus"
+                  }
+                }
+                """);
+
+            var runtimeProfile = new QwenRuntimeProfile
+            {
+                ProjectRoot = workspaceRoot,
+                GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeBaseDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeSource = "project-settings",
+                ProjectDataDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test"),
+                ChatsDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test", "chats"),
+                HistoryDirectory = Path.Combine(homeRoot, ".qwen", "history", "test"),
+                ContextFileNames = ["QWEN.md"],
+                ContextFilePaths = [],
+                ApprovalProfile = new ApprovalProfile
+                {
+                    DefaultMode = "default",
+                    ConfirmShellCommands = true,
+                    ConfirmFileEdits = true,
+                    AllowRules = [],
+                    AskRules = [],
+                    DenyRules = []
+                }
+            };
+
+            var requestBodies = new List<string>();
+            var callCount = 0;
+            var runtimeEvents = new List<AssistantRuntimeEvent>();
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((request, _) =>
+            {
+                callCount++;
+                requestBodies.Add(request.Content?.ReadAsStringAsync().GetAwaiter().GetResult() ?? string.Empty);
+                if (callCount == 1)
+                {
+                    var truncatedStream = """
+                        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"write_file","arguments":"{\"file_path\":\"D:\\\\demo\\\\a.txt\",\"content\":\"hel"}}]}}]}
+
+                        data: {"choices":[{"finish_reason":"length","delta":{}}]}
+
+                        data: [DONE]
+                        """;
+
+                    var firstResponse = new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(truncatedStream, Encoding.UTF8, "text/event-stream")
+                    };
+                    firstResponse.Content.Headers.ContentType = new MediaTypeHeaderValue("text/event-stream");
+                    return Task.FromResult(firstResponse);
+                }
+
+                var fallbackPayload = """
+                    {
+                      "choices": [
+                        {
+                          "message": {
+                            "content": "Recovered after non-stream retry",
+                            "tool_calls": [
+                              {
+                                "id": "call-1",
+                                "function": {
+                                  "name": "write_file",
+                                  "arguments": "{\"file_path\":\"D:\\\\demo\\\\a.txt\",\"content\":\"hello\"}"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                    """;
+
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(fallbackPayload, Encoding.UTF8, "application/json")
+                });
+            }));
+
+            var provider = new DashScopeAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                new TokenLimitService());
+
+            var response = await provider.TryGenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "provider-session",
+                    Prompt = "Continue after tool execution.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "provider-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                },
+                new AssistantPromptContext
+                {
+                    SessionSummary = "Transcript messages loaded: 0",
+                    HistoryHighlights = [],
+                    ContextFiles = [],
+                    Messages = []
+                },
+                [],
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "qwen-compatible",
+                    ApiKeyEnvironmentVariable = "DASHSCOPE_API_KEY"
+                },
+                runtimeEvents.Add);
+
+            Assert.NotNull(response);
+            Assert.Equal(2, callCount);
+            Assert.Equal("Recovered after non-stream retry", response!.Summary);
+            var toolCall = Assert.Single(response.ToolCalls);
+            Assert.Equal("write_file", toolCall.ToolName);
+            Assert.Equal("""{"file_path":"D:\\demo\\a.txt","content":"hello"}""", toolCall.ArgumentsJson);
+            Assert.Contains(runtimeEvents, static item => item.Stage == "stream-retry");
+
+            var firstPayload = JsonNode.Parse(requestBodies[0])!.AsObject();
+            var secondPayload = JsonNode.Parse(requestBodies[1])!.AsObject();
+            Assert.True(firstPayload["stream"]!.GetValue<bool>());
+            Assert.False(secondPayload["stream"]!.GetValue<bool>());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DashScopeAssistantResponseProvider_TryGenerateAsync_RetriesAfterEmbeddedStreamingErrorChunk()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-provider-stream-error-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "env": {
+                    "DASHSCOPE_API_KEY": "dashscope-settings-key"
+                  },
+                  "model": {
+                    "name": "qwen3-coder-plus"
+                  }
+                }
+                """);
+
+            var runtimeProfile = new QwenRuntimeProfile
+            {
+                ProjectRoot = workspaceRoot,
+                GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeBaseDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeSource = "project-settings",
+                ProjectDataDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test"),
+                ChatsDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test", "chats"),
+                HistoryDirectory = Path.Combine(homeRoot, ".qwen", "history", "test"),
+                ContextFileNames = ["QWEN.md"],
+                ContextFilePaths = [],
+                ApprovalProfile = new ApprovalProfile
+                {
+                    DefaultMode = "default",
+                    ConfirmShellCommands = true,
+                    ConfirmFileEdits = true,
+                    AllowRules = [],
+                    AskRules = [],
+                    DenyRules = []
+                }
+            };
+
+            var callCount = 0;
+            var runtimeEvents = new List<AssistantRuntimeEvent>();
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((_, _) =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    var embeddedErrorStream = """
+                        data: {"choices":[{"delta":{"content":"rate limit exceeded"},"finish_reason":"error_finish"}]}
+
+                        data: [DONE]
+                        """;
+
+                    var streamingResponse = new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(embeddedErrorStream, Encoding.UTF8, "text/event-stream")
+                    };
+                    streamingResponse.Content.Headers.ContentType = new MediaTypeHeaderValue("text/event-stream");
+                    return Task.FromResult(streamingResponse);
+                }
+
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "choices": [
+                            {
+                              "message": {
+                                "content": "Recovered from embedded stream error"
+                              }
+                            }
+                          ]
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json")
+                });
+            }));
+
+            var provider = new DashScopeAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                new TokenLimitService());
+
+            var response = await provider.TryGenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "provider-session",
+                    Prompt = "Continue after tool execution.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "provider-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                },
+                new AssistantPromptContext
+                {
+                    SessionSummary = "Transcript messages loaded: 0",
+                    HistoryHighlights = [],
+                    ContextFiles = [],
+                    Messages = []
+                },
+                [],
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "qwen-compatible",
+                    ApiKeyEnvironmentVariable = "DASHSCOPE_API_KEY"
+                },
+                runtimeEvents.Add);
+
+            Assert.NotNull(response);
+            Assert.Equal(2, callCount);
+            Assert.Equal("Recovered from embedded stream error", response!.Summary);
+            Assert.Contains(runtimeEvents, static item => item.Stage == "stream-retry" &&
+                                                         item.Message.Contains("rate limit exceeded", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
 
 }

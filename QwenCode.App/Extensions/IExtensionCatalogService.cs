@@ -12,6 +12,12 @@ public interface IExtensionCatalogService
 
     ExtensionSnapshot Install(WorkspacePaths paths, InstallExtensionRequest request);
 
+    ExtensionConsentSnapshot PreviewConsent(WorkspacePaths paths, InstallExtensionRequest request);
+
+    ExtensionScaffoldSnapshot CreateScaffold(WorkspacePaths paths, CreateExtensionScaffoldRequest request);
+
+    ExtensionSnapshot Update(WorkspacePaths paths, UpdateExtensionRequest request);
+
     ExtensionSettingsSnapshot SetSetting(WorkspacePaths paths, SetExtensionSettingValueRequest request);
 
     ExtensionSnapshot SetEnabled(WorkspacePaths paths, SetExtensionEnabledRequest request);

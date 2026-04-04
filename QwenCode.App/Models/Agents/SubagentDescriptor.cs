@@ -15,4 +15,12 @@ public sealed class SubagentDescriptor
     public bool IsBuiltin { get; init; }
 
     public IReadOnlyList<string> Tools { get; init; } = [];
+
+    public string Model { get; init; } = string.Empty;
+
+    public string Color { get; init; } = string.Empty;
+
+    public SubagentRunConfiguration RunConfiguration { get; init; } = new();
+
+    public IReadOnlyList<string> ValidationWarnings { get; init; } = [];
 }

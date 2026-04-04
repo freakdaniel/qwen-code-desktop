@@ -6,6 +6,7 @@ using QwenCode.App.Followup;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Prompts;
 using QwenCode.App.Config;
+using QwenCode.App.Telemetry;
 
 namespace QwenCode.Tests.Shared.Fixtures;
 
@@ -162,7 +163,8 @@ internal static class TestServiceFactory
         IActiveTurnRegistry? activeTurnRegistry = null,
         IInterruptedTurnStore? interruptedTurnStore = null,
         IUserPromptHookService? userPromptHookService = null,
-        IHookLifecycleService? hookLifecycleService = null)
+        IHookLifecycleService? hookLifecycleService = null,
+        ITelemetryService? telemetryService = null)
     {
         var approvalPolicyService = new ApprovalPolicyService();
         var effectiveInterruptedTurnStore = interruptedTurnStore ?? new InterruptedTurnStore();
@@ -190,7 +192,7 @@ internal static class TestServiceFactory
             CreateAssistantTurnRuntime(),
             new ChatCompressionService(),
             chatRecordingService,
-            new NativeToolHostService(runtimeProfileService, approvalPolicyService),
+            new NativeToolHostService(runtimeProfileService, approvalPolicyService, telemetryService: telemetryService),
             hookLifecycleService ?? new PassthroughHookLifecycleService(),
             effectiveUserQuestionToolService,
             userPromptHookService ?? new PassthroughUserPromptHookService(),
@@ -199,7 +201,8 @@ internal static class TestServiceFactory
             effectiveInterruptedTurnStore,
             new SessionTranscriptWriter(),
             new SessionEventFactory(),
-            sessionMessageBus);
+            sessionMessageBus,
+            telemetryService);
     }
 
     internal static IAssistantTurnRuntime CreateAssistantTurnRuntime(

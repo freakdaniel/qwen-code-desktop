@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 using QwenCode.App.Compatibility;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
@@ -135,39 +136,261 @@ public sealed partial class ExtensionCatalogService(
         var extensionsDirectory = GetExtensionsDirectory(runtimeProfile);
         Directory.CreateDirectory(extensionsDirectory);
 
-        var sourcePath = Path.GetFullPath(request.SourcePath);
-        if (!Directory.Exists(sourcePath))
+        var installContext = PrepareInstallContext(request);
+        try
         {
-            throw new DirectoryNotFoundException($"Extension source directory was not found: {sourcePath}");
+            var sourcePath = installContext.EffectiveSourcePath;
+
+            var manifest = LoadManifest(sourcePath);
+            var wrapperPath = Path.Combine(extensionsDirectory, SanitizeDirectoryName(manifest.Name));
+
+            if (Directory.Exists(wrapperPath))
+            {
+                Directory.Delete(wrapperPath, recursive: true);
+            }
+
+            if (string.Equals(request.InstallMode, "link", StringComparison.OrdinalIgnoreCase))
+            {
+                Directory.CreateDirectory(wrapperPath);
+            }
+            else if (string.Equals(request.InstallMode, "copy", StringComparison.OrdinalIgnoreCase))
+            {
+                CopyDirectory(sourcePath, wrapperPath);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Unsupported extension install mode: {request.InstallMode}");
+            }
+
+            var metadata = new ExtensionInstallMetadata
+            {
+                Source = installContext.OriginalSource,
+                Type = installContext.MetadataType,
+                Ref = installContext.Ref,
+                AutoUpdate = request.AutoUpdate,
+                AllowPreRelease = request.AllowPreRelease,
+                RegistryUrl = string.IsNullOrWhiteSpace(request.RegistryUrl) ? null : request.RegistryUrl
+            };
+            WriteJson(Path.Combine(wrapperPath, InstallMetadataFileName), JsonSerializer.SerializeToNode(metadata) ?? new JsonObject());
+
+            return Inspect(paths);
+        }
+        finally
+        {
+            installContext.Dispose();
+        }
+    }
+
+    public ExtensionConsentSnapshot PreviewConsent(WorkspacePaths paths, InstallExtensionRequest request)
+    {
+        _ = runtimeProfileService.Inspect(paths);
+        var installContext = PrepareInstallContext(request);
+        try
+        {
+            var manifest = LoadManifest(installContext.EffectiveSourcePath);
+            var commands = DiscoverCommands(installContext.EffectiveSourcePath, manifest.CommandRoots);
+            var skills = DiscoverSkills(installContext.EffectiveSourcePath, manifest.SkillRoots);
+            var agents = DiscoverAgents(installContext.EffectiveSourcePath, manifest.AgentRoots);
+            var warnings = new List<string>
+            {
+                "Extensions may introduce unexpected behavior. Review the source before enabling it."
+            };
+
+            if (manifest.McpServers.Count > 0)
+            {
+                warnings.Add("This extension defines MCP servers that will run code or connect to external services.");
+            }
+
+            if (manifest.Channels.Count > 0)
+            {
+                warnings.Add("This extension defines channel integrations that can receive external messages.");
+            }
+
+            var summaryLines = new List<string>
+            {
+                $"Installing extension \"{manifest.Name}\" from {installContext.OriginalSource}"
+            };
+            if (commands.Count > 0)
+            {
+                summaryLines.Add($"Commands: {string.Join(", ", commands)}");
+            }
+
+            if (skills.Count > 0)
+            {
+                summaryLines.Add($"Skills: {string.Join(", ", skills)}");
+            }
+
+            if (agents.Count > 0)
+            {
+                summaryLines.Add($"Subagents: {string.Join(", ", agents)}");
+            }
+
+            if (manifest.ContextFiles.Count > 0)
+            {
+                summaryLines.Add($"Context files: {string.Join(", ", manifest.ContextFiles)}");
+            }
+
+            return new ExtensionConsentSnapshot
+            {
+                Name = manifest.Name,
+                InstallType = installContext.MetadataType,
+                Source = installContext.OriginalSource,
+                Summary = string.Join(Environment.NewLine, summaryLines),
+                Warnings = warnings,
+                Commands = commands,
+                Skills = skills,
+                Agents = agents,
+                McpServers = manifest.McpServers,
+                Channels = manifest.Channels,
+                ContextFiles = manifest.ContextFiles
+            };
+        }
+        finally
+        {
+            installContext.Dispose();
+        }
+    }
+
+    public ExtensionScaffoldSnapshot CreateScaffold(WorkspacePaths paths, CreateExtensionScaffoldRequest request)
+    {
+        _ = runtimeProfileService.Inspect(paths);
+        var targetPath = Path.GetFullPath(request.TargetPath);
+        if (Directory.Exists(targetPath) || File.Exists(targetPath))
+        {
+            throw new InvalidOperationException($"Path already exists: {targetPath}");
         }
 
-        var manifest = LoadManifest(sourcePath);
-        var wrapperPath = Path.Combine(extensionsDirectory, SanitizeDirectoryName(manifest.Name));
-
-        if (Directory.Exists(wrapperPath))
+        var extensionName = Path.GetFileName(targetPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(extensionName))
         {
-            Directory.Delete(wrapperPath, recursive: true);
+            throw new InvalidOperationException("Extension target path must end with a directory name.");
         }
 
-        if (string.Equals(request.InstallMode, "link", StringComparison.OrdinalIgnoreCase))
-        {
-            Directory.CreateDirectory(wrapperPath);
-        }
-        else if (string.Equals(request.InstallMode, "copy", StringComparison.OrdinalIgnoreCase))
-        {
-            CopyDirectory(sourcePath, wrapperPath);
-        }
-        else
-        {
-            throw new InvalidOperationException($"Unsupported extension install mode: {request.InstallMode}");
-        }
+        Directory.CreateDirectory(targetPath);
+        var createdFiles = new List<string>();
+        var template = string.IsNullOrWhiteSpace(request.Template) ? "blank" : request.Template.Trim().ToLowerInvariant();
 
-        var metadata = new ExtensionInstallMetadata
+        var manifestObject = new JsonObject
         {
-            Source = sourcePath,
-            Type = string.Equals(request.InstallMode, "link", StringComparison.OrdinalIgnoreCase) ? "link" : "local"
+            ["name"] = extensionName,
+            ["version"] = "1.0.0",
+            ["description"] = $"{extensionName} extension"
         };
-        WriteJson(Path.Combine(wrapperPath, InstallMetadataFileName), JsonSerializer.SerializeToNode(metadata) ?? new JsonObject());
+
+        switch (template)
+        {
+            case "commands":
+                Directory.CreateDirectory(Path.Combine(targetPath, "commands", "example"));
+                File.WriteAllText(Path.Combine(targetPath, "commands", "example", "hello.md"), "# Hello command");
+                createdFiles.Add(Path.Combine(targetPath, "commands", "example", "hello.md"));
+                manifestObject["commands"] = new JsonArray("commands");
+                break;
+            case "skills":
+                Directory.CreateDirectory(Path.Combine(targetPath, "skills", "example-skill"));
+                File.WriteAllText(Path.Combine(targetPath, "skills", "example-skill", "SKILL.md"), "---\nname: example-skill\n---\nDescribe the skill here\n");
+                createdFiles.Add(Path.Combine(targetPath, "skills", "example-skill", "SKILL.md"));
+                manifestObject["skills"] = new JsonArray("skills");
+                break;
+            case "agent":
+            case "agents":
+                Directory.CreateDirectory(Path.Combine(targetPath, "agents", "example-agent"));
+                File.WriteAllText(Path.Combine(targetPath, "agents", "example-agent", "AGENT.md"), "# Example agent");
+                createdFiles.Add(Path.Combine(targetPath, "agents", "example-agent", "AGENT.md"));
+                manifestObject["agents"] = new JsonArray("agents");
+                break;
+            case "context":
+                File.WriteAllText(Path.Combine(targetPath, "QWEN.md"), "# Project context");
+                createdFiles.Add(Path.Combine(targetPath, "QWEN.md"));
+                manifestObject["contextFileName"] = new JsonArray("QWEN.md");
+                break;
+            case "mcp-server":
+            case "mcp":
+                File.WriteAllText(Path.Combine(targetPath, "server.js"), "console.log('extension mcp server');\n");
+                createdFiles.Add(Path.Combine(targetPath, "server.js"));
+                manifestObject["mcpServers"] = new JsonObject
+                {
+                    ["example"] = new JsonObject
+                    {
+                        ["command"] = "node",
+                        ["args"] = new JsonArray("server.js")
+                    }
+                };
+                break;
+            case "blank":
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported extension scaffold template: {request.Template}");
+        }
+
+        var manifestPath = Path.Combine(targetPath, ManifestFileName);
+        File.WriteAllText(manifestPath, manifestObject.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        createdFiles.Insert(0, manifestPath);
+
+        return new ExtensionScaffoldSnapshot
+        {
+            Name = extensionName,
+            Path = targetPath,
+            Template = template,
+            CreatedManifest = true,
+            CreatedFiles = createdFiles
+        };
+    }
+
+    public ExtensionSnapshot Update(WorkspacePaths paths, UpdateExtensionRequest request)
+    {
+        var runtimeProfile = runtimeProfileService.Inspect(paths);
+        var extensionsDirectory = GetExtensionsDirectory(runtimeProfile);
+        if (!Directory.Exists(extensionsDirectory))
+        {
+            return Inspect(paths);
+        }
+
+        var wrappers = request.UpdateAll
+            ? Directory.EnumerateDirectories(extensionsDirectory).ToArray()
+            : [FindExtensionWrapperPath(extensionsDirectory, request.Name)
+               ?? throw new InvalidOperationException($"Extension \"{request.Name}\" was not found.")];
+
+        foreach (var wrapperPath in wrappers)
+        {
+            var metadata = ReadInstallMetadata(wrapperPath)
+                           ?? throw new InvalidOperationException($"Extension at \"{wrapperPath}\" has no install metadata and cannot be updated.");
+            var effectivePath = ResolveEffectivePath(wrapperPath, metadata);
+            var previousManifest = LoadManifest(effectivePath);
+
+            var installRequest = new InstallExtensionRequest
+            {
+                SourcePath = metadata.Source,
+                InstallMode = string.Equals(metadata.Type, "link", StringComparison.OrdinalIgnoreCase) ? "link" : "copy",
+                SourceType = metadata.Type,
+                Ref = metadata.Ref ?? string.Empty,
+                AutoUpdate = metadata.AutoUpdate ?? false,
+                AllowPreRelease = metadata.AllowPreRelease ?? false,
+                RegistryUrl = metadata.RegistryUrl ?? string.Empty
+            };
+
+            Install(paths, installRequest);
+
+            if (metadata.AutoUpdate == true)
+            {
+                var refreshedWrapperPath = FindExtensionWrapperPath(extensionsDirectory, previousManifest.Name) ?? wrapperPath;
+                var refreshedMetadata = ReadInstallMetadata(refreshedWrapperPath);
+                if (refreshedMetadata is not null)
+                {
+                    WriteJson(
+                        Path.Combine(refreshedWrapperPath, InstallMetadataFileName),
+                        JsonSerializer.SerializeToNode(new ExtensionInstallMetadata
+                        {
+                            Source = refreshedMetadata.Source,
+                            Type = refreshedMetadata.Type,
+                            Ref = refreshedMetadata.Ref,
+                            AutoUpdate = true,
+                            AllowPreRelease = refreshedMetadata.AllowPreRelease,
+                            RegistryUrl = refreshedMetadata.RegistryUrl,
+                            ReleaseTag = refreshedMetadata.ReleaseTag
+                        }) ?? new JsonObject());
+                }
+            }
+        }
 
         return Inspect(paths);
     }
@@ -810,6 +1033,96 @@ public sealed partial class ExtensionCatalogService(
         return string.Empty;
     }
 
+    private static PreparedInstallContext PrepareInstallContext(InstallExtensionRequest request)
+    {
+        var normalizedType = string.IsNullOrWhiteSpace(request.SourceType)
+            ? "local"
+            : request.SourceType.Trim().ToLowerInvariant();
+        var normalizedMode = request.InstallMode.Trim().ToLowerInvariant();
+        var sourcePath = Path.GetFullPath(request.SourcePath);
+
+        return normalizedType switch
+        {
+            "local" => PrepareLocalInstallContext(sourcePath, normalizedMode, request),
+            "link" => PrepareLocalInstallContext(sourcePath, "link", request),
+            "git" => PrepareGitInstallContext(sourcePath, request),
+            _ => throw new InvalidOperationException($"Unsupported extension source type: {request.SourceType}")
+        };
+    }
+
+    private static PreparedInstallContext PrepareLocalInstallContext(
+        string sourcePath,
+        string installMode,
+        InstallExtensionRequest request)
+    {
+        if (!Directory.Exists(sourcePath))
+        {
+            throw new DirectoryNotFoundException($"Extension source directory was not found: {sourcePath}");
+        }
+
+        return new PreparedInstallContext(
+            sourcePath,
+            sourcePath,
+            string.Equals(installMode, "link", StringComparison.OrdinalIgnoreCase) ? "link" : "local",
+            request.Ref);
+    }
+
+    private static PreparedInstallContext PrepareGitInstallContext(string source, InstallExtensionRequest request)
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"qwen-extension-git-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            RunGit("clone --depth 1 " + QuoteArgument(source) + " " + QuoteArgument(tempDirectory), Environment.CurrentDirectory);
+            if (!string.IsNullOrWhiteSpace(request.Ref))
+            {
+                RunGit("checkout " + QuoteArgument(request.Ref), tempDirectory);
+            }
+
+            return new PreparedInstallContext(tempDirectory, source, "git", request.Ref, tempDirectory);
+        }
+        catch
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+
+            throw;
+        }
+    }
+
+    private static void RunGit(string arguments, string workingDirectory)
+    {
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "git",
+            Arguments = arguments,
+            WorkingDirectory = workingDirectory,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        });
+
+        if (process is null)
+        {
+            throw new InvalidOperationException("Failed to start git process.");
+        }
+
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Git command failed with exit code {process.ExitCode}: {stderr}{Environment.NewLine}{stdout}".Trim());
+        }
+    }
+
+    private static string QuoteArgument(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+
     private static string? FindExtensionWrapperPath(string extensionsDirectory, string name)
     {
         foreach (var wrapperPath in Directory.EnumerateDirectories(extensionsDirectory))
@@ -1038,6 +1351,32 @@ public sealed partial class ExtensionCatalogService(
     private sealed class ExtensionEnablementConfig
     {
         public List<string> Overrides { get; set; } = [];
+    }
+
+    private sealed class PreparedInstallContext(
+        string effectiveSourcePath,
+        string originalSource,
+        string metadataType,
+        string? @ref,
+        string? temporaryDirectory = null) : IDisposable
+    {
+        public string EffectiveSourcePath { get; } = effectiveSourcePath;
+
+        public string OriginalSource { get; } = originalSource;
+
+        public string MetadataType { get; } = metadataType;
+
+        public string? Ref { get; } = @ref;
+
+        public string? TemporaryDirectory { get; } = temporaryDirectory;
+
+        public void Dispose()
+        {
+            if (!string.IsNullOrWhiteSpace(TemporaryDirectory) && Directory.Exists(TemporaryDirectory))
+            {
+                Directory.Delete(TemporaryDirectory, recursive: true);
+            }
+        }
     }
 
     private sealed class ExtensionOverride(string baseRule, bool isDisable, bool includeSubdirectories)

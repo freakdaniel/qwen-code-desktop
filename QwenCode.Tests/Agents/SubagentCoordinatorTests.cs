@@ -68,14 +68,18 @@ public sealed class SubagentCoordinatorTests
             var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
             var compatibilityService = new QwenCompatibilityService(environmentPaths);
             var approvalPolicy = new ApprovalPolicyService();
+            var modelSelectionService = new SubagentModelSelectionService();
+            var validationService = new SubagentValidationService(modelSelectionService);
             var hookLifecycleService = new HookLifecycleService(
                 new HookRegistryService(environmentPaths),
                 new HookCommandRunner(),
                 new HookOutputAggregator());
             var coordinator = new SubagentCoordinatorService(
-                new SubagentCatalogService(environmentPaths),
+                new SubagentCatalogService(environmentPaths, validationService),
                 new ToolCatalogService(runtimeProfileService, approvalPolicy),
                 compatibilityService,
+                modelSelectionService,
+                validationService,
                 hookLifecycleService);
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
 
