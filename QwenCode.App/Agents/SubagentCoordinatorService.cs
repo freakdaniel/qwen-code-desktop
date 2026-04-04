@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using QwenCode.App.Compatibility;
 using QwenCode.App.Hooks;
+using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
 using QwenCode.App.Options;
 using QwenCode.App.Runtime;
@@ -220,8 +221,12 @@ public sealed class SubagentCoordinatorService(
         return new AssistantTurnRuntime(
             new AssistantPromptAssembler(new ProjectSummaryService()),
             [new FallbackAssistantResponseProvider()],
-            new NoOpToolExecutor(),
+            new ToolCallScheduler(
+                new NonInteractiveToolExecutor(new NoOpToolExecutor()),
+                new LoopDetectionService()),
             new LoopDetectionService(),
+            new TokenLimitService(),
+            new ProviderConfigurationResolver(new DesktopEnvironmentPaths()),
             Microsoft.Extensions.Options.Options.Create(new NativeAssistantRuntimeOptions
             {
                 Provider = "fallback"

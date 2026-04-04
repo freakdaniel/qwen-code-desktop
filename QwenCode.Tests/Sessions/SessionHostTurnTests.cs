@@ -235,7 +235,7 @@ public sealed class SessionHostTurnTests
 
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
 
             var firstResult = await sessionHost.StartTurnAsync(
@@ -308,7 +308,7 @@ public sealed class SessionHostTurnTests
 
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
 
             var targetFile = Path.Combine(workspaceRoot, "notes.txt");
@@ -375,7 +375,7 @@ public sealed class SessionHostTurnTests
 
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
 
             var emittedEvents = new List<DesktopSessionEvent>();
@@ -406,6 +406,55 @@ public sealed class SessionHostTurnTests
             Assert.All(emittedEvents, item => Assert.Equal(result.Session.SessionId, item.SessionId));
             Assert.Contains(emittedEvents, item => item.CommandName == "context");
             Assert.Contains(emittedEvents, item => item.ToolName == "write_file");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DesktopSessionHostService_StartTurnAsync_WritesChatRecordingMetadataSidecar()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-session-recording-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
+            var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
+
+            var result = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Record richer session metadata for this transcript.",
+                    WorkingDirectory = workspaceRoot
+                });
+
+            Assert.True(File.Exists(result.Session.MetadataPath));
+
+            var metadata = JsonSerializer.Deserialize<SessionRecordingMetadata>(File.ReadAllText(result.Session.MetadataPath));
+            Assert.NotNull(metadata);
+            Assert.Equal(result.Session.SessionId, metadata!.SessionId);
+            Assert.Equal(result.Session.TranscriptPath, metadata.TranscriptPath);
+            Assert.Equal(workspaceRoot, metadata.WorkingDirectory);
+            Assert.Equal("resume-ready", metadata.Status);
+            Assert.Equal(2, metadata.MessageCount);
+            Assert.Equal(2, metadata.EntryCount);
+            Assert.False(string.IsNullOrWhiteSpace(metadata.LastCompletedUuid));
+            Assert.Equal(metadata.LastUpdatedAt, result.Session.LastUpdatedAt);
+            Assert.Equal(metadata.StartedAt, result.Session.StartedAt);
         }
         finally
         {
@@ -485,3 +534,4 @@ public sealed class SessionHostTurnTests
 
 
 }
+

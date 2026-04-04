@@ -13,4 +13,14 @@ public sealed class AssistantPromptContext
     public ProjectSummarySnapshot? ProjectSummary { get; init; }
 
     public string SessionSummary { get; init; } = string.Empty;
+
+    public bool WasBudgetTrimmed { get; init; }
+
+    public int InputTokenLimit { get; init; }
+
+    public int ApproximateInputCharacterBudget { get; init; }
+
+    public int TrimmedTranscriptMessageCount { get; init; }
+
+    public int TrimmedContextFileCount { get; init; }
 }

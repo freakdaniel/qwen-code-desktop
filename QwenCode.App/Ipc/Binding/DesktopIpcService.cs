@@ -16,6 +16,10 @@ public sealed class DesktopIpcService(
     public Task<DesktopSessionDetail?> GetSession(GetDesktopSessionRequest request)
         => desktopProjectionService.GetSessionAsync(request);
 
+    [IpcInvoke("qwen-desktop:sessions:remove")]
+    public Task<RemoveDesktopSessionResult> RemoveSession(RemoveDesktopSessionRequest request)
+        => desktopProjectionService.RemoveSessionAsync(request);
+
     [IpcInvoke("qwen-desktop:sessions:get-active-turns")]
     public Task<IReadOnlyList<ActiveTurnState>> GetActiveTurns()
         => desktopProjectionService.GetActiveTurnsAsync();
@@ -63,6 +67,14 @@ public sealed class DesktopIpcService(
     [IpcInvoke("qwen-desktop:workspace:get")]
     public Task<WorkspaceSnapshot> GetWorkspaceSnapshot()
         => desktopProjectionService.GetWorkspaceSnapshotAsync();
+
+    [IpcInvoke("qwen-desktop:workspace:create-git-checkpoint")]
+    public Task<WorkspaceSnapshot> CreateGitCheckpoint(CreateGitCheckpointRequest request)
+        => desktopProjectionService.CreateGitCheckpointAsync(request);
+
+    [IpcInvoke("qwen-desktop:workspace:restore-git-checkpoint")]
+    public Task<WorkspaceSnapshot> RestoreGitCheckpoint(RestoreGitCheckpointRequest request)
+        => desktopProjectionService.RestoreGitCheckpointAsync(request);
 
     [IpcInvoke("qwen-desktop:workspace:create-managed-worktree")]
     public Task<WorkspaceSnapshot> CreateManagedWorktree(CreateManagedWorktreeRequest request)

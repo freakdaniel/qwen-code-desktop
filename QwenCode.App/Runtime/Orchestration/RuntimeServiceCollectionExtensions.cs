@@ -11,6 +11,9 @@ public static class RuntimeServiceCollectionExtensions
         services.AddSingleton<HttpClient>();
         services.AddSingleton<ProviderConfigurationResolver>();
         services.AddSingleton<ILoopDetectionService, LoopDetectionService>();
+        services.AddSingleton<ITokenLimitService, TokenLimitService>();
+        services.AddSingleton<INonInteractiveToolExecutor, NonInteractiveToolExecutor>();
+        services.AddSingleton<IToolCallScheduler, ToolCallScheduler>();
         services.AddSingleton<IAssistantPromptAssembler, AssistantPromptAssembler>();
         services.AddSingleton<ISlashCommandRuntime, SlashCommandRuntime>();
         services.AddSingleton<ICommandActionRuntime, CommandActionRuntime>();

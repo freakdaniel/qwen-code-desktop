@@ -35,7 +35,7 @@ public sealed class SessionCatalogTests
                 ]);
             File.SetLastWriteTimeUtc(sessionFilePath, DateTime.UtcNow.Subtract(TimeSpan.FromMinutes(5)));
 
-            var catalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var catalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var sessions = catalog.ListSessions(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
             var session = Assert.Single(sessions);
 
@@ -91,7 +91,7 @@ public sealed class SessionCatalogTests
                     """
                 ]);
 
-            var catalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var catalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var detail = catalog.GetSession(
                 new WorkspacePaths { WorkspaceRoot = workspaceRoot },
                 new GetDesktopSessionRequest
@@ -174,7 +174,7 @@ public sealed class SessionCatalogTests
                 .ToArray();
             File.WriteAllLines(sessionFilePath, lines);
 
-            var catalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var catalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var detail = catalog.GetSession(
                 new WorkspacePaths { WorkspaceRoot = workspaceRoot },
                 new GetDesktopSessionRequest
@@ -200,5 +200,154 @@ public sealed class SessionCatalogTests
         }
     }
 
+    [Fact]
+    public void DesktopSessionCatalogService_ListSessions_PrefersRecordedMetadataWhenAvailable()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-session-metadata-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var recordingService = new ChatRecordingService();
+            var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            Directory.CreateDirectory(runtimeProfile.ChatsDirectory);
+
+            var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "metadata-session.jsonl");
+            File.WriteAllText(
+                transcriptPath,
+                """
+                {"uuid":"u-1","parentUuid":null,"sessionId":"metadata-session","timestamp":"2026-04-01T12:00:00Z","type":"user","cwd":"D:\\demo","version":"0.1.0","gitBranch":"feature/chat-recording","message":{"role":"user","parts":[{"text":"Original transcript title"}]}}
+                """ + Environment.NewLine);
+
+            File.WriteAllText(
+                recordingService.GetMetadataPath(transcriptPath),
+                """
+                {
+                  "sessionId": "metadata-session",
+                  "transcriptPath": "TRANSCRIPT_PATH",
+                  "metadataPath": "METADATA_PATH",
+                  "title": "Recorded metadata title",
+                  "workingDirectory": "D:\\demo",
+                  "gitBranch": "feature/chat-recording",
+                  "status": "resume-ready",
+                  "startedAt": "2026-04-01T12:00:00Z",
+                  "lastUpdatedAt": "2026-04-01T12:05:00Z",
+                  "lastCompletedUuid": "u-1",
+                  "messageCount": 7,
+                  "entryCount": 12
+                }
+                """
+                    .Replace("TRANSCRIPT_PATH", transcriptPath.Replace("\\", "\\\\"))
+                    .Replace("METADATA_PATH", recordingService.GetMetadataPath(transcriptPath).Replace("\\", "\\\\")));
+
+            var catalog = new DesktopSessionCatalogService(runtimeProfileService, recordingService);
+            var session = Assert.Single(catalog.ListSessions(new WorkspacePaths { WorkspaceRoot = workspaceRoot }));
+
+            Assert.Equal("Recorded metadata title", session.Title);
+            Assert.Equal("2026-04-01T12:00:00Z", session.StartedAt);
+            Assert.Equal("2026-04-01T12:05:00Z", session.LastUpdatedAt);
+            Assert.Equal("2026-04-01T12:05:00Z", session.LastActivity);
+            Assert.Equal(7, session.MessageCount);
+            Assert.Equal(recordingService.GetMetadataPath(transcriptPath), session.MetadataPath);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DesktopSessionCatalogService_LoadLastSession_ReturnsMostRecentSession()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-session-last-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var profile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            Directory.CreateDirectory(profile.ChatsDirectory);
+
+            var olderPath = Path.Combine(profile.ChatsDirectory, "older-session.jsonl");
+            var newerPath = Path.Combine(profile.ChatsDirectory, "newer-session.jsonl");
+            File.WriteAllText(olderPath, """{"uuid":"u-1","parentUuid":null,"sessionId":"older-session","timestamp":"2026-04-01T12:00:00Z","type":"user","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"role":"user","parts":[{"text":"Older session"}]}}""" + Environment.NewLine);
+            File.WriteAllText(newerPath, """{"uuid":"u-1","parentUuid":null,"sessionId":"newer-session","timestamp":"2026-04-01T12:05:00Z","type":"user","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"role":"user","parts":[{"text":"Newer session"}]}}""" + Environment.NewLine);
+            File.SetLastWriteTimeUtc(olderPath, DateTime.UtcNow.AddMinutes(-10));
+            File.SetLastWriteTimeUtc(newerPath, DateTime.UtcNow.AddMinutes(-1));
+
+            var catalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
+
+            var latest = catalog.LoadLastSession(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            Assert.NotNull(latest);
+            Assert.Equal("newer-session", latest!.SessionId);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DesktopSessionCatalogService_SessionExists_AndRemoveSession_DeleteTranscriptAndMetadata()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-session-remove-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var recordingService = new ChatRecordingService();
+            var profile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            Directory.CreateDirectory(profile.ChatsDirectory);
+
+            var transcriptPath = Path.Combine(profile.ChatsDirectory, "remove-session.jsonl");
+            File.WriteAllText(transcriptPath, """{"uuid":"u-1","parentUuid":null,"sessionId":"remove-session","timestamp":"2026-04-01T12:00:00Z","type":"user","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"role":"user","parts":[{"text":"Remove me"}]}}""" + Environment.NewLine);
+            File.WriteAllText(recordingService.GetMetadataPath(transcriptPath), """{"sessionId":"remove-session","title":"Remove me","workingDirectory":"D:\\demo","gitBranch":"main","status":"resume-ready","startedAt":"2026-04-01T12:00:00Z","lastUpdatedAt":"2026-04-01T12:01:00Z","messageCount":1,"entryCount":1}""");
+
+            var catalog = new DesktopSessionCatalogService(runtimeProfileService, recordingService);
+            var paths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+
+            Assert.True(catalog.SessionExists(paths, "remove-session"));
+
+            var removed = catalog.RemoveSession(paths, "remove-session");
+
+            Assert.True(removed);
+            Assert.False(File.Exists(transcriptPath));
+            Assert.False(File.Exists(recordingService.GetMetadataPath(transcriptPath)));
+            Assert.False(catalog.SessionExists(paths, "remove-session"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
 
 }
+

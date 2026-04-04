@@ -9,6 +9,7 @@ public static class ToolServiceCollectionExtensions
     {
         services.AddSingleton<HttpClient>();
         services.AddSingleton<ICronScheduler, InMemoryCronScheduler>();
+        services.AddSingleton<IShellExecutionService, ShellExecutionService>();
         services.AddSingleton<IWebToolService, WebToolService>();
         services.AddSingleton<IUserQuestionToolService, UserQuestionToolService>();
         services.AddSingleton<ILspToolService, RoslynLspToolService>();

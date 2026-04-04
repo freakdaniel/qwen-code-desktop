@@ -8,6 +8,8 @@ interface UseWorkspaceOptions {
 export function useWorkspace({ setBootstrap }: UseWorkspaceOptions) {
   const [isCreatingManagedWorktree, setIsCreatingManagedWorktree] = useState(false)
   const [cleaningManagedSessionId, setCleaningManagedSessionId] = useState('')
+  const [isCreatingGitCheckpoint, setIsCreatingGitCheckpoint] = useState(false)
+  const [restoringGitCheckpointHash, setRestoringGitCheckpointHash] = useState('')
 
   const applySnapshot = (snapshot: WorkspaceSnapshot) => {
     setBootstrap((current) => ({ ...current, qwenWorkspace: snapshot }))
@@ -43,10 +45,40 @@ export function useWorkspace({ setBootstrap }: UseWorkspaceOptions) {
     }
   }
 
+  const handleCreateGitCheckpoint = async (message: string) => {
+    if (!window.qwenDesktop || isCreatingGitCheckpoint) return
+    setIsCreatingGitCheckpoint(true)
+    try {
+      const snapshot = await window.qwenDesktop.createGitCheckpoint({
+        message: message.trim(),
+      })
+      applySnapshot(snapshot)
+    } finally {
+      setIsCreatingGitCheckpoint(false)
+    }
+  }
+
+  const handleRestoreGitCheckpoint = async (commitHash: string) => {
+    if (!window.qwenDesktop || restoringGitCheckpointHash) return
+    setRestoringGitCheckpointHash(commitHash)
+    try {
+      const snapshot = await window.qwenDesktop.restoreGitCheckpoint({
+        commitHash,
+      })
+      applySnapshot(snapshot)
+    } finally {
+      setRestoringGitCheckpointHash('')
+    }
+  }
+
   return {
     isCreatingManagedWorktree,
     cleaningManagedSessionId,
+    isCreatingGitCheckpoint,
+    restoringGitCheckpointHash,
     handleCreateManagedWorktree,
     handleCleanupManagedSession,
+    handleCreateGitCheckpoint,
+    handleRestoreGitCheckpoint,
   }
 }

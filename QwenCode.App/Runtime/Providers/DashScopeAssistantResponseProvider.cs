@@ -9,7 +9,8 @@ namespace QwenCode.App.Runtime;
 
 public sealed class DashScopeAssistantResponseProvider(
     HttpClient httpClient,
-    ProviderConfigurationResolver configurationResolver) : IAssistantResponseProvider
+    ProviderConfigurationResolver configurationResolver,
+    ITokenLimitService tokenLimitService) : IAssistantResponseProvider
 {
     public string Name => "qwen-compatible";
 
@@ -38,10 +39,12 @@ public sealed class DashScopeAssistantResponseProvider(
             ["promptId"] = $"{request.SessionId}:{toolHistory.Count + 1}",
             ["channel"] = "desktop"
         };
+        var tokenLimits = tokenLimitService.Resolve(configuration.Model, options);
 
         var payload = OpenAiCompatibleProtocol.BuildPayload(
             configuration.Model,
             options.Temperature,
+            tokenLimits.OutputTokenLimit,
             string.IsNullOrWhiteSpace(request.SystemPromptOverride) ? options.SystemPrompt : request.SystemPromptOverride,
             request,
             promptContext,

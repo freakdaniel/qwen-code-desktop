@@ -16,6 +16,8 @@ public interface IDesktopProjectionService
 
     Task<DesktopSessionDetail?> GetSessionAsync(GetDesktopSessionRequest request);
 
+    Task<RemoveDesktopSessionResult> RemoveSessionAsync(RemoveDesktopSessionRequest request);
+
     Task<DesktopStateChangedEvent> SetLocaleAsync(string locale);
 
     Task<AuthStatusSnapshot> GetAuthStatusAsync();
@@ -37,6 +39,10 @@ public interface IDesktopProjectionService
     Task<ChannelPairingSnapshot> ApproveChannelPairingAsync(ApproveChannelPairingRequest request);
 
     Task<WorkspaceSnapshot> GetWorkspaceSnapshotAsync();
+
+    Task<WorkspaceSnapshot> CreateGitCheckpointAsync(CreateGitCheckpointRequest request);
+
+    Task<WorkspaceSnapshot> RestoreGitCheckpointAsync(RestoreGitCheckpointRequest request);
 
     Task<WorkspaceSnapshot> CreateManagedWorktreeAsync(CreateManagedWorktreeRequest request);
 

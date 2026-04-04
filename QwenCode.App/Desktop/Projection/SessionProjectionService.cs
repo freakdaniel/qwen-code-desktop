@@ -11,6 +11,7 @@ public sealed class SessionProjectionService(
     IOptions<DesktopShellOptions> options,
     IWorkspacePathResolver workspacePathResolver,
     ITranscriptStore transcriptStore,
+    ISessionService sessionService,
     IToolExecutor toolExecutor,
     ISessionHost sessionHost,
     IActiveTurnRegistry activeTurnRegistry) : IDesktopSessionProjectionService
@@ -28,6 +29,18 @@ public sealed class SessionProjectionService(
 
     public Task<DesktopSessionDetail?> GetSessionAsync(GetDesktopSessionRequest request) =>
         Task.FromResult(transcriptStore.GetSession(ResolveWorkspace(), request));
+
+    public Task<RemoveDesktopSessionResult> RemoveSessionAsync(RemoveDesktopSessionRequest request)
+    {
+        var workspace = ResolveWorkspace();
+        var removed = sessionService.RemoveSession(workspace, request.SessionId);
+        return Task.FromResult(new RemoveDesktopSessionResult
+        {
+            Removed = removed,
+            SessionId = request.SessionId,
+            RecentSessions = transcriptStore.ListSessions(workspace)
+        });
+    }
 
     public Task<NativeToolExecutionResult> ExecuteNativeToolAsync(ExecuteNativeToolRequest request) =>
         toolExecutor.ExecuteAsync(ResolveWorkspace(), request);

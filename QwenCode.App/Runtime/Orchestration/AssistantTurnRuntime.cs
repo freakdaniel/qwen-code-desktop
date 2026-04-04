@@ -8,8 +8,10 @@ namespace QwenCode.App.Runtime;
 public sealed class AssistantTurnRuntime(
     IAssistantPromptAssembler promptAssembler,
     IEnumerable<IAssistantResponseProvider> providers,
-    IToolExecutor toolExecutor,
+    IToolCallScheduler toolCallScheduler,
     ILoopDetectionService loopDetectionService,
+    ITokenLimitService tokenLimitService,
+    ProviderConfigurationResolver providerConfigurationResolver,
     IOptions<NativeAssistantRuntimeOptions> options) : IAssistantTurnRuntime
 {
     private readonly IReadOnlyList<IAssistantResponseProvider> _providers = providers.ToArray();
@@ -30,7 +32,19 @@ public sealed class AssistantTurnRuntime(
             Message = "Assembling transcript and workspace context for the assistant runtime."
         });
 
-        var promptContext = await promptAssembler.AssembleAsync(request, cancellationToken);
+        var resolvedConfiguration = providerConfigurationResolver.Resolve(request, _options);
+        var tokenLimits = tokenLimitService.Resolve(resolvedConfiguration.Model, _options);
+        var promptContext = await promptAssembler.AssembleAsync(request, tokenLimits, cancellationToken);
+        if (promptContext.WasBudgetTrimmed)
+        {
+            eventSink?.Invoke(new AssistantRuntimeEvent
+            {
+                Stage = "input-budget-trimmed",
+                Message = $"Prompt context was trimmed to fit the input budget for model '{tokenLimits.NormalizedModel}'.",
+                ProviderName = _options.Provider,
+                Status = "trimmed"
+            });
+        }
         var toolHistory = new List<AssistantToolCallResult>();
 
         foreach (var provider in BuildProviderChain())
@@ -162,90 +176,24 @@ public sealed class AssistantTurnRuntime(
                 };
             }
 
-            foreach (var toolCall in response.ToolCalls)
+            var scheduleResult = await toolCallScheduler.ScheduleAsync(
+                request,
+                response.ProviderName,
+                response.Model,
+                response.ToolCalls,
+                toolHistory,
+                eventSink,
+                cancellationToken);
+
+            if (!scheduleResult.ContinueTurnLoop)
             {
-                var loopDecision = loopDetectionService.ObserveToolCall(request.SessionId, toolCall);
-                if (loopDecision.IsDetected)
+                return new AssistantTurnResponse
                 {
-                    eventSink?.Invoke(new AssistantRuntimeEvent
-                    {
-                        Stage = "loop-detected",
-                        ProviderName = provider.Name,
-                        ToolName = toolCall.ToolName,
-                        Status = "blocked",
-                        Message = loopDecision.Reason
-                    });
-
-                    return new AssistantTurnResponse
-                    {
-                        Summary = $"Assistant runtime stopped because loop detection found repeated tool calls for '{toolCall.ToolName}'.",
-                        ProviderName = provider.Name,
-                        Model = response.Model,
-                        ToolExecutions = toolHistory.ToArray()
-                    };
-                }
-
-                if (request.AllowedToolNames.Count > 0 &&
-                    !request.AllowedToolNames.Contains(toolCall.ToolName, StringComparer.OrdinalIgnoreCase))
-                {
-                    var deniedExecution = CreateDisallowedToolExecutionResult(toolCall.ToolName, request.RuntimeProfile.ProjectRoot);
-                    toolHistory.Add(new AssistantToolCallResult
-                    {
-                        ToolCall = toolCall,
-                        Execution = deniedExecution
-                    });
-
-                    eventSink?.Invoke(new AssistantRuntimeEvent
-                    {
-                        Stage = "tool-blocked",
-                        ProviderName = provider.Name,
-                        ToolName = toolCall.ToolName,
-                        Status = deniedExecution.Status,
-                        Message = BuildToolMessage(deniedExecution)
-                    });
-                    break;
-                }
-
-                eventSink?.Invoke(new AssistantRuntimeEvent
-                {
-                    Stage = "tool-requested",
-                    ProviderName = provider.Name,
-                    ToolName = toolCall.ToolName,
-                    Status = "requested",
-                    Message = $"Assistant runtime requested native tool '{toolCall.ToolName}'."
-                });
-
-                var execution = await toolExecutor.ExecuteAsync(
-                    new WorkspacePaths { WorkspaceRoot = request.RuntimeProfile.ProjectRoot },
-                    new ExecuteNativeToolRequest
-                    {
-                        ToolName = toolCall.ToolName,
-                        ArgumentsJson = string.IsNullOrWhiteSpace(toolCall.ArgumentsJson) ? "{}" : toolCall.ArgumentsJson,
-                        ApproveExecution = false
-                    },
-                    toolEvent => eventSink?.Invoke(CloneNestedToolEvent(toolEvent, provider.Name)),
-                    cancellationToken);
-
-                var toolResult = new AssistantToolCallResult
-                {
-                    ToolCall = toolCall,
-                    Execution = execution
+                    Summary = scheduleResult.TerminalSummary,
+                    ProviderName = response.ProviderName,
+                    Model = response.Model,
+                    ToolExecutions = toolHistory.ToArray()
                 };
-                toolHistory.Add(toolResult);
-
-                eventSink?.Invoke(new AssistantRuntimeEvent
-                {
-                    Stage = MapToolStage(execution.Status),
-                    ProviderName = provider.Name,
-                    ToolName = execution.ToolName,
-                    Status = execution.Status,
-                    Message = BuildToolMessage(execution)
-                });
-
-                if (!string.Equals(execution.Status, "completed", StringComparison.OrdinalIgnoreCase))
-                {
-                    break;
-                }
             }
         }
 
@@ -262,47 +210,4 @@ public sealed class AssistantTurnRuntime(
         };
     }
 
-    private static string MapToolStage(string status) =>
-        status switch
-        {
-            "approval-required" => "tool-approval-required",
-            "input-required" => "user-input-required",
-            "blocked" => "tool-blocked",
-            "error" => "tool-failed",
-            _ => "tool-completed"
-        };
-
-    private static string BuildToolMessage(NativeToolExecutionResult execution) =>
-        execution.Status switch
-        {
-            "approval-required" => $"Assistant runtime requested native tool '{execution.ToolName}', and it is waiting for approval.",
-            "input-required" => $"Assistant runtime requested native tool '{execution.ToolName}', and it is waiting for user answers.",
-            "blocked" => $"Assistant runtime requested native tool '{execution.ToolName}', but approval policy blocked it.",
-            "error" => $"Assistant runtime requested native tool '{execution.ToolName}', but execution failed: {execution.ErrorMessage}",
-            _ => $"Assistant runtime completed native tool '{execution.ToolName}'."
-        };
-
-    private static NativeToolExecutionResult CreateDisallowedToolExecutionResult(string toolName, string workingDirectory) =>
-        new()
-        {
-            ToolName = toolName,
-            Status = "blocked",
-            ApprovalState = "deny",
-            WorkingDirectory = workingDirectory,
-            ErrorMessage = $"Tool '{toolName}' is not available to this subagent runtime.",
-            ChangedFiles = []
-        };
-
-    private static AssistantRuntimeEvent CloneNestedToolEvent(AssistantRuntimeEvent runtimeEvent, string providerName) =>
-        new()
-        {
-            Stage = runtimeEvent.Stage,
-            Message = runtimeEvent.Message,
-            ProviderName = string.IsNullOrWhiteSpace(runtimeEvent.ProviderName) ? providerName : runtimeEvent.ProviderName,
-            ToolName = runtimeEvent.ToolName,
-            Status = runtimeEvent.Status,
-            ContentDelta = runtimeEvent.ContentDelta,
-            ContentSnapshot = runtimeEvent.ContentSnapshot,
-            AgentName = runtimeEvent.AgentName
-        };
 }

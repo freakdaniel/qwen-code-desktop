@@ -5,8 +5,11 @@ namespace QwenCode.App.Infrastructure;
 
 public sealed class GitWorktreeService(
     IGitCliService gitCliService,
-    QwenRuntimeProfileService runtimeProfileService) : IGitWorktreeService
+    QwenRuntimeProfileService runtimeProfileService,
+    IGitHistoryService? gitHistoryService = null) : IGitWorktreeService
 {
+    public const string BaselineCommitMessage = "baseline (dirty state overlay)";
+
     private static readonly StringComparer PathComparer =
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
@@ -58,6 +61,9 @@ public sealed class GitWorktreeService(
 
         var shortSessionId = sessionId.Length > 6 ? sessionId[..6] : sessionId;
         var branchName = $"{baseBranch}-{shortSessionId}-{sanitizedName}";
+        var dirtyStateSnapshot = TryCaptureDirtyState(runtimeProfile.ProjectRoot);
+        var untrackedFiles = ReadUntrackedFiles(runtimeProfile.ProjectRoot);
+
         var createResult = gitCliService.Run(
             runtimeProfile.ProjectRoot,
             "worktree",
@@ -74,6 +80,8 @@ public sealed class GitWorktreeService(
                     : createResult.StandardError.Trim());
         }
 
+        OverlayDirtyState(runtimeProfile.ProjectRoot, worktreePath, dirtyStateSnapshot, untrackedFiles);
+        CreateBaselineCommit(worktreePath);
         WriteSessionConfig(sessionDirectory, runtimeProfile.ProjectRoot, request, sanitizedName, baseBranch);
         return Inspect(paths);
     }
@@ -158,7 +166,8 @@ public sealed class GitWorktreeService(
             ManagedWorktreesRoot = managedWorktreesRoot,
             Worktrees = worktreeResult.Success
                 ? ParseWorktrees(worktreeResult.StandardOutput, runtimeProfile.ProjectRoot, managedWorktreesRoot)
-                : []
+                : [],
+            History = (gitHistoryService ?? new GitHistoryService(gitCliService, runtimeProfileService)).Inspect(paths)
         };
     }
 
@@ -274,6 +283,69 @@ public sealed class GitWorktreeService(
 
     private static string NormalizeDirectory(string path) =>
         Path.GetFullPath(path.Trim());
+
+    private string TryCaptureDirtyState(string projectRoot)
+    {
+        var result = gitCliService.Run(projectRoot, "stash", "create");
+        return result.Success ? NormalizeText(result.StandardOutput) : string.Empty;
+    }
+
+    private IReadOnlyList<string> ReadUntrackedFiles(string projectRoot)
+    {
+        var result = gitCliService.Run(projectRoot, "ls-files", "--others", "--exclude-standard");
+        return result.Success
+            ? result.StandardOutput
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(static item => item.Replace('\\', '/'))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+            : [];
+    }
+
+    private void OverlayDirtyState(
+        string projectRoot,
+        string worktreePath,
+        string dirtyStateSnapshot,
+        IReadOnlyList<string> untrackedFiles)
+    {
+        if (!string.IsNullOrWhiteSpace(dirtyStateSnapshot))
+        {
+            _ = gitCliService.Run(worktreePath, "stash", "apply", dirtyStateSnapshot);
+        }
+
+        foreach (var relativePath in untrackedFiles)
+        {
+            var sourcePath = Path.Combine(projectRoot, relativePath);
+            var destinationPath = Path.Combine(worktreePath, relativePath);
+
+            try
+            {
+                if (!File.Exists(sourcePath))
+                {
+                    continue;
+                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+                File.Copy(sourcePath, destinationPath, overwrite: true);
+            }
+            catch
+            {
+                // Best effort copy to match source dirty state without failing the worktree outright.
+            }
+        }
+    }
+
+    private void CreateBaselineCommit(string worktreePath)
+    {
+        _ = gitCliService.Run(worktreePath, "add", "--all");
+        _ = gitCliService.Run(
+            worktreePath,
+            "commit",
+            "--allow-empty",
+            "--no-verify",
+            "-m",
+            BaselineCommitMessage);
+    }
 
     private static void ValidateRequest(CreateManagedWorktreeRequest request)
     {

@@ -39,8 +39,9 @@ internal static class TestServiceFactory
         var projectSummaryService = new ProjectSummaryService();
         var toolRegistry = new ToolCatalogService(runtimeProfileService, approvalPolicyService);
         var toolExecutor = new NativeToolHostService(runtimeProfileService, approvalPolicyService);
+        var gitHistoryService = new GitHistoryService(new GitCliService(), runtimeProfileService);
         var workspaceInspectionService = new WorkspaceInspectionService(
-            new GitWorktreeService(new GitCliService(), runtimeProfileService),
+            new GitWorktreeService(new GitCliService(), runtimeProfileService, gitHistoryService),
             new FileDiscoveryService(new GitCliService(), runtimeProfileService));
         var extensionCatalog = new ExtensionCatalogService(runtimeProfileService, environmentPaths);
         var channelRegistry = new ChannelRegistryService(
@@ -57,7 +58,9 @@ internal static class TestServiceFactory
                 new FileMcpTokenStore(environmentPaths),
                 new HttpClient(),
                 runtimeProfileService));
-        var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
+        var chatRecordingService = new ChatRecordingService();
+        var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService, chatRecordingService);
+        var sessionService = (ISessionService)transcriptStore;
         var interruptedTurnStore = new InterruptedTurnStore();
         var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);
         var sessionHost = CreateSessionHost(
@@ -96,7 +99,8 @@ internal static class TestServiceFactory
                 shellOptions,
                 workspacePathResolver,
                 workspaceInspectionService,
-                new GitWorktreeService(new GitCliService(), runtimeProfileService)),
+                new GitWorktreeService(new GitCliService(), runtimeProfileService, gitHistoryService),
+                gitHistoryService),
             new McpProjectionService(
                 shellOptions,
                 workspacePathResolver,
@@ -110,6 +114,7 @@ internal static class TestServiceFactory
                 shellOptions,
                 workspacePathResolver,
                 transcriptStore,
+                sessionService,
                 toolExecutor,
                 sessionHost,
                 activeTurnRegistry));
@@ -125,6 +130,7 @@ internal static class TestServiceFactory
     {
         var approvalPolicyService = new ApprovalPolicyService();
         var effectiveInterruptedTurnStore = interruptedTurnStore ?? new InterruptedTurnStore();
+        var chatRecordingService = new ChatRecordingService();
         return new DesktopSessionHostService(
             runtimeProfileService,
             new CommandActionRuntime(
@@ -134,11 +140,12 @@ internal static class TestServiceFactory
                 new ToolCatalogService(runtimeProfileService, approvalPolicyService)),
             CreateAssistantTurnRuntime(),
             new ChatCompressionService(),
+            chatRecordingService,
             new NativeToolHostService(runtimeProfileService, approvalPolicyService),
             new PassthroughHookLifecycleService(),
             new UserQuestionToolService(),
             userPromptHookService ?? new PassthroughUserPromptHookService(),
-            transcriptStore ?? new DesktopSessionCatalogService(runtimeProfileService),
+            transcriptStore ?? new DesktopSessionCatalogService(runtimeProfileService, chatRecordingService),
             activeTurnRegistry ?? new ActiveTurnRegistry(effectiveInterruptedTurnStore),
             effectiveInterruptedTurnStore,
             new SessionTranscriptWriter(),
@@ -150,7 +157,14 @@ internal static class TestServiceFactory
         IAssistantResponseProvider? primaryProvider = null,
         IToolExecutor? toolExecutor = null) =>
         new AssistantTurnRuntime(
-            new AssistantPromptAssembler(new ProjectSummaryService()),
+            new AssistantPromptAssembler(
+                new ProjectSummaryService(),
+                new DesktopSessionCatalogService(
+                    new QwenRuntimeProfileService(
+                        new FakeDesktopEnvironmentPaths(
+                            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData))),
+                    new ChatRecordingService())),
             primaryProvider is null
                 ? [
                     new OpenAiCompatibleAssistantResponseProvider(
@@ -158,12 +172,20 @@ internal static class TestServiceFactory
                         new ProviderConfigurationResolver(
                             new FakeDesktopEnvironmentPaths(
                                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)))),
+                                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData))),
+                        new TokenLimitService()),
                     new FallbackAssistantResponseProvider()
                 ]
                 : [primaryProvider, new FallbackAssistantResponseProvider()],
-            toolExecutor ?? new FakeToolExecutor(),
+            new ToolCallScheduler(
+                new NonInteractiveToolExecutor(toolExecutor ?? new FakeToolExecutor()),
+                new LoopDetectionService()),
             new LoopDetectionService(),
+            new TokenLimitService(),
+            new ProviderConfigurationResolver(
+                new FakeDesktopEnvironmentPaths(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData))),
             Options.Create(new NativeAssistantRuntimeOptions
             {
                 Provider = primaryProvider?.Name ?? "fallback"

@@ -1,14 +1,14 @@
 using System.Text.Json;
 using QwenCode.App.Models;
 using QwenCode.App.Compatibility;
+using QwenCode.App.Runtime;
 
 namespace QwenCode.App.Sessions;
 
-public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runtimeProfileService) : ITranscriptStore
+public sealed class DesktopSessionCatalogService(
+    QwenRuntimeProfileService runtimeProfileService,
+    IChatRecordingService chatRecordingService) : ITranscriptStore, ISessionService
 {
-    private static readonly TimeSpan Minute = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan Hour = TimeSpan.FromHours(1);
-    private static readonly TimeSpan Day = TimeSpan.FromDays(1);
     private const int DefaultDetailEntryLimit = 120;
     private const int MaximumDetailEntryLimit = 240;
     private const int MaximumBodyLength = 12_000;
@@ -29,7 +29,7 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
             .Where(static file => file.Exists)
             .OrderByDescending(static file => file.LastWriteTimeUtc)
             .Take(limit)
-            .Select(file => TryReadSession(file, runtimeProfile))
+            .Select(file => TryReadSession(file, runtimeProfile, chatRecordingService))
             .OfType<SessionPreview>()
             .ToArray();
 
@@ -103,10 +103,173 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
         };
     }
 
-    private static SessionPreview? TryReadSession(FileInfo file, QwenRuntimeProfile runtimeProfile)
+    public bool SessionExists(WorkspacePaths paths, string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return false;
+        }
+
+        var runtimeProfile = runtimeProfileService.Inspect(paths);
+        return File.Exists(Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl"));
+    }
+
+    public SessionPreview? LoadLastSession(WorkspacePaths paths) =>
+        ListSessions(paths, 1).FirstOrDefault();
+
+    public SessionConversationRecord? LoadConversation(WorkspacePaths paths, string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return null;
+        }
+
+        var runtimeProfile = runtimeProfileService.Inspect(paths);
+        var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
+        if (!File.Exists(transcriptPath))
+        {
+            return null;
+        }
+
+        var parsedEntries = new List<ParsedTranscriptEntry>();
+        foreach (var line in File.ReadLines(transcriptPath))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(line);
+                parsedEntries.Add(ParseTranscriptEntry(document.RootElement));
+            }
+            catch
+            {
+                // Keep conversation loading resilient to malformed transcript lines.
+            }
+        }
+
+        if (parsedEntries.Count == 0)
+        {
+            return null;
+        }
+
+        var latestCompressionIndex = parsedEntries.FindLastIndex(static entry =>
+            string.Equals(entry.Type, "system", StringComparison.Ordinal) &&
+            string.Equals(entry.Status, "chat-compression", StringComparison.OrdinalIgnoreCase));
+
+        var modelHistory = new List<AssistantConversationMessage>();
+        if (latestCompressionIndex >= 0)
+        {
+            var compressionEntry = parsedEntries[latestCompressionIndex];
+            if (!string.IsNullOrWhiteSpace(compressionEntry.Content))
+            {
+                modelHistory.Add(new AssistantConversationMessage
+                {
+                    Role = "system",
+                    Content = compressionEntry.Content
+                });
+            }
+
+            foreach (var entry in parsedEntries.Skip(latestCompressionIndex + 1))
+            {
+                if (string.Equals(entry.Type, "system", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (TryBuildModelHistoryMessage(entry) is { } message)
+                {
+                    modelHistory.Add(message);
+                }
+            }
+        }
+        else
+        {
+            foreach (var entry in parsedEntries)
+            {
+                if (TryBuildModelHistoryMessage(entry) is { } message)
+                {
+                    modelHistory.Add(message);
+                }
+            }
+        }
+
+        var firstEntry = parsedEntries[0];
+        var fileInfo = new FileInfo(transcriptPath);
+        return new SessionConversationRecord
+        {
+            SessionId = sessionId,
+            TranscriptPath = transcriptPath,
+            WorkingDirectory = string.IsNullOrWhiteSpace(firstEntry.WorkingDirectory)
+                ? runtimeProfile.ProjectRoot
+                : firstEntry.WorkingDirectory,
+            GitBranch = firstEntry.GitBranch,
+            StartTime = string.IsNullOrWhiteSpace(firstEntry.Timestamp)
+                ? fileInfo.CreationTimeUtc.ToString("O")
+                : firstEntry.Timestamp,
+            LastUpdated = fileInfo.LastWriteTimeUtc.ToString("O"),
+            ModelHistory = modelHistory
+        };
+    }
+
+    public bool RemoveSession(WorkspacePaths paths, string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return false;
+        }
+
+        var runtimeProfile = runtimeProfileService.Inspect(paths);
+        var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
+        if (!File.Exists(transcriptPath))
+        {
+            return false;
+        }
+
+        File.Delete(transcriptPath);
+        var metadataPath = chatRecordingService.GetMetadataPath(transcriptPath);
+        if (File.Exists(metadataPath))
+        {
+            File.Delete(metadataPath);
+        }
+
+        return true;
+    }
+
+    private static SessionPreview? TryReadSession(
+        FileInfo file,
+        QwenRuntimeProfile runtimeProfile,
+        IChatRecordingService chatRecordingService)
     {
         try
         {
+            var metadata = chatRecordingService.TryReadMetadata(file.FullName);
+            if (metadata is not null)
+            {
+                return new SessionPreview
+                {
+                    SessionId = metadata.SessionId,
+                    Title = metadata.Title,
+                    LastActivity = metadata.LastUpdatedAt,
+                    StartedAt = metadata.StartedAt,
+                    LastUpdatedAt = metadata.LastUpdatedAt,
+                    Category = string.IsNullOrWhiteSpace(metadata.GitBranch)
+                        ? runtimeProfile.ApprovalProfile.DefaultMode
+                        : metadata.GitBranch,
+                    Mode = DesktopMode.Code,
+                    Status = NormalizeSessionStatus(metadata.Status),
+                    WorkingDirectory = string.IsNullOrWhiteSpace(metadata.WorkingDirectory)
+                        ? runtimeProfile.ProjectRoot
+                        : metadata.WorkingDirectory,
+                    GitBranch = metadata.GitBranch,
+                    MessageCount = metadata.MessageCount,
+                    TranscriptPath = file.FullName,
+                    MetadataPath = metadata.MetadataPath
+                };
+            }
+
             using var stream = file.OpenRead();
             using var reader = new StreamReader(stream);
 
@@ -170,7 +333,9 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
             {
                 SessionId = effectiveSessionId,
                 Title = title,
-                LastActivity = FormatRelativeTime(file.LastWriteTimeUtc, DateTime.UtcNow),
+                LastActivity = file.LastWriteTimeUtc.ToString("O"),
+                StartedAt = file.CreationTimeUtc.ToString("O"),
+                LastUpdatedAt = file.LastWriteTimeUtc.ToString("O"),
                 Category = string.IsNullOrWhiteSpace(gitBranch)
                     ? runtimeProfile.ApprovalProfile.DefaultMode
                     : gitBranch,
@@ -179,7 +344,8 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
                 WorkingDirectory = effectiveWorkingDirectory,
                 GitBranch = gitBranch ?? string.Empty,
                 MessageCount = messageIds.Count,
-                TranscriptPath = file.FullName
+                TranscriptPath = file.FullName,
+                MetadataPath = chatRecordingService.GetMetadataPath(file.FullName)
             };
         }
         catch
@@ -416,26 +582,69 @@ public sealed class DesktopSessionCatalogService(QwenRuntimeProfileService runti
         return $"{value[..maximumLength]}…";
     }
 
-    private static string FormatRelativeTime(DateTime timestampUtc, DateTime nowUtc)
+    private static ParsedTranscriptEntry ParseTranscriptEntry(JsonElement root)
     {
-        var delta = nowUtc - timestampUtc;
-        if (delta < Minute)
+        var type = TryGetString(root, "type") ?? string.Empty;
+        var status = TryGetString(root, "status") ?? string.Empty;
+        var content = type switch
         {
-            return "Updated just now";
-        }
+            "user" or "assistant" => TryExtractPrompt(root) ?? string.Empty,
+            "command" => FirstNonEmpty(
+                TryGetString(root, "resolvedPrompt"),
+                TryGetString(root, "output"),
+                TryGetString(root, "errorMessage")),
+            "tool" => FirstNonEmpty(
+                TryGetString(root, "output"),
+                TryGetString(root, "errorMessage"),
+                TryGetString(root, "approvalState")),
+            "system" => FirstNonEmpty(
+                TryGetString(root, "messageText"),
+                status),
+            _ => string.Empty
+        };
 
-        if (delta < Hour)
-        {
-            return $"Updated {(int)delta.TotalMinutes} minute{Pluralize(delta.TotalMinutes)} ago";
-        }
-
-        if (delta < Day)
-        {
-            return $"Updated {(int)delta.TotalHours} hour{Pluralize(delta.TotalHours)} ago";
-        }
-
-        return $"Updated {(int)delta.TotalDays} day{Pluralize(delta.TotalDays)} ago";
+        return new ParsedTranscriptEntry(
+            type,
+            status,
+            content,
+            TryGetString(root, "timestamp") ?? string.Empty,
+            TryGetString(root, "cwd") ?? string.Empty,
+            TryGetString(root, "gitBranch") ?? string.Empty);
     }
 
-    private static string Pluralize(double value) => Math.Abs(value) >= 2 ? "s" : string.Empty;
+    private static AssistantConversationMessage? TryBuildModelHistoryMessage(ParsedTranscriptEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.Content))
+        {
+            return null;
+        }
+
+        var role = entry.Type switch
+        {
+            "user" => "user",
+            "assistant" => "assistant",
+            "command" or "tool" => "system",
+            _ => null
+        };
+
+        if (role is null)
+        {
+            return null;
+        }
+
+        return new AssistantConversationMessage
+        {
+            Role = role,
+            Content = entry.Content
+        };
+    }
+
+    private sealed record ParsedTranscriptEntry(
+        string Type,
+        string Status,
+        string Content,
+        string Timestamp,
+        string WorkingDirectory,
+        string GitBranch);
+
 }

@@ -20,7 +20,7 @@ public sealed class SessionRecoveryTests
 
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var interruptedTurnStore = new InterruptedTurnStore();
             var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);
             var sessionHost = CreateSessionHost(
@@ -105,7 +105,7 @@ public sealed class SessionRecoveryTests
 
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var interruptedTurnStore = new InterruptedTurnStore();
             var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);
             var sessionHost = CreateSessionHost(
@@ -150,3 +150,4 @@ public sealed class SessionRecoveryTests
         }
     }
 }
+

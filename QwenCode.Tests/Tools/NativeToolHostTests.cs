@@ -229,6 +229,47 @@ public sealed class NativeToolHostTests
     }
 
     [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_MapsTimedOutShellCommandIntoTimeoutStatus()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-shell-timeout-host-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var host = new NativeToolHostService(
+                runtimeProfileService,
+                new ApprovalPolicyService(),
+                new InMemoryCronScheduler(),
+                shellExecutionService: new TimeoutShellExecutionService());
+
+            var result = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "run_shell_command",
+                ApproveExecution = true,
+                ArgumentsJson = """{"command":"sleep forever"}"""
+            });
+
+            Assert.Equal("timeout", result.Status);
+            Assert.Equal(-1, result.ExitCode);
+            Assert.Contains("timed out", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task NativeToolHostService_ExecuteAsync_SavesMemoryToProjectAndGlobalScopes()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-memory-tool-{Guid.NewGuid():N}");
@@ -576,5 +617,21 @@ public sealed class NativeToolHostTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private sealed class TimeoutShellExecutionService : IShellExecutionService
+    {
+        public Task<ShellCommandExecutionResult> ExecuteAsync(
+            ShellCommandRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ShellCommandExecutionResult
+            {
+                WorkingDirectory = request.WorkingDirectory,
+                Output = string.Empty,
+                ErrorMessage = "Shell command timed out after 100 ms.",
+                ExitCode = -1,
+                TimedOut = true,
+                Cancelled = false
+            });
     }
 }

@@ -8,7 +8,8 @@ namespace QwenCode.App.Runtime;
 
 public sealed class OpenAiCompatibleAssistantResponseProvider(
     HttpClient httpClient,
-    ProviderConfigurationResolver configurationResolver) : IAssistantResponseProvider
+    ProviderConfigurationResolver configurationResolver,
+    ITokenLimitService tokenLimitService) : IAssistantResponseProvider
 {
     public string Name => "openai-compatible";
 
@@ -31,9 +32,11 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(
             return null;
         }
 
+        var tokenLimits = tokenLimitService.Resolve(configuration.Model, options);
         var payload = OpenAiCompatibleProtocol.BuildPayload(
             configuration.Model,
             options.Temperature,
+            tokenLimits.OutputTokenLimit,
             string.IsNullOrWhiteSpace(request.SystemPromptOverride) ? options.SystemPrompt : request.SystemPromptOverride,
             request,
             promptContext,

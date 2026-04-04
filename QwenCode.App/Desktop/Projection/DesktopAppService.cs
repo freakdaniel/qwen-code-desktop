@@ -66,6 +66,12 @@ public sealed class DesktopAppService(
     public Task<WorkspaceSnapshot> GetWorkspaceSnapshotAsync() =>
         workspaceProjectionService.GetSnapshotAsync();
 
+    public Task<WorkspaceSnapshot> CreateGitCheckpointAsync(CreateGitCheckpointRequest request) =>
+        workspaceProjectionService.CreateGitCheckpointAsync(request);
+
+    public Task<WorkspaceSnapshot> RestoreGitCheckpointAsync(RestoreGitCheckpointRequest request) =>
+        workspaceProjectionService.RestoreGitCheckpointAsync(request);
+
     public Task<WorkspaceSnapshot> CreateManagedWorktreeAsync(CreateManagedWorktreeRequest request) =>
         workspaceProjectionService.CreateManagedWorktreeAsync(request);
 
@@ -98,6 +104,9 @@ public sealed class DesktopAppService(
 
     public Task<DesktopSessionDetail?> GetSessionAsync(GetDesktopSessionRequest request) =>
         sessionProjectionService.GetSessionAsync(request);
+
+    public Task<RemoveDesktopSessionResult> RemoveSessionAsync(RemoveDesktopSessionRequest request) =>
+        sessionProjectionService.RemoveSessionAsync(request);
 
     public Task<IReadOnlyList<ActiveTurnState>> GetActiveTurnsAsync() =>
         sessionProjectionService.GetActiveTurnsAsync();

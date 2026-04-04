@@ -21,4 +21,8 @@ public sealed class NativeAssistantRuntimeOptions
     public double Temperature { get; set; } = 0.2d;
 
     public int MaxToolIterations { get; set; } = 4;
+
+    public int? InputTokenLimit { get; set; }
+
+    public int? OutputTokenLimit { get; set; }
 }

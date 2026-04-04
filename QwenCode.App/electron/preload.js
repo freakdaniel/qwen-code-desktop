@@ -20,6 +20,7 @@ const invoke = (channel, payload) =>
 contextBridge.exposeInMainWorld('qwenDesktop', {
   bootstrap: () => invoke('qwen-desktop:app:bootstrap', {}),
   getSession: (request) => invoke('qwen-desktop:sessions:get', request),
+  removeSession: (request) => invoke('qwen-desktop:sessions:remove', request),
   getActiveTurns: () => invoke('qwen-desktop:sessions:get-active-turns', {}),
   setLocale: (locale) => invoke('qwen-desktop:app:set-locale', { locale }),
   getAuthStatus: () => invoke('qwen-desktop:auth:status', {}),
@@ -32,6 +33,8 @@ contextBridge.exposeInMainWorld('qwenDesktop', {
   getChannelPairings: (request) => invoke('qwen-desktop:channels:get-pairings', request),
   approveChannelPairing: (request) => invoke('qwen-desktop:channels:approve-pairing', request),
   getWorkspaceSnapshot: () => invoke('qwen-desktop:workspace:get', {}),
+  createGitCheckpoint: (request) => invoke('qwen-desktop:workspace:create-git-checkpoint', request),
+  restoreGitCheckpoint: (request) => invoke('qwen-desktop:workspace:restore-git-checkpoint', request),
   createManagedWorktree: (request) => invoke('qwen-desktop:workspace:create-managed-worktree', request),
   cleanupManagedSession: (request) => invoke('qwen-desktop:workspace:cleanup-managed-session', request),
   getExtensionSettings: (request) => invoke('qwen-desktop:extensions:get-settings', request),

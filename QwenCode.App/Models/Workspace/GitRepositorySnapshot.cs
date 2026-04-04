@@ -21,4 +21,6 @@ public sealed class GitRepositorySnapshot
     public required string ManagedWorktreesRoot { get; init; }
 
     public required IReadOnlyList<GitWorktreeEntry> Worktrees { get; init; }
+
+    public required GitHistorySnapshot History { get; init; }
 }

@@ -31,7 +31,7 @@ public sealed class SessionHostApprovalTests
 
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
 
             var targetFile = Path.Combine(workspaceRoot, "notes.txt");
@@ -124,7 +124,7 @@ public sealed class SessionHostApprovalTests
 
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
 
             var targetFile = Path.Combine(workspaceRoot, "notes.txt");
@@ -198,7 +198,7 @@ public sealed class SessionHostApprovalTests
 
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
 
             var startResult = await sessionHost.StartTurnAsync(
@@ -290,3 +290,4 @@ public sealed class SessionHostApprovalTests
 
 
 }
+

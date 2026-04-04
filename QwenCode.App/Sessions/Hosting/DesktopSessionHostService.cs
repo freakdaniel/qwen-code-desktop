@@ -11,6 +11,7 @@ public sealed class DesktopSessionHostService(
     ICommandActionRuntime commandActionRuntime,
     IAssistantTurnRuntime assistantTurnRuntime,
     IChatCompressionService chatCompressionService,
+    IChatRecordingService chatRecordingService,
     IToolExecutor nativeToolHostService,
     IHookLifecycleService hookLifecycleService,
     IUserQuestionToolService userQuestionToolService,
@@ -425,6 +426,18 @@ public sealed class DesktopSessionHostService(
             state.ContentSnapshot = assistantSummary;
         });
 
+        await RefreshSessionRecordingAsync(
+            transcriptPath,
+            new SessionRecordingContext
+            {
+                SessionId = sessionId,
+                WorkingDirectory = workingDirectory,
+                GitBranch = gitBranch,
+                TitleHint = effectivePrompt,
+                Status = "completed"
+            },
+            cancellationToken);
+
         var session = sessionCatalogService.ListSessions(paths, 64)
             .FirstOrDefault(item => string.Equals(item.SessionId, sessionId, StringComparison.Ordinal))
             ?? BuildFallbackSession(sessionId, transcriptPath, workingDirectory, gitBranch, effectivePrompt);
@@ -708,6 +721,18 @@ public sealed class DesktopSessionHostService(
             state.ContentSnapshot = assistantSummary;
         });
 
+        await RefreshSessionRecordingAsync(
+            detail.TranscriptPath,
+            new SessionRecordingContext
+            {
+                SessionId = request.SessionId,
+                WorkingDirectory = workingDirectory,
+                GitBranch = gitBranch,
+                TitleHint = pendingTool.Title,
+                Status = execution.Status
+            },
+            cancellationToken);
+
         var session = sessionCatalogService.ListSessions(paths, 64)
             .FirstOrDefault(item => string.Equals(item.SessionId, request.SessionId, StringComparison.Ordinal))
             ?? BuildFallbackSession(request.SessionId, detail.TranscriptPath, workingDirectory, gitBranch, pendingTool.Title);
@@ -903,6 +928,18 @@ public sealed class DesktopSessionHostService(
             state.ContentSnapshot = assistantSummary;
         });
 
+        await RefreshSessionRecordingAsync(
+            detail.TranscriptPath,
+            new SessionRecordingContext
+            {
+                SessionId = request.SessionId,
+                WorkingDirectory = workingDirectory,
+                GitBranch = gitBranch,
+                TitleHint = pendingQuestion.Title,
+                Status = execution.Status
+            },
+            cancellationToken);
+
         var session = sessionCatalogService.ListSessions(paths, 64)
             .FirstOrDefault(item => string.Equals(item.SessionId, request.SessionId, StringComparison.Ordinal))
             ?? BuildFallbackSession(request.SessionId, detail.TranscriptPath, workingDirectory, gitBranch, pendingQuestion.Title);
@@ -1067,6 +1104,18 @@ public sealed class DesktopSessionHostService(
             "blocked",
             cancellationToken);
 
+        await RefreshSessionRecordingAsync(
+            transcriptPath,
+            new SessionRecordingContext
+            {
+                SessionId = sessionId,
+                WorkingDirectory = workingDirectory,
+                GitBranch = gitBranch,
+                TitleHint = effectivePrompt,
+                Status = "blocked"
+            },
+            cancellationToken);
+
         var session = sessionCatalogService.ListSessions(paths, 64)
             .FirstOrDefault(item => string.Equals(item.SessionId, sessionId, StringComparison.Ordinal))
             ?? BuildFallbackSession(sessionId, transcriptPath, workingDirectory, gitBranch, effectivePrompt, "blocked");
@@ -1082,7 +1131,10 @@ public sealed class DesktopSessionHostService(
             WorkingDirectory = session.WorkingDirectory,
             GitBranch = session.GitBranch,
             MessageCount = session.MessageCount,
-            TranscriptPath = session.TranscriptPath
+            TranscriptPath = session.TranscriptPath,
+            StartedAt = session.StartedAt,
+            LastUpdatedAt = session.LastUpdatedAt,
+            MetadataPath = session.MetadataPath
         };
 
         PublishSessionEvent(sessionEventFactory.CreateTurnCompleted(
@@ -1181,6 +1233,18 @@ public sealed class DesktopSessionHostService(
                 cancellationToken);
         }
 
+        await RefreshSessionRecordingAsync(
+            transcriptPath,
+            new SessionRecordingContext
+            {
+                SessionId = sessionId,
+                WorkingDirectory = workingDirectory,
+                GitBranch = gitBranch,
+                TitleHint = promptOrTitle,
+                Status = "cancelled"
+            },
+            cancellationToken);
+
         PublishSessionEvent(sessionEventFactory.CreateTurnCancelled(
             sessionId,
             cancellationMessage,
@@ -1206,7 +1270,10 @@ public sealed class DesktopSessionHostService(
                 WorkingDirectory = session.WorkingDirectory,
                 GitBranch = session.GitBranch,
                 MessageCount = session.MessageCount,
-                TranscriptPath = session.TranscriptPath
+                TranscriptPath = session.TranscriptPath,
+                StartedAt = session.StartedAt,
+                LastUpdatedAt = session.LastUpdatedAt,
+                MetadataPath = session.MetadataPath
             };
         }
 
@@ -1231,15 +1298,26 @@ public sealed class DesktopSessionHostService(
         {
             SessionId = sessionId,
             Title = prompt.Length > 140 ? $"{prompt[..140]}..." : prompt,
-            LastActivity = "Updated just now",
+            LastActivity = DateTime.UtcNow.ToString("O"),
+            StartedAt = DateTime.UtcNow.ToString("O"),
+            LastUpdatedAt = DateTime.UtcNow.ToString("O"),
             Category = string.IsNullOrWhiteSpace(gitBranch) ? "session" : gitBranch,
             Mode = DesktopMode.Code,
             Status = status,
             WorkingDirectory = workingDirectory,
             GitBranch = gitBranch,
             MessageCount = 2,
-            TranscriptPath = transcriptPath
+            TranscriptPath = transcriptPath,
+            MetadataPath = Path.Combine(
+                Path.GetDirectoryName(transcriptPath) ?? string.Empty,
+                $"{Path.GetFileNameWithoutExtension(transcriptPath)}.meta.json")
         };
+
+    private Task<SessionRecordingMetadata?> RefreshSessionRecordingAsync(
+        string transcriptPath,
+        SessionRecordingContext context,
+        CancellationToken cancellationToken) =>
+        chatRecordingService.RefreshMetadataAsync(transcriptPath, context, cancellationToken);
 
     private static string ResolveWorkingDirectory(string workspaceRoot, string requestedWorkingDirectory)
     {

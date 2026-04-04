@@ -117,6 +117,66 @@ public sealed class GitWorktreeServiceTests
         }
     }
 
+    [Fact]
+    public void CreateManagedWorktree_OverlaysDirtyStateAndCreatesBaselineCommit()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-worktree-overlay-{Guid.NewGuid():N}");
+        var workspaceRoot = Path.Combine(root, "workspace");
+        var homeRoot = Path.Combine(root, "home");
+
+        Directory.CreateDirectory(workspaceRoot);
+        Directory.CreateDirectory(homeRoot);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(workspaceRoot, "tracked.txt"), "original");
+
+            RunGit(workspaceRoot, "init", "--initial-branch=main");
+            RunGit(workspaceRoot, "config", "user.email", "codex@example.com");
+            RunGit(workspaceRoot, "config", "user.name", "Codex");
+            RunGit(workspaceRoot, "add", ".");
+            RunGit(workspaceRoot, "commit", "-m", "init");
+
+            File.WriteAllText(Path.Combine(workspaceRoot, "tracked.txt"), "dirty tracked content");
+            File.WriteAllText(Path.Combine(workspaceRoot, "untracked.txt"), "dirty untracked content");
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, null, workspaceRoot, workspaceRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
+            var service = new GitWorktreeService(new GitCliService(), runtimeProfileService);
+            var paths = new WorkspacePaths
+            {
+                WorkspaceRoot = workspaceRoot
+            };
+
+            var created = service.CreateManagedWorktree(paths, new CreateManagedWorktreeRequest
+            {
+                SessionId = "overlay-session",
+                Name = "overlay-branch",
+                BaseBranch = "main"
+            });
+
+            var worktree = Assert.Single(created.Worktrees, item => item.SessionId == "overlay-session");
+            Assert.Equal("dirty tracked content", File.ReadAllText(Path.Combine(worktree.Path, "tracked.txt")));
+            Assert.Equal("dirty untracked content", File.ReadAllText(Path.Combine(worktree.Path, "untracked.txt")));
+
+            var baselineMessage = new GitCliService().Run(worktree.Path, "log", "-1", "--pretty=%s");
+            Assert.True(baselineMessage.Success, baselineMessage.StandardError);
+            Assert.Equal(GitWorktreeService.BaselineCommitMessage, baselineMessage.StandardOutput.Trim());
+
+            var sourceStatus = new GitCliService().Run(workspaceRoot, "status", "--short");
+            Assert.True(sourceStatus.Success, sourceStatus.StandardError);
+            Assert.Contains("M tracked.txt", sourceStatus.StandardOutput);
+            Assert.Contains("?? untracked.txt", sourceStatus.StandardOutput);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                DeleteDirectory(root);
+            }
+        }
+    }
+
     private static void RunGit(string workingDirectory, params string[] arguments)
     {
         var result = new GitCliService().Run(workingDirectory, arguments);

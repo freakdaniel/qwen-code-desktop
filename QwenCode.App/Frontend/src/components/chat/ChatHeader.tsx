@@ -1,18 +1,20 @@
-import { GitBranch, MoreHorizontal, Play, Square } from 'lucide-react'
+import { GitBranch, Play, Square, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { SessionPreview } from '@/types/desktop'
 
 interface ChatHeaderProps {
   session: SessionPreview
   isActive: boolean
+  isRemoving: boolean
   onCancel: () => void
+  onRemove: () => void
 }
 
 function getProjectName(workingDirectory: string): string {
   return workingDirectory.split(/[\\/]/).filter(Boolean).at(-1) ?? workingDirectory
 }
 
-export function ChatHeader({ session, isActive, onCancel }: ChatHeaderProps) {
+export function ChatHeader({ session, isActive, isRemoving, onCancel, onRemove }: ChatHeaderProps) {
   const projectName = getProjectName(session.workingDirectory)
 
   return (
@@ -58,10 +60,13 @@ export function ChatHeader({ session, isActive, onCancel }: ChatHeaderProps) {
           )}
           <Button
             variant="ghost"
-            size="icon-sm"
-            className="text-[--app-muted] hover:bg-[--app-elevated] hover:text-[--app-text]"
+            size="sm"
+            disabled={isActive || isRemoving}
+            className="gap-1.5 text-xs text-[--app-muted] hover:bg-[--app-elevated] hover:text-red-300 disabled:opacity-50"
+            onClick={onRemove}
           >
-            <MoreHorizontal size={15} />
+            <Trash2 size={13} />
+            {isRemoving ? 'Removing...' : 'Remove'}
           </Button>
         </div>
       </div>

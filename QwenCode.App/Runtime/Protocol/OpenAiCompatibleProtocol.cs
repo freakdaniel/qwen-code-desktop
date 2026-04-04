@@ -14,6 +14,7 @@ internal static class OpenAiCompatibleProtocol
     public static JsonObject BuildPayload(
         string model,
         double temperature,
+        int maxOutputTokens,
         string systemPrompt,
         AssistantTurnRequest request,
         AssistantPromptContext promptContext,
@@ -26,6 +27,7 @@ internal static class OpenAiCompatibleProtocol
             ["model"] = model,
             ["temperature"] = temperature,
             ["stream"] = false,
+            ["max_tokens"] = maxOutputTokens,
             ["messages"] = BuildMessages(request, promptContext, toolHistory, systemPrompt),
             ["tools"] = BuildTools(request.AllowedToolNames),
             ["tool_choice"] = "auto"
@@ -182,23 +184,6 @@ internal static class OpenAiCompatibleProtocol
         IReadOnlyList<AssistantToolCallResult> toolHistory,
         string systemPrompt)
     {
-        var toolHistorySection = toolHistory.Count == 0
-            ? "No native tool results have been recorded for this turn yet."
-            : string.Join(
-                Environment.NewLine + Environment.NewLine,
-                toolHistory.Select(static item =>
-                    $$"""
-Tool: {{item.Execution.ToolName}}
-Status: {{item.Execution.Status}}
-Approval: {{item.Execution.ApprovalState}}
-Arguments: {{item.ToolCall.ArgumentsJson}}
-Output:
-{{item.Execution.Output}}
-Error:
-{{item.Execution.ErrorMessage}}
-Changed files:
-                    {{string.Join(Environment.NewLine, item.Execution.ChangedFiles)}}
-"""));
         var projectSummarySection = BuildProjectSummarySection(promptContext.ProjectSummary);
 
         var userContent = $$"""
@@ -215,8 +200,8 @@ History highlights:
 Workspace context files:
 {{string.Join(Environment.NewLine + Environment.NewLine, promptContext.ContextFiles)}}
 
-Native tool loop history:
-{{toolHistorySection}}
+Native tool loop state:
+{{(toolHistory.Count == 0 ? "No native tool results have been recorded for this turn yet." : "Structured assistant/tool messages below contain the current native tool loop history.")}}
 
 Write a concise desktop assistant response for this session turn.
 Mention command or tool outcomes when relevant.
@@ -247,7 +232,69 @@ If approval is still needed, state that explicitly.
             ["content"] = userContent
         });
 
+        foreach (var toolResult in toolHistory)
+        {
+            messages.Add(new JsonObject
+            {
+                ["role"] = "assistant",
+                ["content"] = string.Empty,
+                ["tool_calls"] = new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["id"] = toolResult.ToolCall.Id,
+                        ["type"] = "function",
+                        ["function"] = new JsonObject
+                        {
+                            ["name"] = toolResult.ToolCall.ToolName,
+                            ["arguments"] = string.IsNullOrWhiteSpace(toolResult.ToolCall.ArgumentsJson)
+                                ? "{}"
+                                : toolResult.ToolCall.ArgumentsJson
+                        }
+                    }
+                }
+            });
+
+            messages.Add(new JsonObject
+            {
+                ["role"] = "tool",
+                ["tool_call_id"] = toolResult.ToolCall.Id,
+                ["content"] = BuildToolResultContent(toolResult)
+            });
+        }
+
         return messages;
+    }
+
+    private static string BuildToolResultContent(AssistantToolCallResult toolResult)
+    {
+        var output = string.IsNullOrWhiteSpace(toolResult.Execution.Output)
+            ? "(empty)"
+            : toolResult.Execution.Output.Trim();
+        var error = string.IsNullOrWhiteSpace(toolResult.Execution.ErrorMessage)
+            ? "(none)"
+            : toolResult.Execution.ErrorMessage.Trim();
+        var changedFiles = toolResult.Execution.ChangedFiles.Count == 0
+            ? "(none)"
+            : string.Join(Environment.NewLine, toolResult.Execution.ChangedFiles);
+        var pendingQuestions = toolResult.Execution.Questions.Count == 0
+            ? "(none)"
+            : string.Join(Environment.NewLine, toolResult.Execution.Questions.Select(static question => $"{question.Header}: {question.Question}"));
+
+        return $$"""
+Tool: {{toolResult.Execution.ToolName}}
+Status: {{toolResult.Execution.Status}}
+Approval: {{toolResult.Execution.ApprovalState}}
+Exit code: {{toolResult.Execution.ExitCode}}
+Output:
+{{output}}
+Error:
+{{error}}
+Changed files:
+{{changedFiles}}
+Pending questions:
+{{pendingQuestions}}
+""";
     }
 
     private static string BuildProjectSummarySection(ProjectSummarySnapshot? projectSummary)

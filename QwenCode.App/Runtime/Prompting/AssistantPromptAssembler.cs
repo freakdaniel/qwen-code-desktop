@@ -1,5 +1,6 @@
 using System.Text.Json;
 using QwenCode.App.Models;
+using QwenCode.App.Sessions;
 
 namespace QwenCode.App.Runtime;
 
@@ -15,20 +16,28 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
     private const int MaxImportDepth = 6;
     private static readonly string[] DefaultContextFileNames = ["QWEN.md", "AGENTS.md"];
     private readonly IProjectSummaryService _projectSummaryService;
+    private readonly ISessionService? _sessionService;
 
-    public AssistantPromptAssembler(IProjectSummaryService projectSummaryService)
+    public AssistantPromptAssembler(IProjectSummaryService projectSummaryService, ISessionService? sessionService = null)
     {
         _projectSummaryService = projectSummaryService;
+        _sessionService = sessionService;
     }
 
     public Task<AssistantPromptContext> AssembleAsync(
         AssistantTurnRequest request,
+        ResolvedTokenLimits? tokenLimits = null,
         CancellationToken cancellationToken = default)
     {
-        var transcriptMessages = ReadTranscriptMessages(request.TranscriptPath);
-        var contextFiles = ReadContextFiles(request.RuntimeProfile, request.WorkingDirectory);
+        var allTranscriptMessages = ReadTranscriptMessages(request);
+        var allContextFiles = ReadContextFiles(request.RuntimeProfile, request.WorkingDirectory);
+        var promptBudget = ResolveBudget(tokenLimits, request);
+        var transcriptMessages = TrimTranscriptMessages(allTranscriptMessages, promptBudget.TranscriptCharacterBudget);
+        var contextFiles = TrimContextFiles(allContextFiles, promptBudget.ContextCharacterBudget);
         var projectSummary = _projectSummaryService.Read(request.RuntimeProfile);
         var sessionSummary = BuildSessionSummary(request, transcriptMessages, contextFiles, projectSummary);
+        var trimmedTranscriptMessageCount = Math.Max(0, allTranscriptMessages.Count - transcriptMessages.Count);
+        var trimmedContextFileCount = Math.Max(0, allContextFiles.Count - contextFiles.Count);
 
         return Task.FromResult(new AssistantPromptContext
         {
@@ -39,12 +48,56 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
                 .Select(static item => $"{item.Role}: {Trim(item.Content, 120)}")
                 .ToArray(),
             ProjectSummary = projectSummary,
-            SessionSummary = sessionSummary
+            SessionSummary = $$"""
+{{sessionSummary}}
+Input token limit: {{promptBudget.InputTokenLimit}}
+Approximate input character budget: {{promptBudget.TotalCharacterBudget}}
+Prompt budget trimmed: {{(trimmedTranscriptMessageCount > 0 || trimmedContextFileCount > 0)}}
+Trimmed transcript messages: {{trimmedTranscriptMessageCount}}
+Trimmed context files: {{trimmedContextFileCount}}
+""",
+            WasBudgetTrimmed = trimmedTranscriptMessageCount > 0 || trimmedContextFileCount > 0,
+            InputTokenLimit = promptBudget.InputTokenLimit,
+            ApproximateInputCharacterBudget = promptBudget.TotalCharacterBudget,
+            TrimmedTranscriptMessageCount = trimmedTranscriptMessageCount,
+            TrimmedContextFileCount = trimmedContextFileCount
         });
     }
 
-    private static IReadOnlyList<AssistantConversationMessage> ReadTranscriptMessages(string transcriptPath)
+    private static PromptBudget ResolveBudget(ResolvedTokenLimits? tokenLimits, AssistantTurnRequest request)
     {
+        var inputTokenLimit = tokenLimits?.InputTokenLimit ?? 131_072;
+        var outputTokenLimit = tokenLimits?.OutputTokenLimit ?? 32_000;
+        const int approximateCharactersPerToken = 4;
+        const int reservedSystemAndMetadataTokens = 2_048;
+
+        var availableInputTokens = Math.Max(
+            1_024,
+            inputTokenLimit - Math.Min(outputTokenLimit, inputTokenLimit / 2) - reservedSystemAndMetadataTokens);
+        var totalCharacterBudget = availableInputTokens * approximateCharactersPerToken;
+        var promptAndSummaryEstimate = Math.Max(1_024, request.Prompt.Length + 1_500);
+        var remainderBudget = Math.Max(2_048, totalCharacterBudget - promptAndSummaryEstimate);
+
+        return new PromptBudget(
+            inputTokenLimit,
+            totalCharacterBudget,
+            Math.Max(768, (int)(remainderBudget * 0.55)),
+            Math.Max(768, (int)(remainderBudget * 0.45)));
+    }
+
+    private IReadOnlyList<AssistantConversationMessage> ReadTranscriptMessages(AssistantTurnRequest request)
+    {
+        var sessionConversation = _sessionService?.LoadConversation(
+            new WorkspacePaths { WorkspaceRoot = request.RuntimeProfile.ProjectRoot },
+            request.SessionId);
+        if (sessionConversation is not null && sessionConversation.ModelHistory.Count > 0)
+        {
+            return sessionConversation.ModelHistory
+                .TakeLast(Math.Min(MaxTranscriptMessages, sessionConversation.ModelHistory.Count))
+                .ToArray();
+        }
+
+        var transcriptPath = request.TranscriptPath;
         if (string.IsNullOrWhiteSpace(transcriptPath) || !File.Exists(transcriptPath))
         {
             return [];
@@ -126,6 +179,70 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
         }
 
         return results;
+    }
+
+    private static IReadOnlyList<AssistantConversationMessage> TrimTranscriptMessages(
+        IReadOnlyList<AssistantConversationMessage> messages,
+        int characterBudget)
+    {
+        if (messages.Count == 0)
+        {
+            return [];
+        }
+
+        var kept = new List<AssistantConversationMessage>();
+        var consumed = 0;
+        var perMessageBudget = Math.Max(240, characterBudget / Math.Max(1, Math.Min(messages.Count, MaxTranscriptMessages)));
+
+        foreach (var message in messages.TakeLast(MaxTranscriptMessages).Reverse())
+        {
+            var trimmedContent = Trim(message.Content, perMessageBudget);
+            var estimatedCost = message.Role.Length + trimmedContent.Length + 16;
+            if (kept.Count > 0 && consumed + estimatedCost > characterBudget)
+            {
+                break;
+            }
+
+            kept.Add(new AssistantConversationMessage
+            {
+                Role = message.Role,
+                Content = trimmedContent
+            });
+            consumed += estimatedCost;
+        }
+
+        kept.Reverse();
+        return kept;
+    }
+
+    private static IReadOnlyList<string> TrimContextFiles(IReadOnlyList<string> contextFiles, int characterBudget)
+    {
+        if (contextFiles.Count == 0)
+        {
+            return [];
+        }
+
+        var kept = new List<string>();
+        var consumed = 0;
+        foreach (var contextFile in contextFiles)
+        {
+            var remainingBudget = Math.Max(256, characterBudget - consumed);
+            if (remainingBudget <= 256 && kept.Count > 0)
+            {
+                break;
+            }
+
+            var trimmed = Trim(contextFile, remainingBudget);
+            if (kept.Count > 0 && consumed + trimmed.Length > characterBudget)
+            {
+                break;
+            }
+
+            kept.Add(trimmed);
+            consumed += trimmed.Length;
+        }
+
+        return kept;
     }
 
     private static IReadOnlyList<string> DiscoverContextFilePaths(QwenRuntimeProfile runtimeProfile, string workingDirectory)
@@ -355,4 +472,10 @@ Approval resolution: {{request.IsApprovalResolution}}
 
     private static string Trim(string value, int maxLength) =>
         value.Length <= maxLength ? value : $"{value[..maxLength]}...";
+
+    private sealed record PromptBudget(
+        int InputTokenLimit,
+        int TotalCharacterBudget,
+        int TranscriptCharacterBudget,
+        int ContextCharacterBudget);
 }

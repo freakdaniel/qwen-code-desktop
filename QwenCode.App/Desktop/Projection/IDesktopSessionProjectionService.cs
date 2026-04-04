@@ -10,6 +10,8 @@ public interface IDesktopSessionProjectionService
 
     Task<DesktopSessionDetail?> GetSessionAsync(GetDesktopSessionRequest request);
 
+    Task<RemoveDesktopSessionResult> RemoveSessionAsync(RemoveDesktopSessionRequest request);
+
     Task<NativeToolExecutionResult> ExecuteNativeToolAsync(ExecuteNativeToolRequest request);
 
     Task<DesktopSessionTurnResult> StartSessionTurnAsync(StartDesktopSessionTurnRequest request);

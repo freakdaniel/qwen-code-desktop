@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -24,11 +23,13 @@ public sealed class NativeToolHostService(
     ILspToolService? lspToolService = null,
     ISkillToolService? skillToolService = null,
     ISubagentCoordinator? subagentCoordinator = null,
-    IHookLifecycleService? hookLifecycleService = null) : IToolExecutor
+    IHookLifecycleService? hookLifecycleService = null,
+    IShellExecutionService? shellExecutionService = null) : IToolExecutor
 {
     private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", ".electron", "dist"];
     private readonly ISubagentCoordinator agents = subagentCoordinator ?? CreateFallbackSubagentCoordinator(runtimeProfileService, approvalPolicyService);
     private readonly ICronScheduler cron = cronScheduler ?? new InMemoryCronScheduler();
+    private readonly IShellExecutionService shell = shellExecutionService ?? new ShellExecutionService();
     private readonly IWebToolService webTools = webToolService ?? new WebToolService(new DefaultDesktopEnvironmentPaths());
     private readonly IUserQuestionToolService userQuestions = userQuestionToolService ?? new UserQuestionToolService();
     private readonly IMcpToolRuntime? mcpTools = mcpToolRuntime;
@@ -677,7 +678,7 @@ public sealed class NativeToolHostService(
         return Success("grep_search", approvalState, searchRoot, string.Join(Environment.NewLine, results), []);
     }
 
-    private static async Task<NativeToolExecutionResult> ExecuteShellAsync(
+    private async Task<NativeToolExecutionResult> ExecuteShellAsync(
         QwenRuntimeProfile runtimeProfile,
         JsonElement arguments,
         string approvalState,
@@ -696,35 +697,29 @@ public sealed class NativeToolHostService(
             return Error("run_shell_command", "Working directory does not exist.", runtimeProfile.ProjectRoot, approvalState);
         }
 
-        var processStartInfo = OperatingSystem.IsWindows()
-            ? new ProcessStartInfo("cmd.exe", $"/c {command}")
-            : new ProcessStartInfo("/bin/bash", $"-lc \"{command.Replace("\"", "\\\"", StringComparison.Ordinal)}\"");
-        processStartInfo.WorkingDirectory = workingDirectory;
-        processStartInfo.RedirectStandardOutput = true;
-        processStartInfo.RedirectStandardError = true;
-        processStartInfo.UseShellExecute = false;
-        processStartInfo.CreateNoWindow = true;
-
-        using var process = new Process { StartInfo = processStartInfo };
-        process.Start();
-
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
+        var shellResult = await shell.ExecuteAsync(
+            new ShellCommandRequest
+            {
+                Command = command,
+                WorkingDirectory = workingDirectory
+            },
+            cancellationToken);
 
         return new NativeToolExecutionResult
         {
             ToolName = "run_shell_command",
-            Status = process.ExitCode == 0 ? "completed" : "error",
+            Status = shellResult.Cancelled
+                ? "cancelled"
+                : shellResult.TimedOut
+                    ? "timeout"
+                    : shellResult.ExitCode == 0
+                        ? "completed"
+                        : "error",
             ApprovalState = approvalState,
             WorkingDirectory = workingDirectory,
-            Output = string.IsNullOrWhiteSpace(stderr)
-                ? stdout
-                : $"{stdout}{Environment.NewLine}{stderr}".Trim(),
-            ErrorMessage = process.ExitCode == 0 ? string.Empty : "Shell command exited with a non-zero status.",
-            ExitCode = process.ExitCode,
+            Output = shellResult.Output,
+            ErrorMessage = shellResult.ErrorMessage,
+            ExitCode = shellResult.ExitCode,
             ChangedFiles = []
         };
     }

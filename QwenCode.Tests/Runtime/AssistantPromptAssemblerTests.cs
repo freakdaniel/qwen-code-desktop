@@ -233,4 +233,174 @@ public sealed class AssistantPromptAssemblerTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task AssistantPromptAssembler_AssembleAsync_UsesSessionServiceCompressionAwareHistory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-compressed-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var runtimeRoot = Path.Combine(root, "runtime");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            var chatsRoot = runtimeProfile.ChatsDirectory;
+            Directory.CreateDirectory(chatsRoot);
+
+            var transcriptPath = Path.Combine(chatsRoot, "session-2.jsonl");
+            File.WriteAllLines(
+                transcriptPath,
+                [
+                    """{"uuid":"1","sessionId":"session-2","timestamp":"2026-04-03T10:00:00Z","type":"user","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"parts":[{"text":"Older request"}]}}""",
+                    """{"uuid":"2","sessionId":"session-2","timestamp":"2026-04-03T10:02:00Z","type":"assistant","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"parts":[{"text":"Older answer"}]}}""",
+                    """{"uuid":"3","sessionId":"session-2","timestamp":"2026-04-03T10:05:00Z","type":"system","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","status":"chat-compression","messageText":"Compression checkpoint: summarized earlier transcript entries."}""",
+                    """{"uuid":"4","sessionId":"session-2","timestamp":"2026-04-03T10:06:00Z","type":"user","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"parts":[{"text":"Most recent user request"}]}}""",
+                    """{"uuid":"5","sessionId":"session-2","timestamp":"2026-04-03T10:07:00Z","type":"assistant","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"parts":[{"text":"Most recent assistant answer"}]}}"""
+                ]);
+
+            var sessionService = new DesktopSessionCatalogService(
+                runtimeProfileService,
+                new ChatRecordingService());
+            var assembler = new AssistantPromptAssembler(new ProjectSummaryService(), sessionService);
+
+            var promptContext = await assembler.AssembleAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "session-2",
+                    Prompt = "Resume work",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = transcriptPath,
+                    RuntimeProfile = runtimeProfile,
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                });
+
+            Assert.Equal(3, promptContext.Messages.Count);
+            Assert.Equal("system", promptContext.Messages[0].Role);
+            Assert.Contains("Compression checkpoint", promptContext.Messages[0].Content);
+            Assert.Equal("user", promptContext.Messages[1].Role);
+            Assert.Contains("Most recent user request", promptContext.Messages[1].Content);
+            Assert.Equal("assistant", promptContext.Messages[2].Role);
+            Assert.Contains("Most recent assistant answer", promptContext.Messages[2].Content);
+            Assert.Contains("Transcript messages loaded: 3", promptContext.SessionSummary);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AssistantPromptAssembler_AssembleAsync_TrimsContextToFitResolvedInputBudget()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-budget-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var runtimeRoot = Path.Combine(root, "runtime");
+            var homeRoot = Path.Combine(root, "home");
+            var chatsRoot = Path.Combine(runtimeRoot, "projects", "project-a", "chats");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(chatsRoot);
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+
+            var transcriptPath = Path.Combine(chatsRoot, "session-budget.jsonl");
+            File.WriteAllLines(
+                transcriptPath,
+                Enumerable.Range(1, 12)
+                    .Select(index => $"{{\"uuid\":\"{index}\",\"sessionId\":\"session-budget\",\"type\":\"user\",\"message\":{{\"parts\":[{{\"text\":\"{new string('x', 220)} {index}\"}}]}}}}"));
+
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "QWEN.md"),
+                new string('g', 2400));
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, "QWEN.md"),
+                new string('p', 2400));
+
+            var assembler = new AssistantPromptAssembler(new ProjectSummaryService());
+            var promptContext = await assembler.AssembleAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "session-budget",
+                    Prompt = "Budget sensitive prompt",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = transcriptPath,
+                    RuntimeProfile = new QwenRuntimeProfile
+                    {
+                        ProjectRoot = workspaceRoot,
+                        GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+                        RuntimeBaseDirectory = runtimeRoot,
+                        RuntimeSource = "test",
+                        ProjectDataDirectory = Path.Combine(runtimeRoot, "projects", "project-a"),
+                        ChatsDirectory = chatsRoot,
+                        HistoryDirectory = Path.Combine(runtimeRoot, "history", "project-a"),
+                        ContextFileNames = ["QWEN.md"],
+                        ContextFilePaths = [],
+                        FolderTrustEnabled = true,
+                        IsWorkspaceTrusted = true,
+                        WorkspaceTrustSource = "file",
+                        ApprovalProfile = new ApprovalProfile
+                        {
+                            DefaultMode = "default",
+                            ConfirmShellCommands = true,
+                            ConfirmFileEdits = true,
+                            AllowRules = [],
+                            AskRules = [],
+                            DenyRules = []
+                        }
+                    },
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                },
+                new ResolvedTokenLimits
+                {
+                    Model = "tiny-budget-model",
+                    NormalizedModel = "tiny-budget-model",
+                    InputTokenLimit = 1024,
+                    OutputTokenLimit = 512,
+                    HasExplicitOutputLimit = true
+                });
+
+            Assert.True(promptContext.WasBudgetTrimmed);
+            Assert.True(promptContext.TrimmedTranscriptMessageCount > 0 || promptContext.TrimmedContextFileCount > 0);
+            Assert.True(promptContext.Messages.Count < 12 || promptContext.ContextFiles.Count < 2);
+            Assert.Contains("Prompt budget trimmed: True", promptContext.SessionSummary);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

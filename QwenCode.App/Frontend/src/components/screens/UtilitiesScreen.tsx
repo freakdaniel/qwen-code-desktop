@@ -36,9 +36,13 @@ interface UtilitiesScreenProps {
   loadingSettingsName: string
   savingSettingKey: string
   isCreatingManagedWorktree: boolean
+  isCreatingGitCheckpoint: boolean
+  restoringGitCheckpointHash: string
   cleaningManagedSessionId: string
   pairingsByChannel: Record<string, ChannelPairingSnapshot>
   settingsByExtension: Record<string, ExtensionSettingsSnapshot>
+  onCreateGitCheckpoint: (message: string) => Promise<void> | void
+  onRestoreGitCheckpoint: (commitHash: string) => Promise<void> | void
   onCreateManagedWorktree: (request: {
     sessionId: string
     name: string
@@ -102,6 +106,10 @@ interface WorktreeFormState {
   baseBranch: string
 }
 
+interface CheckpointFormState {
+  message: string
+}
+
 const DEFAULT_EXTENSION_FORM: ExtensionFormState = {
   sourcePath: '',
   installMode: 'link',
@@ -111,6 +119,10 @@ const DEFAULT_WORKTREE_FORM: WorktreeFormState = {
   sessionId: '',
   name: '',
   baseBranch: '',
+}
+
+const DEFAULT_CHECKPOINT_FORM: CheckpointFormState = {
+  message: '',
 }
 
 function statusTone(status: string) {
@@ -157,9 +169,13 @@ export function UtilitiesScreen({
   loadingSettingsName,
   savingSettingKey,
   isCreatingManagedWorktree,
+  isCreatingGitCheckpoint,
+  restoringGitCheckpointHash,
   cleaningManagedSessionId,
   pairingsByChannel,
   settingsByExtension,
+  onCreateGitCheckpoint,
+  onRestoreGitCheckpoint,
   onCreateManagedWorktree,
   onCleanupManagedSession,
   onLoadChannelPairings,
@@ -179,12 +195,14 @@ export function UtilitiesScreen({
   const [extensionForm, setExtensionForm] = useState<ExtensionFormState>(DEFAULT_EXTENSION_FORM)
   const [showWorktreeForm, setShowWorktreeForm] = useState(false)
   const [worktreeForm, setWorktreeForm] = useState<WorktreeFormState>(DEFAULT_WORKTREE_FORM)
+  const [checkpointForm, setCheckpointForm] = useState<CheckpointFormState>(DEFAULT_CHECKPOINT_FORM)
   const [settingDrafts, setSettingDrafts] = useState<Record<string, string>>({})
 
   const connectedCount = mcpServers.filter((server) => server.status === 'connected').length
   const activeExtensionCount = extensions.filter((extension) => extension.isActive).length
   const runningChannelCount = channels.filter((channel) => channel.status === 'running').length
   const managedWorktreeCount = workspaceSnapshot.git.worktrees.filter((item) => item.isManaged).length
+  const recentCheckpoints = workspaceSnapshot.git.history.recentCheckpoints
   const managedSessionIds = Array.from(
     new Set(
       workspaceSnapshot.git.worktrees
@@ -237,6 +255,15 @@ export function UtilitiesScreen({
 
     setWorktreeForm(DEFAULT_WORKTREE_FORM)
     setShowWorktreeForm(false)
+  }
+
+  const handleCreateCheckpointSubmit = async () => {
+    if (isCreatingGitCheckpoint) {
+      return
+    }
+
+    await onCreateGitCheckpoint(checkpointForm.message)
+    setCheckpointForm(DEFAULT_CHECKPOINT_FORM)
   }
 
   const getDraftValue = (
@@ -336,7 +363,7 @@ export function UtilitiesScreen({
                       : 'Git is not available in the desktop runtime'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-2 md:grid-cols-4">
+              <CardContent className="grid gap-2 md:grid-cols-6">
                 <div className="rounded-lg border border-[--app-border] bg-[--app-bg] p-3 text-sm">
                   <p className="text-xs text-[--app-muted]">Git status</p>
                   <p className="mt-1 text-[--app-text]">
@@ -359,10 +386,28 @@ export function UtilitiesScreen({
                   <p className="text-xs text-[--app-muted]">Managed worktrees</p>
                   <p className="mt-1 text-[--app-text]">{managedWorktreeCount}</p>
                 </div>
+                <div className="rounded-lg border border-[--app-border] bg-[--app-bg] p-3 text-sm">
+                  <p className="text-xs text-[--app-muted]">History store</p>
+                  <p className="mt-1 text-[--app-text]">
+                    {workspaceSnapshot.git.history.isInitialized ? 'initialized' : 'not initialized'}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-[--app-border] bg-[--app-bg] p-3 text-sm">
+                  <p className="text-xs text-[--app-muted]">Checkpoints</p>
+                  <p className="mt-1 text-[--app-text]">{workspaceSnapshot.git.history.checkpointCount}</p>
+                </div>
               </CardContent>
             </Card>
 
             <div className="flex flex-wrap gap-2">
+              <Button
+                className="bg-[--app-text] text-[--app-bg] hover:opacity-90"
+                onClick={handleCreateCheckpointSubmit}
+                disabled={isCreatingGitCheckpoint || !workspaceSnapshot.git.isRepository}
+              >
+                {isCreatingGitCheckpoint && <Loader2 size={14} className="mr-1.5 animate-spin" />}
+                Create checkpoint
+              </Button>
               <Button
                 className="bg-orange-500 text-white hover:bg-orange-600"
                 onClick={() => setShowWorktreeForm((value) => !value)}
@@ -475,7 +520,78 @@ export function UtilitiesScreen({
                 </CardContent>
               </Card>
 
-              <Card className="border-[--app-border] bg-[--app-panel]">
+              <div className="flex flex-col gap-4">
+                <Card className="border-[--app-border] bg-[--app-panel]">
+                  <CardHeader>
+                    <CardTitle>Checkpoint history</CardTitle>
+                    <CardDescription>
+                      Shadow git history stored under <code>{workspaceSnapshot.git.history.historyDirectory}</code>.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3">
+                    <label className="flex flex-col gap-1.5 text-xs text-[--app-muted]">
+                      <span>Checkpoint message</span>
+                      <Input
+                        value={checkpointForm.message}
+                        onChange={(event) =>
+                          setCheckpointForm({ message: event.target.value })
+                        }
+                        placeholder="Optional message for the next checkpoint"
+                        className="border-[--app-border] bg-[--app-bg] text-[--app-text]"
+                      />
+                    </label>
+
+                    {recentCheckpoints.length === 0 && (
+                      <div className="rounded-lg border border-dashed border-[--app-border] bg-[--app-bg] p-4 text-sm text-[--app-muted]">
+                        No checkpoints recorded yet.
+                      </div>
+                    )}
+
+                    {recentCheckpoints.map((checkpoint) => (
+                      <div
+                        key={checkpoint.commitHash}
+                        className="rounded-lg border border-[--app-border] bg-[--app-bg] p-3 text-sm"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="border-[--app-border] text-[--app-muted]">
+                            {checkpoint.commitHash.slice(0, 8)}
+                          </Badge>
+                          {checkpoint.commitHash === workspaceSnapshot.git.history.currentCheckpoint && (
+                            <Badge variant="outline" className="border-emerald-500/40 text-emerald-400">
+                              current
+                            </Badge>
+                          )}
+                          <span className="text-xs text-[--app-muted]">{checkpoint.createdAt}</span>
+                        </div>
+                        <p className="mt-2 text-[--app-text]">{checkpoint.message}</p>
+                        <div className="mt-3 flex justify-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              !!restoringGitCheckpointHash ||
+                              checkpoint.commitHash === workspaceSnapshot.git.history.currentCheckpoint
+                            }
+                            className="border-[--app-border] bg-transparent"
+                            onClick={() => onRestoreGitCheckpoint(checkpoint.commitHash)}
+                          >
+                            {restoringGitCheckpointHash === checkpoint.commitHash ? (
+                              <>
+                                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                                Restoring...
+                              </>
+                            ) : (
+                              'Restore workspace'
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Card className="border-[--app-border] bg-[--app-panel]">
                 <CardHeader>
                   <CardTitle>File discovery</CardTitle>
                   <CardDescription>
@@ -529,7 +645,8 @@ export function UtilitiesScreen({
                     </div>
                   )}
                 </CardContent>
-              </Card>
+                </Card>
+              </div>
             </div>
 
             <Card className="border-[--app-border] bg-[--app-panel]">

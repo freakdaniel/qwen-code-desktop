@@ -20,7 +20,8 @@ public sealed class SessionHostCancellationTests
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var approvalPolicyService = new ApprovalPolicyService();
-            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
+            var chatRecordingService = new ChatRecordingService();
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, chatRecordingService);
             var interruptedTurnStore = new InterruptedTurnStore();
             var sessionHost = new DesktopSessionHostService(
                 runtimeProfileService,
@@ -31,6 +32,7 @@ public sealed class SessionHostCancellationTests
                     new ToolCatalogService(runtimeProfileService, approvalPolicyService)),
                 CreateAssistantTurnRuntime(new CancellableAssistantResponseProvider()),
                 new ChatCompressionService(),
+                chatRecordingService,
                 new NativeToolHostService(runtimeProfileService, approvalPolicyService),
                 new PassthroughHookLifecycleService(),
                 new UserQuestionToolService(),
@@ -116,3 +118,5 @@ public sealed class SessionHostCancellationTests
             Task.FromResult(new HookLifecycleResult());
     }
 }
+
+

@@ -31,6 +31,7 @@ export function useSession({
   const [isLoadingSession, setIsLoadingSession] = useState(false)
   const [latestTurn, setLatestTurn] = useState<DesktopSessionTurnResult | null>(null)
   const [isSubmittingPrompt, setIsSubmittingPrompt] = useState(false)
+  const [isRemovingSession, setIsRemovingSession] = useState(false)
   const [approvingEntryId, setApprovingEntryId] = useState('')
   const [answeringEntryId, setAnsweringEntryId] = useState('')
   const [recoveringSessionId, setRecoveringSessionId] = useState('')
@@ -114,6 +115,29 @@ export function useSession({
     setSelectedSessionDetail(null)
   }
 
+  const handleRemoveSession = async () => {
+    if (!selectedSessionId || !window.qwenDesktop || isRemovingSession || isSubmittingPrompt) return
+    if (!window.confirm('Remove this session from the local qwen transcript store?')) return
+
+    setIsRemovingSession(true)
+    try {
+      const result = await window.qwenDesktop.removeSession({ sessionId: selectedSessionId })
+      if (!result.removed) return
+
+      const nextSelectedSessionId = result.recentSessions[0]?.sessionId ?? ''
+      setBootstrap((current) => ({
+        ...current,
+        recentSessions: result.recentSessions,
+      }))
+      setSelectedSessionId(nextSelectedSessionId)
+      if (!nextSelectedSessionId) {
+        setSelectedSessionDetail(null)
+      }
+    } finally {
+      setIsRemovingSession(false)
+    }
+  }
+
   const handleSubmitNewTurn = async (prompt: string, sessionId: string) => {
     const trimmed = prompt.trim()
     if (!trimmed || isSubmittingPrompt) return
@@ -123,7 +147,9 @@ export function useSession({
         const preview: SessionPreview = {
           sessionId: sessionId || `preview-${Date.now()}`,
           title: trimmed.length > 120 ? `${trimmed.slice(0, 120)}...` : trimmed,
-          lastActivity: 'just now',
+          lastActivity: new Date().toISOString(),
+          startedAt: new Date().toISOString(),
+          lastUpdatedAt: new Date().toISOString(),
           category: 'code',
           mode: 'code',
           status: 'resume-ready',
@@ -131,6 +157,7 @@ export function useSession({
           gitBranch: 'main',
           messageCount: 2,
           transcriptPath: `${bootstrap.workspaceRoot}/.qwen/chats/preview.jsonl`,
+          metadataPath: `${bootstrap.workspaceRoot}/.qwen/chats/preview.meta.json`,
         }
         applyTurnResult({
           session: preview,
@@ -258,10 +285,12 @@ export function useSession({
     isLoadingSession,
     latestTurn,
     isSubmittingPrompt,
+    isRemovingSession,
     approvingEntryId,
     answeringEntryId,
     handleSelectSession,
     handleStartNewChat,
+    handleRemoveSession,
     handleSubmitNewTurn,
     handleCancelTurn,
     handleApprovePendingTool,

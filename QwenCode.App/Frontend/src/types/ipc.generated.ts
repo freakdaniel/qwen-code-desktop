@@ -182,6 +182,10 @@ export interface ConfigureQwenOAuthRequest {
   expiresAtUtc: string | null;
 }
 
+export interface CreateGitCheckpointRequest {
+  message: string;
+}
+
 export interface CreateManagedWorktreeRequest {
   sessionId: string;
   name: string;
@@ -385,6 +389,20 @@ export interface GetExtensionSettingsRequest {
   name: string;
 }
 
+export interface GitCheckpointSnapshot {
+  commitHash: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface GitHistorySnapshot {
+  isInitialized: boolean;
+  historyDirectory: string;
+  checkpointCount: number;
+  currentCheckpoint: string;
+  recentCheckpoints: GitCheckpointSnapshot[];
+}
+
 export interface GitRepositorySnapshot {
   isGitAvailable: boolean;
   isRepository: boolean;
@@ -396,6 +414,7 @@ export interface GitRepositorySnapshot {
   managedSessionCount: number;
   managedWorktreesRoot: string;
   worktrees: GitWorktreeEntry[];
+  history: GitHistorySnapshot;
 }
 
 export interface GitWorktreeEntry {
@@ -607,6 +626,16 @@ export interface RecoverableTurnState {
   toolName: string;
 }
 
+export interface RemoveDesktopSessionRequest {
+  sessionId: string;
+}
+
+export interface RemoveDesktopSessionResult {
+  removed: boolean;
+  sessionId: string;
+  recentSessions: SessionPreview[];
+}
+
 export interface RemoveExtensionRequest {
   name: string;
 }
@@ -630,6 +659,10 @@ export interface ResolvedCommand {
   resolvedPrompt: string;
 }
 
+export interface RestoreGitCheckpointRequest {
+  commitHash: string;
+}
+
 export interface ResumeInterruptedTurnRequest {
   sessionId: string;
   recoveryNote: string;
@@ -639,6 +672,8 @@ export interface SessionPreview {
   sessionId: string;
   title: string;
   lastActivity: string;
+  startedAt: string;
+  lastUpdatedAt: string;
   category: string;
   mode: DesktopMode;
   status: string;
@@ -646,6 +681,7 @@ export interface SessionPreview {
   gitBranch: string;
   messageCount: number;
   transcriptPath: string;
+  metadataPath: string;
 }
 
 export interface SetExtensionEnabledRequest {
@@ -730,12 +766,15 @@ export interface QwenDesktopBridge {
   subscribeSessionEvents(callback: (payload: DesktopSessionEvent) => void): () => void;
   getSession(request: GetDesktopSessionRequest): Promise<DesktopSessionDetail>;
   getActiveTurns(): Promise<ActiveTurnState[]>;
+  removeSession(request: RemoveDesktopSessionRequest): Promise<RemoveDesktopSessionResult>;
   resumeInterruptedTurn(request: ResumeInterruptedTurnRequest): Promise<DesktopSessionTurnResult>;
   startSessionTurn(request: StartDesktopSessionTurnRequest): Promise<DesktopSessionTurnResult>;
   executeNativeTool(request: ExecuteNativeToolRequest): Promise<NativeToolExecutionResult>;
   cleanupManagedSession(request: CleanupManagedWorktreeSessionRequest): Promise<WorkspaceSnapshot>;
+  createGitCheckpoint(request: CreateGitCheckpointRequest): Promise<WorkspaceSnapshot>;
   createManagedWorktree(request: CreateManagedWorktreeRequest): Promise<WorkspaceSnapshot>;
   getWorkspaceSnapshot(): Promise<WorkspaceSnapshot>;
+  restoreGitCheckpoint(request: RestoreGitCheckpointRequest): Promise<WorkspaceSnapshot>;
 }
 
 export const qwenDesktopChannels = {
@@ -767,10 +806,13 @@ export const qwenDesktopChannels = {
   subscribeSessionEvents: 'qwen-desktop:sessions:event',
   getSession: 'qwen-desktop:sessions:get',
   getActiveTurns: 'qwen-desktop:sessions:get-active-turns',
+  removeSession: 'qwen-desktop:sessions:remove',
   resumeInterruptedTurn: 'qwen-desktop:sessions:resume-interrupted',
   startSessionTurn: 'qwen-desktop:sessions:start-turn',
   executeNativeTool: 'qwen-desktop:tools:execute-native',
   cleanupManagedSession: 'qwen-desktop:workspace:cleanup-managed-session',
+  createGitCheckpoint: 'qwen-desktop:workspace:create-git-checkpoint',
   createManagedWorktree: 'qwen-desktop:workspace:create-managed-worktree',
   getWorkspaceSnapshot: 'qwen-desktop:workspace:get',
+  restoreGitCheckpoint: 'qwen-desktop:workspace:restore-git-checkpoint',
 } as const

@@ -11,12 +11,14 @@ interface ChatViewProps {
   isActive: boolean
   isLoadingSession: boolean
   isSubmittingPrompt: boolean
+  isRemovingSession: boolean
   approvingEntryId: string
   answeringEntryId: string
   latestSessionEvent: DesktopSessionEvent | null
   mode: AgentMode
   onModeChange: (mode: AgentMode) => void
   onCancel: () => void
+  onRemoveSession: () => void
   onSubmit: (prompt: string, sessionId: string) => void
   onApprove: (entryId: string) => void
   onAnswer: (entryId: string, answers: DesktopQuestionAnswer[]) => void
@@ -53,12 +55,14 @@ export function ChatView({
   isActive,
   isLoadingSession,
   isSubmittingPrompt,
+  isRemovingSession,
   approvingEntryId,
   answeringEntryId,
   latestSessionEvent,
   mode,
   onModeChange,
   onCancel,
+  onRemoveSession,
   onSubmit,
   onApprove,
   onAnswer,
@@ -71,7 +75,13 @@ export function ChatView({
 
   return (
     <div className="flex h-full flex-col bg-[--app-bg]">
-      <ChatHeader session={detail.session} isActive={isActive} onCancel={onCancel} />
+      <ChatHeader
+        session={detail.session}
+        isActive={isActive}
+        isRemoving={isRemovingSession}
+        onCancel={onCancel}
+        onRemove={onRemoveSession}
+      />
 
       <div className="mx-auto flex h-full w-full max-w-5xl min-h-0 flex-col">
         {statusText && (

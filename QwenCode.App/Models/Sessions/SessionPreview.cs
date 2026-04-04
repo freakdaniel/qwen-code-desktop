@@ -10,6 +10,10 @@ public sealed class SessionPreview
 
     public required string LastActivity { get; init; }
 
+    public required string StartedAt { get; init; }
+
+    public required string LastUpdatedAt { get; init; }
+
     public required string Category { get; init; }
 
     public required DesktopMode Mode { get; init; }
@@ -23,4 +27,6 @@ public sealed class SessionPreview
     public int MessageCount { get; init; }
 
     public required string TranscriptPath { get; init; }
+
+    public required string MetadataPath { get; init; }
 }

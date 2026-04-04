@@ -106,6 +106,7 @@ public sealed class DesktopProjectionServiceTests
             var settingsResolver = new DesktopSettingsResolver(
                 compatibilityService,
                 runtimeProfileService);
+            var gitHistoryService = new GitHistoryService(new GitCliService(), runtimeProfileService);
             var authFlowService = new AuthFlowService(
                 runtimeProfileService,
                 environmentPaths,
@@ -131,7 +132,8 @@ public sealed class DesktopProjectionServiceTests
             var mcpConnectionManager = new McpConnectionManagerService(
                 mcpRegistry,
                 new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
-            var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
+            var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
+            var sessionService = (ISessionService)transcriptStore;
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
             Directory.CreateDirectory(runtimeProfile.ChatsDirectory);
 
@@ -181,7 +183,8 @@ public sealed class DesktopProjectionServiceTests
                     shellOptions,
                     workspacePathResolver,
                     workspaceInspectionService,
-                    new GitWorktreeService(new GitCliService(), runtimeProfileService)),
+                    new GitWorktreeService(new GitCliService(), runtimeProfileService, gitHistoryService),
+                    gitHistoryService),
                 new McpProjectionService(
                     shellOptions,
                     workspacePathResolver,
@@ -195,6 +198,7 @@ public sealed class DesktopProjectionServiceTests
                     shellOptions,
                     workspacePathResolver,
                     transcriptStore,
+                    sessionService,
                     toolExecutor,
                     CreateSessionHost(
                         runtimeProfileService,
@@ -267,3 +271,4 @@ public sealed class DesktopProjectionServiceTests
 
 
 }
+
