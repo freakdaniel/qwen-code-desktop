@@ -154,11 +154,25 @@ public sealed class RuntimeParityHarnessTests
             var extensionCatalog = new ExtensionCatalogService(runtimeProfileService, environmentPaths);
             var registry = new ChannelRegistryService(environmentPaths, settingsResolver, extensionCatalog);
             var host = new RecordingParitySessionHost();
+            var router = new ChannelSessionRouterService(environmentPaths);
+            var adapters = new IChannelAdapter[]
+            {
+                new TelegramChannelAdapter(new HttpClient()),
+                new WeixinChannelAdapter(new HttpClient(), environmentPaths),
+                new DingtalkChannelAdapter(new HttpClient())
+            };
+            var deliveryService = new ChannelDeliveryService(
+                host,
+                registry,
+                router,
+                adapters,
+                environmentPaths);
             var runtime = new ChannelRuntimeService(
                 registry,
-                [new TelegramChannelAdapter(), new WeixinChannelAdapter(), new DingtalkChannelAdapter()],
-                new ChannelSessionRouterService(environmentPaths),
+                adapters,
+                router,
                 environmentPaths,
+                deliveryService,
                 host);
 
             var configuration = registry.GetRuntimeConfiguration(new WorkspacePaths { WorkspaceRoot = workspaceRoot }, "ops");
@@ -185,6 +199,105 @@ public sealed class RuntimeParityHarnessTests
             Assert.Contains("Follow channel-safe tone", host.LastPrompt, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("Embedded image attached", host.LastPrompt, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("notes.txt", host.LastPrompt, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ChannelsHarness_Runtime_ReplaysQueuedOutboxEntriesOnStart()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-parity-channel-replay-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "channels": {
+                    "ops": {
+                      "type": "telegram",
+                      "senderPolicy": "open",
+                      "sessionScope": "user",
+                      "cwd": ".",
+                      "token": "telegram-token"
+                    }
+                  }
+                }
+                """);
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
+            var compatibilityService = new QwenCompatibilityService(environmentPaths);
+            var settingsResolver = new DesktopSettingsResolver(compatibilityService, runtimeProfileService);
+            var extensionCatalog = new ExtensionCatalogService(runtimeProfileService, environmentPaths);
+            var registry = new ChannelRegistryService(environmentPaths, settingsResolver, extensionCatalog);
+            var router = new ChannelSessionRouterService(environmentPaths);
+            var route = await router.ResolveAsync("ops", "user", "user-1", "chat-1", string.Empty, string.Empty, workspaceRoot);
+            var outboxRoot = Path.Combine(homeRoot, ".qwen", "channels", "outbox");
+            Directory.CreateDirectory(outboxRoot);
+            var replayRecord = new
+            {
+                channelName = "ops",
+                sessionId = route.SessionId,
+                chatId = "chat-1",
+                senderId = "user-1",
+                kind = "message",
+                text = "replay me",
+                toolName = string.Empty,
+                commandName = string.Empty,
+                timestampUtc = DateTime.UtcNow,
+                deliveryStatus = "queued",
+                payload = new
+                {
+                    channel = "ops",
+                    chatId = "chat-1",
+                    senderId = "user-1",
+                    sessionId = route.SessionId,
+                    threadId = string.Empty,
+                    replyAddress = string.Empty,
+                    workingDirectory = workspaceRoot,
+                    kind = "message",
+                    text = "replay me",
+                    toolName = string.Empty,
+                    commandName = string.Empty
+                }
+            };
+            File.WriteAllText(
+                Path.Combine(outboxRoot, "ops.jsonl"),
+                JsonSerializer.Serialize(replayRecord) + Environment.NewLine);
+
+            var handler = new RecordingHttpMessageHandler((_, _) =>
+                Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}", Encoding.UTF8, "application/json")
+                }));
+            var adapters = new IChannelAdapter[]
+            {
+                new TelegramChannelAdapter(new HttpClient(handler)),
+                new WeixinChannelAdapter(new HttpClient(handler), environmentPaths),
+                new DingtalkChannelAdapter(new HttpClient(handler))
+            };
+            var host = new RecordingParitySessionHost();
+            var deliveryService = new ChannelDeliveryService(host, registry, router, adapters, environmentPaths);
+            var runtime = new ChannelRuntimeService(registry, adapters, router, environmentPaths, deliveryService, host);
+
+            _ = await runtime.StartAsync(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            Assert.Single(handler.RequestBodies);
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(outboxRoot, "ops.jsonl")));
+            Assert.Equal("delivered", document.RootElement.GetProperty("deliveryStatus").GetString());
         }
         finally
         {
@@ -347,6 +460,19 @@ public sealed class RuntimeParityHarnessTests
     private sealed class AlwaysAliveProcessProbe : IIdeProcessProbe
     {
         public bool Exists(int processId) => true;
+    }
+
+    private sealed class RecordingHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> responder)
+        : HttpMessageHandler
+    {
+        public List<string> RequestBodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
+            RequestBodies.Add(body);
+            return await responder(request, cancellationToken);
+        }
     }
 
     private sealed class NoOpIdeCommandRunner : IIdeCommandRunner

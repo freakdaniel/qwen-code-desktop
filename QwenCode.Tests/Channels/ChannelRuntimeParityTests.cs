@@ -220,12 +220,26 @@ public sealed class ChannelRuntimeParityTests
         var extensionCatalog = new ExtensionCatalogService(runtimeProfileService, environmentPaths);
         var registry = new ChannelRegistryService(environmentPaths, settingsResolver, extensionCatalog);
         var sessionHost = TestServiceFactory.CreateSessionHost(runtimeProfileService, compatibilityService);
+        var router = new ChannelSessionRouterService(environmentPaths);
+        var adapters = new IChannelAdapter[]
+        {
+            new TelegramChannelAdapter(new HttpClient()),
+            new WeixinChannelAdapter(new HttpClient(), environmentPaths),
+            new DingtalkChannelAdapter(new HttpClient())
+        };
+        var deliveryService = new ChannelDeliveryService(
+            sessionHost,
+            registry,
+            router,
+            adapters,
+            environmentPaths);
 
         return (workspaceRoot, new ChannelRuntimeService(
             registry,
-            [new TelegramChannelAdapter(), new WeixinChannelAdapter(), new DingtalkChannelAdapter()],
-            new ChannelSessionRouterService(environmentPaths),
+            adapters,
+            router,
             environmentPaths,
+            deliveryService,
             sessionHost));
     }
 
@@ -241,12 +255,26 @@ public sealed class ChannelRuntimeParityTests
         var settingsResolver = new DesktopSettingsResolver(compatibilityService, runtimeProfileService);
         var extensionCatalog = new ExtensionCatalogService(runtimeProfileService, environmentPaths);
         var registry = new ChannelRegistryService(environmentPaths, settingsResolver, extensionCatalog);
+        var router = new ChannelSessionRouterService(environmentPaths);
+        var adapters = new IChannelAdapter[]
+        {
+            new TelegramChannelAdapter(new HttpClient()),
+            new WeixinChannelAdapter(new HttpClient(), environmentPaths),
+            new DingtalkChannelAdapter(new HttpClient())
+        };
+        var deliveryService = new ChannelDeliveryService(
+            sessionHost,
+            registry,
+            router,
+            adapters,
+            environmentPaths);
 
         return new ChannelRuntimeService(
             registry,
-            [new TelegramChannelAdapter(), new WeixinChannelAdapter(), new DingtalkChannelAdapter()],
-            new ChannelSessionRouterService(environmentPaths),
+            adapters,
+            router,
             environmentPaths,
+            deliveryService,
             sessionHost);
     }
 

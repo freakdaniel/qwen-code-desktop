@@ -14,6 +14,8 @@ public sealed class ChannelEnvelope
 
     public string ThreadId { get; init; } = string.Empty;
 
+    public string ReplyAddress { get; init; } = string.Empty;
+
     public bool IsGroup { get; init; }
 
     public bool IsMentioned { get; init; }

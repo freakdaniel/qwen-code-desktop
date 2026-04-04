@@ -12,5 +12,7 @@ public sealed class ChannelSessionRoute
 
     public string ThreadId { get; init; } = string.Empty;
 
+    public string ReplyAddress { get; init; } = string.Empty;
+
     public string WorkingDirectory { get; init; } = string.Empty;
 }

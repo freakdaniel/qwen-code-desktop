@@ -54,6 +54,7 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(
         while (true)
         {
             payload["stream"] = preferStreaming;
+            OpenAiCompatibleProtocol.NormalizePayloadForProviderFlavor(payload, configuration.ProviderFlavor, preferStreaming);
             using var response = await SendRequestAsync(
                 configuration,
                 payload,

@@ -163,6 +163,16 @@ internal static class OpenAiCompatibleProtocol
                uri.Host.EndsWith("dashscope-intl.aliyuncs.com", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool IsOpenRouterEndpoint(string endpointOrBaseUrl) =>
+        HasHostSuffix(endpointOrBaseUrl, "openrouter.ai");
+
+    public static bool IsDeepSeekEndpoint(string endpointOrBaseUrl) =>
+        HasHostSuffix(endpointOrBaseUrl, "api.deepseek.com");
+
+    public static bool IsModelScopeEndpoint(string endpointOrBaseUrl) =>
+        HasHostSuffix(endpointOrBaseUrl, "api.modelscope.cn") ||
+        HasHostSuffix(endpointOrBaseUrl, "modelscope");
+
     public static string BuildUserAgent()
     {
         var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ??
@@ -183,6 +193,32 @@ internal static class OpenAiCompatibleProtocol
             }
 
             target[property.Key] = property.Value?.DeepClone();
+        }
+    }
+
+    public static void NormalizePayloadForProviderFlavor(JsonObject payload, string providerFlavor, bool streaming)
+    {
+        if (streaming)
+        {
+            payload["stream_options"] = new JsonObject
+            {
+                ["include_usage"] = true
+            };
+        }
+        else
+        {
+            payload.Remove("stream_options");
+        }
+
+        if (string.Equals(providerFlavor, "deepseek", StringComparison.OrdinalIgnoreCase) &&
+            payload["messages"] is JsonArray messages)
+        {
+            FlattenDeepSeekMessageContent(messages);
+        }
+
+        if (string.Equals(providerFlavor, "modelscope", StringComparison.OrdinalIgnoreCase) && !streaming)
+        {
+            payload.Remove("stream_options");
         }
     }
 
@@ -272,6 +308,54 @@ If approval is still needed, state that explicitly.
         }
 
         return messages;
+    }
+
+    private static void FlattenDeepSeekMessageContent(JsonArray messages)
+    {
+        foreach (var node in messages.OfType<JsonObject>())
+        {
+            if (node["content"] is not JsonArray parts)
+            {
+                continue;
+            }
+
+            var text = string.Join(
+                Environment.NewLine + Environment.NewLine,
+                parts.Select(static part =>
+                {
+                    if (part is JsonValue raw && raw.TryGetValue<string>(out var stringValue))
+                    {
+                        return stringValue ?? string.Empty;
+                    }
+
+                    if (part is JsonObject objectPart &&
+                        string.Equals(objectPart["type"]?.GetValue<string>(), "text", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return objectPart["text"]?.GetValue<string>() ?? string.Empty;
+                    }
+
+                    if (part is JsonObject unsupported)
+                    {
+                        var type = unsupported["type"]?.GetValue<string>() ?? "unknown";
+                        return $"[Unsupported content type: {type}]";
+                    }
+
+                    return string.Empty;
+                }).Where(static item => !string.IsNullOrWhiteSpace(item)));
+
+            node["content"] = text;
+        }
+    }
+
+    private static bool HasHostSuffix(string endpointOrBaseUrl, string suffix)
+    {
+        if (string.IsNullOrWhiteSpace(endpointOrBaseUrl) ||
+            !Uri.TryCreate(endpointOrBaseUrl, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        return uri.Host.Contains(suffix, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildToolResultContent(AssistantToolCallResult toolResult)

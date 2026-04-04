@@ -6,12 +6,15 @@ public static class IdeServiceCollectionExtensions
 {
     public static IServiceCollection AddIdeServices(this IServiceCollection services)
     {
+        services.AddSingleton<HttpClient>();
         services.AddSingleton<IIdeDetectionService, IdeDetectionService>();
         services.AddSingleton<IIdeContextService, IdeContextService>();
         services.AddSingleton<IIdeCommandRunner, IdeCommandRunner>();
         services.AddSingleton<IIdeProcessProbe, IdeProcessProbe>();
         services.AddSingleton<IIdeInstallerService, IdeInstallerService>();
         services.AddSingleton<IIdeBackendService, IdeBackendService>();
+        services.AddSingleton<IIdeCompanionTransport, IdeCompanionTransport>();
+        services.AddSingleton<IIdeClientService, IdeClientService>();
         return services;
     }
 }

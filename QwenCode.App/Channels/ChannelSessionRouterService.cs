@@ -16,6 +16,7 @@ public sealed class ChannelSessionRouterService(IDesktopEnvironmentPaths environ
         string senderId,
         string chatId,
         string threadId,
+        string replyAddress,
         string workingDirectory,
         CancellationToken cancellationToken = default)
     {
@@ -27,6 +28,23 @@ public sealed class ChannelSessionRouterService(IDesktopEnvironmentPaths environ
             var key = BuildKey(channelName, sessionScope, senderId, chatId, threadId);
             if (routes.TryGetValue(key, out var existing))
             {
+                if (!string.IsNullOrWhiteSpace(replyAddress) &&
+                    !string.Equals(existing.ReplyAddress, replyAddress, StringComparison.Ordinal))
+                {
+                    existing = new ChannelSessionRoute
+                    {
+                        SessionId = existing.SessionId,
+                        ChannelName = existing.ChannelName,
+                        SenderId = existing.SenderId,
+                        ChatId = existing.ChatId,
+                        ThreadId = existing.ThreadId,
+                        ReplyAddress = replyAddress,
+                        WorkingDirectory = existing.WorkingDirectory
+                    };
+                    routes[key] = existing;
+                    PersistUnsafe();
+                }
+
                 return Task.FromResult(existing);
             }
 
@@ -37,6 +55,7 @@ public sealed class ChannelSessionRouterService(IDesktopEnvironmentPaths environ
                 SenderId = senderId,
                 ChatId = chatId,
                 ThreadId = threadId,
+                ReplyAddress = replyAddress,
                 WorkingDirectory = workingDirectory
             };
             routes[key] = created;

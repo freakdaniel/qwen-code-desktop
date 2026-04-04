@@ -93,9 +93,16 @@ public sealed class ChannelRegistryService(
                 WorkingDirectory = item.WorkingDirectory,
                 ApprovalMode = item.ApprovalMode,
                 Model = item.Model,
+                Token = item.Token,
+                ClientId = item.ClientId,
+                ClientSecret = item.ClientSecret,
+                BaseUrl = item.BaseUrl,
                 Instructions = item.Instructions,
                 GroupPolicy = item.GroupPolicy,
                 DispatchMode = item.DispatchMode,
+                BlockStreaming = item.BlockStreaming,
+                BlockStreamingChunk = item.BlockStreamingChunk,
+                BlockStreamingCoalesce = item.BlockStreamingCoalesce,
                 RequireMentionByDefault = item.RequireMentionByDefault,
                 Groups = item.Groups
             })
@@ -522,9 +529,16 @@ public sealed class ChannelRegistryService(
                 WorkingDirectory: ResolvePath(string.IsNullOrWhiteSpace(cwd) ? projectRoot : cwd, projectRoot),
                 ApprovalMode: GetString("approvalMode"),
                 Model: GetString("model"),
+                Token: GetString("token"),
+                ClientId: GetString("clientId"),
+                ClientSecret: GetString("clientSecret"),
+                BaseUrl: GetString("baseUrl"),
                 Instructions: GetString("instructions"),
                 GroupPolicy: GetString("groupPolicy", "disabled"),
                 DispatchMode: GetString("dispatchMode", "collect"),
+                BlockStreaming: GetString("blockStreaming", "off"),
+                BlockStreamingChunk: ReadBlockStreamingChunk(),
+                BlockStreamingCoalesce: ReadBlockStreamingCoalesce(),
                 RequireMentionByDefault: groups.TryGetValue("*", out var defaults) ? defaults.RequireMention : true,
                 Groups: groups.Values.OrderBy(static item => item.ChatId, StringComparer.OrdinalIgnoreCase).ToArray());
         }
@@ -584,6 +598,44 @@ public sealed class ChannelRegistryService(
             return result;
         }
 
+        private ChannelBlockStreamingChunkConfiguration ReadBlockStreamingChunk()
+        {
+            if (!Properties.TryGetValue("blockStreamingChunk", out var element) || element.ValueKind != JsonValueKind.Object)
+            {
+                return new ChannelBlockStreamingChunkConfiguration();
+            }
+
+            var minChars = element.TryGetProperty("minChars", out var minElement) && minElement.ValueKind == JsonValueKind.Number
+                ? minElement.GetInt32()
+                : 400;
+            var maxChars = element.TryGetProperty("maxChars", out var maxElement) && maxElement.ValueKind == JsonValueKind.Number
+                ? maxElement.GetInt32()
+                : 1000;
+
+            return new ChannelBlockStreamingChunkConfiguration
+            {
+                MinChars = Math.Max(1, minChars),
+                MaxChars = Math.Max(Math.Max(1, minChars), maxChars)
+            };
+        }
+
+        private ChannelBlockStreamingCoalesceConfiguration ReadBlockStreamingCoalesce()
+        {
+            if (!Properties.TryGetValue("blockStreamingCoalesce", out var element) || element.ValueKind != JsonValueKind.Object)
+            {
+                return new ChannelBlockStreamingCoalesceConfiguration();
+            }
+
+            var idleMs = element.TryGetProperty("idleMs", out var idleElement) && idleElement.ValueKind == JsonValueKind.Number
+                ? idleElement.GetInt32()
+                : 1500;
+
+            return new ChannelBlockStreamingCoalesceConfiguration
+            {
+                IdleMs = Math.Max(0, idleMs)
+            };
+        }
+
         private static string ResolvePath(string path, string projectRoot) =>
             Path.IsPathRooted(path)
                 ? Path.GetFullPath(path)
@@ -600,9 +652,16 @@ public sealed class ChannelRegistryService(
         string WorkingDirectory,
         string ApprovalMode,
         string Model,
+        string Token,
+        string ClientId,
+        string ClientSecret,
+        string BaseUrl,
         string Instructions,
         string GroupPolicy,
         string DispatchMode,
+        string BlockStreaming,
+        ChannelBlockStreamingChunkConfiguration BlockStreamingChunk,
+        ChannelBlockStreamingCoalesceConfiguration BlockStreamingCoalesce,
         bool RequireMentionByDefault,
         IReadOnlyList<ChannelGroupRuntimeConfiguration> Groups);
 

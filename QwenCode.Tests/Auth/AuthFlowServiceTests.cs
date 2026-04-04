@@ -227,6 +227,71 @@ public sealed class AuthFlowServiceTests
         }
     }
 
+    [Theory]
+    [InlineData("openrouter", "OpenRouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1/chat/completions")]
+    [InlineData("deepseek", "DeepSeek", "DEEPSEEK_API_KEY", "https://api.deepseek.com/v1/chat/completions")]
+    [InlineData("modelscope", "ModelScope", "MODELSCOPE_API_KEY", "https://api.modelscope.cn/v1/chat/completions")]
+    public void GetStatus_UsesProviderAliasMetadata(
+        string authType,
+        string displayName,
+        string envKey,
+        string endpoint)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-auth-provider-alias-{authType}-{Guid.NewGuid():N}");
+        var workspaceRoot = Path.Combine(root, "workspace");
+        var homeRoot = Path.Combine(root, "home");
+        var systemRoot = Path.Combine(root, "system");
+        Directory.CreateDirectory(workspaceRoot);
+        Directory.CreateDirectory(homeRoot);
+        Directory.CreateDirectory(systemRoot);
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                $$"""
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "{{authType}}"
+                    }
+                  },
+                  "model": {
+                    "name": "provider-model"
+                  }
+                }
+                """);
+            Environment.SetEnvironmentVariable(envKey, "provider-key");
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot, workspaceRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
+            var store = new FileQwenOAuthCredentialStore(environmentPaths);
+            var service = new AuthFlowService(
+                runtimeProfileService,
+                environmentPaths,
+                store,
+                new HttpClient(new RecordingHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)))),
+                new FakeAuthUrlLauncher());
+
+            var snapshot = service.GetStatus(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            Assert.Equal(authType, snapshot.SelectedType);
+            Assert.Equal(displayName, snapshot.DisplayName);
+            Assert.Equal(envKey, snapshot.ApiKeyEnvironmentVariable);
+            Assert.Equal(endpoint, snapshot.Endpoint);
+            Assert.True(snapshot.HasApiKey);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(envKey, null);
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     private static async Task<T?> WaitForAsync<T>(Func<T?> valueFactory, TimeSpan timeout)
         where T : class
     {

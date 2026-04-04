@@ -15,6 +15,9 @@ public sealed class ProviderConfigurationResolver(
     IConfigService? configService = null,
     IModelConfigResolver? modelConfigResolver = null)
 {
+    internal const string OpenRouterBaseUrl = "https://openrouter.ai/api/v1";
+    internal const string DeepSeekBaseUrl = "https://api.deepseek.com/v1";
+    internal const string ModelScopeBaseUrl = "https://api.modelscope.cn/v1";
     private readonly IConfigService config = configService ?? new RuntimeConfigService(environmentPaths);
     private readonly IModelConfigResolver? _modelConfigResolver = modelConfigResolver;
 
@@ -79,10 +82,11 @@ public sealed class ProviderConfigurationResolver(
             Environment.GetEnvironmentVariable("OPENAI_BASE_URL"),
             Environment.GetEnvironmentVariable("QWEN_BASE_URL"),
             GetString(mergedSettings, "security", "auth", "baseUrl"),
-            OpenAiCompatibleProtocol.DefaultDashScopeBaseUrl);
+            ResolveDefaultBaseUrl(authType));
         var endpoint = OpenAiCompatibleProtocol.EnsureChatCompletionsEndpoint(baseUrl);
         var isDashScope = OpenAiCompatibleProtocol.IsDashScopeEndpoint(baseUrl) ||
                           OpenAiCompatibleProtocol.IsDashScopeEndpoint(endpoint);
+        var providerFlavor = ResolveProviderFlavor(authType, baseUrl, endpoint);
         var settingsCustomHeaders = ReadDictionary(mergedSettings, "model", "generationConfig", "customHeaders");
         var settingsExtraBody = ReadObject(mergedSettings, "model", "generationConfig", "extra_body");
         if (modelProvider?.ExtraBody is { Count: > 0 })
@@ -93,11 +97,12 @@ public sealed class ProviderConfigurationResolver(
         return new ResolvedProviderConfiguration
         {
             AuthType = authType,
+            ProviderFlavor = providerFlavor,
             Model = resolvedModel,
             Endpoint = endpoint,
             ApiKey = apiKey,
             ApiKeyEnvironmentVariable = apiKeyEnvironmentVariable,
-            Headers = BuildHeaders(authType, isDashScope, settingsCustomHeaders, modelProvider?.CustomHeaders),
+            Headers = BuildHeaders(authType, providerFlavor, isDashScope, settingsCustomHeaders, modelProvider?.CustomHeaders),
             ExtraBody = settingsExtraBody,
             IsDashScope = isDashScope
         };
@@ -105,6 +110,7 @@ public sealed class ProviderConfigurationResolver(
 
     private static IReadOnlyDictionary<string, string> BuildHeaders(
         string authType,
+        string providerFlavor,
         bool isDashScope,
         IReadOnlyDictionary<string, string>? settingsHeaders,
         IReadOnlyDictionary<string, string>? customHeaders)
@@ -117,6 +123,12 @@ public sealed class ProviderConfigurationResolver(
             headers["X-DashScope-CacheControl"] = "enable";
             headers["X-DashScope-UserAgent"] = userAgent;
             headers["X-DashScope-AuthType"] = authType;
+        }
+
+        if (string.Equals(providerFlavor, "openrouter", StringComparison.OrdinalIgnoreCase))
+        {
+            headers["HTTP-Referer"] = "https://github.com/QwenLM/qwen-code.git";
+            headers["X-OpenRouter-Title"] = "Qwen Code";
         }
 
         if (settingsHeaders is not null)
@@ -202,8 +214,52 @@ public sealed class ProviderConfigurationResolver(
         {
             "qwen-oauth" => "QWEN_OAUTH_ACCESS_TOKEN",
             "qwen_oauth" => "QWEN_OAUTH_ACCESS_TOKEN",
+            "openrouter" => "OPENROUTER_API_KEY",
+            "deepseek" => "DEEPSEEK_API_KEY",
+            "modelscope" => "MODELSCOPE_API_KEY",
             _ => "OPENAI_API_KEY"
         };
+
+    private static string ResolveDefaultBaseUrl(string authType) =>
+        authType switch
+        {
+            "openrouter" => OpenRouterBaseUrl,
+            "deepseek" => DeepSeekBaseUrl,
+            "modelscope" => ModelScopeBaseUrl,
+            _ => OpenAiCompatibleProtocol.DefaultDashScopeBaseUrl
+        };
+
+    private static string ResolveProviderFlavor(string authType, string baseUrl, string endpoint)
+    {
+        if (string.Equals(authType, "openrouter", StringComparison.OrdinalIgnoreCase) ||
+            OpenAiCompatibleProtocol.IsOpenRouterEndpoint(baseUrl) ||
+            OpenAiCompatibleProtocol.IsOpenRouterEndpoint(endpoint))
+        {
+            return "openrouter";
+        }
+
+        if (string.Equals(authType, "deepseek", StringComparison.OrdinalIgnoreCase) ||
+            OpenAiCompatibleProtocol.IsDeepSeekEndpoint(baseUrl) ||
+            OpenAiCompatibleProtocol.IsDeepSeekEndpoint(endpoint))
+        {
+            return "deepseek";
+        }
+
+        if (string.Equals(authType, "modelscope", StringComparison.OrdinalIgnoreCase) ||
+            OpenAiCompatibleProtocol.IsModelScopeEndpoint(baseUrl) ||
+            OpenAiCompatibleProtocol.IsModelScopeEndpoint(endpoint))
+        {
+            return "modelscope";
+        }
+
+        if (OpenAiCompatibleProtocol.IsDashScopeEndpoint(baseUrl) ||
+            OpenAiCompatibleProtocol.IsDashScopeEndpoint(endpoint))
+        {
+            return "dashscope";
+        }
+
+        return "openai-compatible";
+    }
 
     private static string ReadEnvironmentValue(
         IReadOnlyDictionary<string, string> settingsEnvironment,

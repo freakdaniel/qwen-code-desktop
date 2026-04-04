@@ -24,11 +24,30 @@ public sealed class IdeBackendService(
             Ide = ide,
             WorkspacePath = config?.WorkspacePath ?? string.Empty,
             Port = config?.Port ?? string.Empty,
-            Command = config?.StdioCommand ?? string.Empty,
+            Command = BuildCommandPreview(config),
             AuthToken = string.IsNullOrWhiteSpace(config?.AuthToken) ? string.Empty : "***",
             SupportsDiff = config?.AvailableTools.Contains("openDiff", StringComparer.OrdinalIgnoreCase) == true,
             AvailableTools = config?.AvailableTools ?? [],
             Context = contextService.Get()
+        };
+    }
+
+    public IdeTransportConnectionInfo? ResolveTransportConnection(string workspaceRoot, string processCommand = "")
+    {
+        var config = GetBestConnectionConfig(workspaceRoot);
+        var validation = ValidateWorkspacePath(config?.WorkspacePath, workspaceRoot);
+        if (!validation.IsValid || config is null)
+        {
+            return null;
+        }
+
+        return new IdeTransportConnectionInfo
+        {
+            WorkspacePath = config.WorkspacePath,
+            Port = config.Port,
+            AuthToken = config.AuthToken,
+            StdioCommand = config.StdioCommand,
+            StdioArguments = config.StdioArguments
         };
     }
 
@@ -120,6 +139,14 @@ public sealed class IdeBackendService(
                 StdioCommand = root.TryGetProperty("stdio", out var stdio) && stdio.ValueKind == JsonValueKind.Object
                     ? ReadString(stdio, "command")
                     : string.Empty,
+                StdioArguments = root.TryGetProperty("stdio", out stdio) && stdio.ValueKind == JsonValueKind.Object
+                                 && stdio.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Array
+                    ? args.EnumerateArray()
+                        .Where(static item => item.ValueKind == JsonValueKind.String)
+                        .Select(static item => item.GetString() ?? string.Empty)
+                        .Where(static item => !string.IsNullOrWhiteSpace(item))
+                        .ToArray()
+                    : [],
                 AvailableTools = root.TryGetProperty("availableTools", out var tools) && tools.ValueKind == JsonValueKind.Array
                     ? tools.EnumerateArray()
                         .Where(static item => item.ValueKind == JsonValueKind.String)
@@ -186,11 +213,8 @@ public sealed class IdeBackendService(
             Port = envPort ?? string.Empty,
             AuthToken = authToken ?? string.Empty,
             WorkspacePath = workspacePath ?? string.Empty,
-            StdioCommand = string.IsNullOrWhiteSpace(stdioCommand)
-                ? string.Empty
-                : string.IsNullOrWhiteSpace(stdioArgs)
-                    ? stdioCommand
-                    : $"{stdioCommand} {stdioArgs}",
+            StdioCommand = stdioCommand ?? string.Empty,
+            StdioArguments = ParseCommandArguments(stdioArgs),
             LastModifiedUtc = DateTime.UtcNow
         };
     }
@@ -199,6 +223,80 @@ public sealed class IdeBackendService(
         element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString() ?? string.Empty
             : string.Empty;
+
+    private static string BuildCommandPreview(IdeConnectionConfigRecord? config)
+    {
+        if (config is null || string.IsNullOrWhiteSpace(config.StdioCommand))
+        {
+            return string.Empty;
+        }
+
+        return config.StdioArguments.Count == 0
+            ? config.StdioCommand
+            : $"{config.StdioCommand} {string.Join(' ', config.StdioArguments)}";
+    }
+
+    private static IReadOnlyList<string> ParseCommandArguments(string? rawArgs)
+    {
+        if (string.IsNullOrWhiteSpace(rawArgs))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawArgs);
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                return document.RootElement.EnumerateArray()
+                    .Where(static item => item.ValueKind == JsonValueKind.String)
+                    .Select(static item => item.GetString() ?? string.Empty)
+                    .Where(static item => !string.IsNullOrWhiteSpace(item))
+                    .ToArray();
+            }
+        }
+        catch
+        {
+        }
+
+        return SplitCommandLine(rawArgs);
+    }
+
+    private static IReadOnlyList<string> SplitCommandLine(string raw)
+    {
+        var result = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+
+        foreach (var character in raw)
+        {
+            if (character == '"')
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (!inQuotes && char.IsWhiteSpace(character))
+            {
+                if (current.Length > 0)
+                {
+                    result.Add(current.ToString());
+                    current.Clear();
+                }
+
+                continue;
+            }
+
+            current.Append(character);
+        }
+
+        if (current.Length > 0)
+        {
+            result.Add(current.ToString());
+        }
+
+        return result;
+    }
 
     private sealed class IdeConnectionConfigRecord
     {
@@ -209,6 +307,8 @@ public sealed class IdeBackendService(
         public string WorkspacePath { get; init; } = string.Empty;
 
         public string StdioCommand { get; init; } = string.Empty;
+
+        public IReadOnlyList<string> StdioArguments { get; init; } = [];
 
         public IdeInfo? Ide { get; init; }
 

@@ -10,6 +10,7 @@ public interface IChannelSessionRouter
         string senderId,
         string chatId,
         string threadId,
+        string replyAddress,
         string workingDirectory,
         CancellationToken cancellationToken = default);
 

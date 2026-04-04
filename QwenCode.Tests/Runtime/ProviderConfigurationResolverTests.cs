@@ -373,5 +373,111 @@ public sealed class ProviderConfigurationResolverTests
         }
     }
 
+    [Theory]
+    [InlineData("openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1/chat/completions", "openrouter")]
+    [InlineData("deepseek", "DEEPSEEK_API_KEY", "https://api.deepseek.com/v1/chat/completions", "deepseek")]
+    [InlineData("modelscope", "MODELSCOPE_API_KEY", "https://api.modelscope.cn/v1/chat/completions", "modelscope")]
+    public void ProviderConfigurationResolver_Resolve_UsesProviderAliasDefaults(
+        string authType,
+        string expectedEnvKey,
+        string expectedEndpoint,
+        string expectedFlavor)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-provider-alias-{authType}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                $$"""
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "{{authType}}"
+                    }
+                  },
+                  "env": {
+                    "{{expectedEnvKey}}": "provider-key"
+                  },
+                  "model": {
+                    "name": "provider-model"
+                  }
+                }
+                """);
+
+            var runtimeProfile = CreateRuntimeProfile(workspaceRoot, homeRoot);
+            var resolver = new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var resolved = resolver.Resolve(
+                CreateTurnRequest(workspaceRoot, runtimeProfile, $"alias-{authType}"),
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "openai-compatible"
+                });
+
+            Assert.Equal(authType, resolved.AuthType);
+            Assert.Equal(expectedFlavor, resolved.ProviderFlavor);
+            Assert.Equal(expectedEnvKey, resolved.ApiKeyEnvironmentVariable);
+            Assert.Equal(expectedEndpoint, resolved.Endpoint);
+            Assert.Equal("provider-key", resolved.ApiKey);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static AssistantTurnRequest CreateTurnRequest(string workspaceRoot, QwenRuntimeProfile runtimeProfile, string sessionId) =>
+        new()
+        {
+            SessionId = sessionId,
+            Prompt = "Resolve runtime settings.",
+            WorkingDirectory = workspaceRoot,
+            TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl"),
+            RuntimeProfile = runtimeProfile,
+            GitBranch = "main",
+            ToolExecution = new NativeToolExecutionResult
+            {
+                ToolName = string.Empty,
+                Status = "not-requested",
+                ApprovalState = "allow",
+                WorkingDirectory = workspaceRoot,
+                Output = string.Empty,
+                ErrorMessage = string.Empty,
+                ExitCode = 0,
+                ChangedFiles = []
+            }
+        };
+
+    private static QwenRuntimeProfile CreateRuntimeProfile(string workspaceRoot, string homeRoot) =>
+        new()
+        {
+            ProjectRoot = workspaceRoot,
+            GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+            RuntimeBaseDirectory = Path.Combine(homeRoot, ".qwen"),
+            RuntimeSource = "project-settings",
+            ProjectDataDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test"),
+            ChatsDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test", "chats"),
+            HistoryDirectory = Path.Combine(homeRoot, ".qwen", "history", "test"),
+            ContextFileNames = ["QWEN.md"],
+            ContextFilePaths = [Path.Combine(workspaceRoot, "QWEN.md")],
+            ApprovalProfile = new ApprovalProfile
+            {
+                DefaultMode = "default",
+                ConfirmShellCommands = true,
+                ConfirmFileEdits = true,
+                AllowRules = [],
+                AskRules = [],
+                DenyRules = []
+            }
+        };
+
 
 }

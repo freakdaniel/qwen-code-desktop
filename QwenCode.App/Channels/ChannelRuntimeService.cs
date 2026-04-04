@@ -11,18 +11,24 @@ public sealed class ChannelRuntimeService(
     IEnumerable<IChannelAdapter> channelAdapters,
     IChannelSessionRouter sessionRouter,
     IDesktopEnvironmentPaths environmentPaths,
+    IChannelDeliveryService channelDelivery,
     ISessionHost sessionHost) : IChannelRuntimeService
 {
+    private static readonly TimeSpan OutboxDrainInterval = TimeSpan.FromMilliseconds(250);
     private readonly IReadOnlyDictionary<string, IChannelAdapter> adapters = channelAdapters.ToDictionary(
         static item => item.ChannelType,
         StringComparer.OrdinalIgnoreCase);
     private readonly Lock dispatchGate = new();
     private readonly Dictionary<string, Task> sessionQueues = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<BufferedChannelMessage>> collectBuffers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Lock lifecycleGate = new();
+    private CancellationTokenSource? runtimeLoopCts;
+    private Task? runtimeLoopTask;
+    private WorkspacePaths? activeWorkspace;
 
     public ChannelSnapshot GetSnapshot(WorkspacePaths workspace) => channelRegistry.Inspect(workspace);
 
-    public Task<ChannelSnapshot> StartAsync(WorkspacePaths workspace, CancellationToken cancellationToken = default)
+    public async Task<ChannelSnapshot> StartAsync(WorkspacePaths workspace, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var snapshot = channelRegistry.Inspect(workspace);
@@ -37,12 +43,26 @@ public sealed class ChannelRuntimeService(
         File.WriteAllText(
             Path.Combine(channelsRoot, "service.pid"),
             JsonSerializer.Serialize(info, new JsonSerializerOptions { WriteIndented = true }));
-        return Task.FromResult(channelRegistry.Inspect(workspace));
+        _ = sessionRouter.ListRoutes();
+
+        await ConnectConfiguredAdaptersAsync(workspace, snapshot, cancellationToken);
+        StartBackgroundDrainLoop(workspace);
+        return await ReplayAndReturnSnapshotAsync(workspace, cancellationToken);
     }
 
-    public Task StopAsync(CancellationToken cancellationToken = default)
+    private async Task<ChannelSnapshot> ReplayAndReturnSnapshotAsync(
+        WorkspacePaths workspace,
+        CancellationToken cancellationToken)
+    {
+        _ = await channelDelivery.ReplayQueuedAsync(workspace, cancellationToken);
+        return channelRegistry.Inspect(workspace);
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        await StopBackgroundDrainLoopAsync();
+        await DisconnectConfiguredAdaptersAsync(cancellationToken);
         var path = Path.Combine(GetChannelsRoot(), "service.pid");
         if (File.Exists(path))
         {
@@ -50,7 +70,125 @@ public sealed class ChannelRuntimeService(
         }
 
         sessionRouter.Clear();
-        return Task.CompletedTask;
+    }
+
+    private async Task ConnectConfiguredAdaptersAsync(
+        WorkspacePaths workspace,
+        ChannelSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        foreach (var channel in snapshot.Channels)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!adapters.TryGetValue(channel.Type, out var adapter))
+            {
+                continue;
+            }
+
+            try
+            {
+                var configuration = channelRegistry.GetRuntimeConfiguration(workspace, channel.Name);
+                await adapter.ConnectAsync(configuration, cancellationToken);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private async Task DisconnectConfiguredAdaptersAsync(CancellationToken cancellationToken)
+    {
+        WorkspacePaths? workspace;
+        lock (lifecycleGate)
+        {
+            workspace = activeWorkspace;
+            activeWorkspace = null;
+        }
+
+        if (workspace is null)
+        {
+            return;
+        }
+
+        var snapshot = channelRegistry.Inspect(workspace);
+        foreach (var channel in snapshot.Channels)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!adapters.TryGetValue(channel.Type, out var adapter))
+            {
+                continue;
+            }
+
+            try
+            {
+                var configuration = channelRegistry.GetRuntimeConfiguration(workspace, channel.Name);
+                await adapter.DisconnectAsync(configuration, cancellationToken);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private void StartBackgroundDrainLoop(WorkspacePaths workspace)
+    {
+        lock (lifecycleGate)
+        {
+            runtimeLoopCts?.Cancel();
+            runtimeLoopCts?.Dispose();
+            runtimeLoopCts = new CancellationTokenSource();
+            activeWorkspace = workspace;
+            runtimeLoopTask = RunBackgroundDrainLoopAsync(workspace, runtimeLoopCts.Token);
+        }
+    }
+
+    private async Task StopBackgroundDrainLoopAsync()
+    {
+        Task? loopTask;
+        CancellationTokenSource? cts;
+        lock (lifecycleGate)
+        {
+            loopTask = runtimeLoopTask;
+            cts = runtimeLoopCts;
+            runtimeLoopTask = null;
+            runtimeLoopCts = null;
+        }
+
+        if (cts is null)
+        {
+            return;
+        }
+
+        cts.Cancel();
+        try
+        {
+            if (loopTask is not null)
+            {
+                await loopTask;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            cts.Dispose();
+        }
+    }
+
+    private async Task RunBackgroundDrainLoopAsync(WorkspacePaths workspace, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(OutboxDrainInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                _ = await channelDelivery.ReplayQueuedAsync(workspace, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     public async Task<ChannelDispatchResult> HandleInboundAsync(
@@ -102,6 +240,7 @@ public sealed class ChannelRuntimeService(
             envelope.SenderId,
             envelope.ChatId,
             envelope.ThreadId,
+            envelope.ReplyAddress,
             configuration.WorkingDirectory,
             cancellationToken);
 

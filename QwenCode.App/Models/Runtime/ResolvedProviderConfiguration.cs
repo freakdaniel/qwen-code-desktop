@@ -6,6 +6,8 @@ public sealed class ResolvedProviderConfiguration
 {
     public required string AuthType { get; init; }
 
+    public required string ProviderFlavor { get; init; }
+
     public required string Model { get; init; }
 
     public required string Endpoint { get; init; }

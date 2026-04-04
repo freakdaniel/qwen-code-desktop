@@ -8,6 +8,7 @@ using QwenCode.App.Compatibility;
 using QwenCode.App.Config;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
+using QwenCode.App.Runtime;
 
 namespace QwenCode.App.Auth;
 
@@ -293,6 +294,21 @@ public sealed class AuthFlowService(
             return "Qwen OAuth";
         }
 
+        if (string.Equals(selectedType, "openrouter", StringComparison.OrdinalIgnoreCase))
+        {
+            return "OpenRouter";
+        }
+
+        if (string.Equals(selectedType, "deepseek", StringComparison.OrdinalIgnoreCase))
+        {
+            return "DeepSeek";
+        }
+
+        if (string.Equals(selectedType, "modelscope", StringComparison.OrdinalIgnoreCase))
+        {
+            return "ModelScope";
+        }
+
         return !string.IsNullOrWhiteSpace(GetString(mergedSettings, "codingPlan", "region"))
             ? "Alibaba Cloud Coding Plan"
             : "OpenAI-compatible";
@@ -308,7 +324,7 @@ public sealed class AuthFlowService(
         var baseUrl = FirstNonEmpty(
             FindModelProviderBaseUrl(mergedSettings, selectedType, model),
             GetString(mergedSettings, "security", "auth", "baseUrl"),
-            "https://dashscope.aliyuncs.com/compatible-mode/v1");
+            ResolveDefaultBaseUrl(selectedType));
         return EnsureChatCompletionsEndpoint(baseUrl);
     }
 
@@ -321,7 +337,7 @@ public sealed class AuthFlowService(
 
         return FirstNonEmpty(
             FindModelProviderEnvKey(mergedSettings, selectedType, model),
-            "OPENAI_API_KEY");
+            ResolveDefaultApiKeyEnvironmentVariable(selectedType));
     }
 
     private static bool ResolveHasApiKey(
@@ -347,6 +363,24 @@ public sealed class AuthFlowService(
         string.Equals(selectedType, "qwen-oauth", StringComparison.OrdinalIgnoreCase)
             ? "Qwen OAuth credentials are not configured."
             : $"Missing API key. Set '{environmentVariableName}' or configure an inline API key.";
+
+    private static string ResolveDefaultApiKeyEnvironmentVariable(string selectedType) =>
+        selectedType switch
+        {
+            "openrouter" => "OPENROUTER_API_KEY",
+            "deepseek" => "DEEPSEEK_API_KEY",
+            "modelscope" => "MODELSCOPE_API_KEY",
+            _ => "OPENAI_API_KEY"
+        };
+
+    private static string ResolveDefaultBaseUrl(string selectedType) =>
+        selectedType switch
+        {
+            "openrouter" => ProviderConfigurationResolver.OpenRouterBaseUrl,
+            "deepseek" => ProviderConfigurationResolver.DeepSeekBaseUrl,
+            "modelscope" => ProviderConfigurationResolver.ModelScopeBaseUrl,
+            _ => "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        };
 
     private string ResolveMissingCredentialMessage(string selectedType, string environmentVariableName) =>
         string.Equals(selectedType, "qwen-oauth", StringComparison.OrdinalIgnoreCase) &&

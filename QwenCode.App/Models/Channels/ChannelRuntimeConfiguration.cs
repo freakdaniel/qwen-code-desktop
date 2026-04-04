@@ -16,11 +16,25 @@ public sealed class ChannelRuntimeConfiguration
 
     public string Model { get; init; } = string.Empty;
 
+    public string Token { get; init; } = string.Empty;
+
+    public string ClientId { get; init; } = string.Empty;
+
+    public string ClientSecret { get; init; } = string.Empty;
+
+    public string BaseUrl { get; init; } = string.Empty;
+
     public string Instructions { get; init; } = string.Empty;
 
     public string GroupPolicy { get; init; } = "disabled";
 
     public string DispatchMode { get; init; } = "collect";
+
+    public string BlockStreaming { get; init; } = "off";
+
+    public ChannelBlockStreamingChunkConfiguration BlockStreamingChunk { get; init; } = new();
+
+    public ChannelBlockStreamingCoalesceConfiguration BlockStreamingCoalesce { get; init; } = new();
 
     public bool RequireMentionByDefault { get; init; } = true;
 
