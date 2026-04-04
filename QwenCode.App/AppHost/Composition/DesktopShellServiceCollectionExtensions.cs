@@ -12,9 +12,11 @@ using QwenCode.App.Infrastructure;
 using QwenCode.App.Mcp;
 using QwenCode.App.Options;
 using QwenCode.App.Permissions;
+using QwenCode.App.Prompts;
 using QwenCode.App.Runtime;
 using QwenCode.App.Sessions;
 using QwenCode.App.Tools;
+using QwenCode.App.Followup;
 using QwenCode.App.Models;
 
 namespace QwenCode.App.AppHost;
@@ -40,6 +42,8 @@ public static class DesktopShellServiceCollectionExtensions
             .AddPermissionServices()
             .AddRuntimeServices()
             .AddMcpServices()
+            .AddPromptServices()
+            .AddFollowupServices()
             .AddAgentServices()
             .AddToolServices()
             .AddSessionServices()

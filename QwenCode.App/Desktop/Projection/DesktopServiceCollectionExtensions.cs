@@ -13,6 +13,8 @@ public static class DesktopServiceCollectionExtensions
         services.AddSingleton<IDesktopAuthProjectionService, AuthProjectionService>();
         services.AddSingleton<IDesktopChannelProjectionService, ChannelProjectionService>();
         services.AddSingleton<IDesktopMcpProjectionService, McpProjectionService>();
+        services.AddSingleton<IDesktopPromptProjectionService, PromptProjectionService>();
+        services.AddSingleton<IDesktopFollowupProjectionService, FollowupProjectionService>();
         services.AddSingleton<IDesktopExtensionProjectionService, ExtensionProjectionService>();
         services.AddSingleton<IDesktopWorkspaceProjectionService, WorkspaceProjectionService>();
         services.AddSingleton<IDesktopSessionProjectionService, SessionProjectionService>();

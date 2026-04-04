@@ -54,6 +54,10 @@ public interface IDesktopProjectionService
 
     Task<McpSnapshot> ReconnectMcpServerAsync(ReconnectMcpServerRequest request);
 
+    Task<PromptRegistrySnapshot> GetPromptRegistryAsync(GetPromptRegistryRequest request);
+
+    Task<McpPromptInvocationResult> InvokeRegisteredPromptAsync(InvokePromptRegistryEntryRequest request);
+
     Task<ExtensionSettingsSnapshot> GetExtensionSettingsAsync(GetExtensionSettingsRequest request);
 
     Task<ExtensionSnapshot> InstallExtensionAsync(InstallExtensionRequest request);
@@ -77,4 +81,6 @@ public interface IDesktopProjectionService
     Task<DesktopSessionTurnResult> ResumeInterruptedTurnAsync(ResumeInterruptedTurnRequest request);
 
     Task<DismissInterruptedTurnResult> DismissInterruptedTurnAsync(DismissInterruptedTurnRequest request);
+
+    Task<FollowupSuggestionSnapshot> GetFollowupSuggestionsAsync(GetFollowupSuggestionsRequest request);
 }

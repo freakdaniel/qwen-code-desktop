@@ -2,7 +2,9 @@ using Microsoft.Extensions.Options;
 using QwenCode.App.Auth;
 using QwenCode.App.Channels;
 using QwenCode.App.Extensions;
+using QwenCode.App.Followup;
 using QwenCode.App.Infrastructure;
+using QwenCode.App.Prompts;
 
 namespace QwenCode.Tests.Shared.Fixtures;
 
@@ -57,6 +59,13 @@ internal static class TestServiceFactory
                 new FileMcpTokenStore(environmentPaths),
                 new HttpClient(),
                 runtimeProfileService));
+        var promptRegistryService = new PromptRegistryService(
+            mcpConnectionManager,
+            new McpToolRuntimeService(
+                mcpRegistry,
+                new FileMcpTokenStore(environmentPaths),
+                new HttpClient(),
+                runtimeProfileService));
         var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
         var interruptedTurnStore = new InterruptedTurnStore();
         var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);
@@ -67,6 +76,22 @@ internal static class TestServiceFactory
             transcriptStore,
             activeTurnRegistry,
             interruptedTurnStore);
+        var followupSuggestionService = new FollowupSuggestionService(
+            transcriptStore,
+            activeTurnRegistry,
+            interruptedTurnStore,
+            arenaSessionRegistry,
+            runtimeProfileService,
+            new ProviderBackedFollowupSuggestionGenerator(
+                runtimeProfileService,
+                new AssistantPromptAssembler(projectSummaryService),
+                [
+                    new FallbackAssistantResponseProvider()
+                ],
+                Options.Create(new NativeAssistantRuntimeOptions
+                {
+                    Provider = "fallback"
+                })));
 
         return new DesktopAppService(
             new LocaleStateService(shellOptions),
@@ -105,6 +130,14 @@ internal static class TestServiceFactory
                 workspacePathResolver,
                 mcpRegistry,
                 mcpConnectionManager),
+            new PromptProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                promptRegistryService),
+            new FollowupProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                followupSuggestionService),
             new ExtensionProjectionService(
                 shellOptions,
                 workspacePathResolver,

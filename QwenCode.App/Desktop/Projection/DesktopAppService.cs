@@ -10,6 +10,8 @@ public sealed class DesktopAppService(
     IDesktopChannelProjectionService channelProjectionService,
     IDesktopWorkspaceProjectionService workspaceProjectionService,
     IDesktopMcpProjectionService mcpProjectionService,
+    IDesktopPromptProjectionService promptProjectionService,
+    IDesktopFollowupProjectionService followupProjectionService,
     IDesktopExtensionProjectionService extensionProjectionService,
     IDesktopSessionProjectionService sessionProjectionService) : IDesktopProjectionService
 {
@@ -94,6 +96,12 @@ public sealed class DesktopAppService(
     public Task<McpSnapshot> ReconnectMcpServerAsync(ReconnectMcpServerRequest request) =>
         mcpProjectionService.ReconnectServerAsync(request);
 
+    public Task<PromptRegistrySnapshot> GetPromptRegistryAsync(GetPromptRegistryRequest request) =>
+        promptProjectionService.GetPromptRegistryAsync(request);
+
+    public Task<McpPromptInvocationResult> InvokeRegisteredPromptAsync(InvokePromptRegistryEntryRequest request) =>
+        promptProjectionService.InvokeRegisteredPromptAsync(request);
+
     public Task<ExtensionSettingsSnapshot> GetExtensionSettingsAsync(GetExtensionSettingsRequest request) =>
         extensionProjectionService.GetSettingsAsync(request);
 
@@ -135,4 +143,7 @@ public sealed class DesktopAppService(
 
     public Task<DismissInterruptedTurnResult> DismissInterruptedTurnAsync(DismissInterruptedTurnRequest request) =>
         sessionProjectionService.DismissInterruptedTurnAsync(request);
+
+    public Task<FollowupSuggestionSnapshot> GetFollowupSuggestionsAsync(GetFollowupSuggestionsRequest request) =>
+        followupProjectionService.GetSuggestionsAsync(request);
 }

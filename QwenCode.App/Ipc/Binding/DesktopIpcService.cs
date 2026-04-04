@@ -92,6 +92,14 @@ public sealed class DesktopIpcService(
     public Task<McpSnapshot> ReconnectMcpServer(ReconnectMcpServerRequest request)
         => desktopProjectionService.ReconnectMcpServerAsync(request);
 
+    [IpcInvoke("qwen-desktop:prompts:get-registry")]
+    public Task<PromptRegistrySnapshot> GetPromptRegistry(GetPromptRegistryRequest request)
+        => desktopProjectionService.GetPromptRegistryAsync(request);
+
+    [IpcInvoke("qwen-desktop:prompts:invoke")]
+    public Task<McpPromptInvocationResult> InvokeRegisteredPrompt(InvokePromptRegistryEntryRequest request)
+        => desktopProjectionService.InvokeRegisteredPromptAsync(request);
+
     [IpcInvoke("qwen-desktop:extensions:get-settings")]
     public Task<ExtensionSettingsSnapshot> GetExtensionSettings(GetExtensionSettingsRequest request)
         => desktopProjectionService.GetExtensionSettingsAsync(request);
@@ -139,6 +147,10 @@ public sealed class DesktopIpcService(
     [IpcInvoke("qwen-desktop:sessions:dismiss-interrupted")]
     public Task<DismissInterruptedTurnResult> DismissInterruptedTurn(DismissInterruptedTurnRequest request)
         => desktopProjectionService.DismissInterruptedTurnAsync(request);
+
+    [IpcInvoke("qwen-desktop:followup:get-suggestions")]
+    public Task<FollowupSuggestionSnapshot> GetFollowupSuggestions(GetFollowupSuggestionsRequest request)
+        => desktopProjectionService.GetFollowupSuggestionsAsync(request);
 
     [IpcEvent("qwen-desktop:app:state-changed")]
     public void SubscribeStateChanged(Action<DesktopStateChangedEvent> emit)

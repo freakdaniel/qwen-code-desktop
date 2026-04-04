@@ -35,4 +35,6 @@ public sealed class AssistantTurnRequest
     public string EndpointOverride { get; init; } = string.Empty;
 
     public string ApiKeyOverride { get; init; } = string.Empty;
+
+    public bool DisableTools { get; init; }
 }

@@ -131,6 +131,9 @@ public sealed class DesktopProjectionServiceTests
             var mcpConnectionManager = new McpConnectionManagerService(
                 mcpRegistry,
                 new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
+            var promptRegistryService = new PromptRegistryService(
+                mcpConnectionManager,
+                new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
             var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
             Directory.CreateDirectory(runtimeProfile.ChatsDirectory);
@@ -190,6 +193,19 @@ public sealed class DesktopProjectionServiceTests
                     workspacePathResolver,
                     mcpRegistry,
                     mcpConnectionManager),
+                new PromptProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    promptRegistryService),
+                new FollowupProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    new FollowupSuggestionService(
+                        transcriptStore,
+                        activeTurnRegistry,
+                        interruptedStore,
+                        arenaSessionRegistry,
+                        runtimeProfileService)),
                 new ExtensionProjectionService(
                     shellOptions,
                     workspacePathResolver,
@@ -323,6 +339,9 @@ public sealed class DesktopProjectionServiceTests
             var mcpConnectionManager = new McpConnectionManagerService(
                 mcpRegistry,
                 new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
+            var promptRegistryService = new PromptRegistryService(
+                mcpConnectionManager,
+                new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
             var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
             var interruptedStore = new InterruptedTurnStore();
             var activeTurnRegistry = new ActiveTurnRegistry(interruptedStore);
@@ -405,6 +424,19 @@ public sealed class DesktopProjectionServiceTests
                     workspacePathResolver,
                     mcpRegistry,
                     mcpConnectionManager),
+                new PromptProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    promptRegistryService),
+                new FollowupProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    new FollowupSuggestionService(
+                        transcriptStore,
+                        activeTurnRegistry,
+                        interruptedStore,
+                        arenaSessionRegistry,
+                        runtimeProfileService)),
                 new ExtensionProjectionService(
                     shellOptions,
                     workspacePathResolver,

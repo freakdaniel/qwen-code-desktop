@@ -446,6 +446,19 @@ export interface FileDiscoverySnapshot {
   sampleQwenIgnoredFiles: string[];
 }
 
+export interface FollowupSuggestion {
+  text: string;
+  kind: string;
+  source: string;
+  confidence: number;
+}
+
+export interface FollowupSuggestionSnapshot {
+  sessionId: string;
+  suppressedReason: string;
+  suggestions: FollowupSuggestion[];
+}
+
 export interface GetChannelPairingRequest {
   name: string;
 }
@@ -458,6 +471,16 @@ export interface GetDesktopSessionRequest {
 
 export interface GetExtensionSettingsRequest {
   name: string;
+}
+
+export interface GetFollowupSuggestionsRequest {
+  sessionId: string;
+  maxCount: number;
+}
+
+export interface GetPromptRegistryRequest {
+  serverName: string;
+  forceRefresh: boolean;
 }
 
 export interface GitRepositorySnapshot {
@@ -488,10 +511,21 @@ export interface InstallExtensionRequest {
   installMode: string;
 }
 
+export interface InvokePromptRegistryEntryRequest {
+  name: string;
+  argumentsJson: string;
+}
+
 export interface LocaleOption {
   code: string;
   name: string;
   nativeName: string;
+}
+
+export interface McpPromptInvocationResult {
+  serverName: string;
+  promptName: string;
+  output: string;
 }
 
 export interface McpServerDefinition {
@@ -587,6 +621,22 @@ export interface ProjectSummarySnapshot {
   todoCount: number;
   pendingTasks: string[];
   timestampUtc: string;
+}
+
+export interface PromptRegistryEntry {
+  name: string;
+  promptName: string;
+  qualifiedName: string;
+  serverName: string;
+  description: string;
+  argumentsJson: string;
+  source: string;
+}
+
+export interface PromptRegistrySnapshot {
+  totalCount: number;
+  serverCount: number;
+  prompts: PromptRegistryEntry[];
 }
 
 export interface QwenCommandSurface {
@@ -798,9 +848,12 @@ export interface QwenDesktopBridge {
   removeExtension(request: RemoveExtensionRequest): Promise<ExtensionSnapshot>;
   setExtensionEnabled(request: SetExtensionEnabledRequest): Promise<ExtensionSnapshot>;
   setExtensionSetting(request: SetExtensionSettingValueRequest): Promise<ExtensionSettingsSnapshot>;
+  getFollowupSuggestions(request: GetFollowupSuggestionsRequest): Promise<FollowupSuggestionSnapshot>;
   addMcpServer(request: McpServerRegistrationRequest): Promise<McpSnapshot>;
   reconnectMcpServer(request: ReconnectMcpServerRequest): Promise<McpSnapshot>;
   removeMcpServer(request: RemoveMcpServerRequest): Promise<McpSnapshot>;
+  getPromptRegistry(request: GetPromptRegistryRequest): Promise<PromptRegistrySnapshot>;
+  invokeRegisteredPrompt(request: InvokePromptRegistryEntryRequest): Promise<McpPromptInvocationResult>;
   answerPendingQuestion(request: AnswerDesktopSessionQuestionRequest): Promise<DesktopSessionTurnResult>;
   approvePendingTool(request: ApproveDesktopSessionToolRequest): Promise<DesktopSessionTurnResult>;
   cancelSessionTurn(request: CancelDesktopSessionTurnRequest): Promise<CancelDesktopSessionTurnResult>;
@@ -838,9 +891,12 @@ export const qwenDesktopChannels = {
   removeExtension: 'qwen-desktop:extensions:remove',
   setExtensionEnabled: 'qwen-desktop:extensions:set-enabled',
   setExtensionSetting: 'qwen-desktop:extensions:set-setting',
+  getFollowupSuggestions: 'qwen-desktop:followup:get-suggestions',
   addMcpServer: 'qwen-desktop:mcp:add',
   reconnectMcpServer: 'qwen-desktop:mcp:reconnect',
   removeMcpServer: 'qwen-desktop:mcp:remove',
+  getPromptRegistry: 'qwen-desktop:prompts:get-registry',
+  invokeRegisteredPrompt: 'qwen-desktop:prompts:invoke',
   answerPendingQuestion: 'qwen-desktop:sessions:answer-question',
   approvePendingTool: 'qwen-desktop:sessions:approve-tool',
   cancelSessionTurn: 'qwen-desktop:sessions:cancel-turn',
