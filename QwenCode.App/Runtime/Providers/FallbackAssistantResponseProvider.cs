@@ -21,7 +21,7 @@ public sealed class FallbackAssistantResponseProvider : IAssistantResponseProvid
             {
                 Summary = summary,
                 ProviderName = Name,
-                Model = options.Model,
+                Model = string.IsNullOrWhiteSpace(request.ModelOverride) ? options.Model : request.ModelOverride,
                 ToolExecutions = toolHistory.ToArray()
             });
     }

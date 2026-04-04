@@ -13,7 +13,7 @@ public sealed class HookLifecycleService(
         HookInvocationRequest request,
         CancellationToken cancellationToken = default)
     {
-        var plan = registryService.BuildPlan(runtimeProfile, request.EventName);
+        var plan = registryService.BuildPlan(runtimeProfile, request);
         if (!plan.Enabled || plan.Hooks.Count == 0)
         {
             return new HookLifecycleResult();
@@ -24,7 +24,8 @@ public sealed class HookLifecycleService(
             : await ExecuteParallelAsync(plan.Hooks, request, cancellationToken);
         var aggregate = aggregator.Aggregate(executions);
         var blocked = string.Equals(aggregate.Decision, "block", StringComparison.OrdinalIgnoreCase) ||
-                      string.Equals(aggregate.Decision, "deny", StringComparison.OrdinalIgnoreCase);
+                      string.Equals(aggregate.Decision, "deny", StringComparison.OrdinalIgnoreCase) ||
+                      aggregate.Continue == false;
 
         return new HookLifecycleResult
         {

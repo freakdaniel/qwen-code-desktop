@@ -137,6 +137,7 @@ public sealed class DesktopProjectionServiceTests
 
             var interruptedStore = new InterruptedTurnStore();
             var activeTurnRegistry = new ActiveTurnRegistry(interruptedStore);
+            var arenaSessionRegistry = new ArenaSessionRegistry();
             interruptedStore.Upsert(new ActiveTurnState
             {
                 SessionId = "bootstrap-recoverable",
@@ -168,7 +169,9 @@ public sealed class DesktopProjectionServiceTests
                     mcpConnectionManager,
                     transcriptStore,
                     activeTurnRegistry,
+                    arenaSessionRegistry,
                     interruptedStore),
+                new ArenaProjectionService(arenaSessionRegistry),
                 new AuthProjectionService(
                     shellOptions,
                     workspacePathResolver,
@@ -255,6 +258,201 @@ public sealed class DesktopProjectionServiceTests
             Assert.True(payload.ProjectSummary.HasHistory);
             Assert.Equal("Keep qwen compatibility while moving the runtime to C#.", payload.ProjectSummary.OverallGoal);
             Assert.Equal(2, payload.ProjectSummary.PendingTasks.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GetBootstrapAsync_AndGetActiveArenaSessionsAsync_IncludeLiveArenaStateAndForwardEvents()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-bootstrap-arena-{Guid.NewGuid():N}");
+        var workspaceRoot = Path.Combine(root, "workspace");
+        var homeRoot = Path.Combine(root, "home");
+        var systemRoot = Path.Combine(root, "system");
+
+        Directory.CreateDirectory(workspaceRoot);
+        Directory.CreateDirectory(homeRoot);
+        Directory.CreateDirectory(systemRoot);
+
+        try
+        {
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
+            var compatibilityService = new QwenCompatibilityService(environmentPaths);
+            var approvalPolicyService = new ApprovalPolicyService();
+            var workspacePathResolver = new WorkspacePathResolver(environmentPaths);
+            var projectSummaryService = new ProjectSummaryService();
+            var shellOptions = Microsoft.Extensions.Options.Options.Create(new DesktopShellOptions
+            {
+                Workspace = new WorkspacePaths
+                {
+                    WorkspaceRoot = workspaceRoot
+                }
+            });
+            var settingsResolver = new DesktopSettingsResolver(
+                compatibilityService,
+                runtimeProfileService);
+            var authFlowService = new AuthFlowService(
+                runtimeProfileService,
+                environmentPaths,
+                new FileQwenOAuthCredentialStore(environmentPaths),
+                new HttpClient(new RecordingHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)))),
+                new FakeAuthUrlLauncher(),
+                new QwenOAuthTokenManager(
+                    new FileQwenOAuthCredentialStore(environmentPaths),
+                    environmentPaths,
+                    new HttpClient(new RecordingHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))))));
+            var toolRegistry = new ToolCatalogService(runtimeProfileService, approvalPolicyService);
+            var toolExecutor = new NativeToolHostService(runtimeProfileService, approvalPolicyService);
+            var workspaceInspectionService = new WorkspaceInspectionService(
+                new GitWorktreeService(new GitCliService(), runtimeProfileService),
+                new FileDiscoveryService(new GitCliService(), runtimeProfileService));
+            var extensionCatalog = new ExtensionCatalogService(runtimeProfileService, environmentPaths);
+            var channelRegistry = new ChannelRegistryService(
+                environmentPaths,
+                settingsResolver,
+                extensionCatalog);
+            var mcpTokenStore = new FileMcpTokenStore(environmentPaths);
+            var mcpRegistry = new McpRegistryService(runtimeProfileService, mcpTokenStore);
+            var mcpConnectionManager = new McpConnectionManagerService(
+                mcpRegistry,
+                new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
+            var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
+            var interruptedStore = new InterruptedTurnStore();
+            var activeTurnRegistry = new ActiveTurnRegistry(interruptedStore);
+            var arenaSessionRegistry = new ArenaSessionRegistry();
+
+            arenaSessionRegistry.Start(
+                new ActiveArenaSessionState
+                {
+                    SessionId = "arena-live-bootstrap",
+                    Task = "Benchmark two models",
+                    Status = "running",
+                    WorkingDirectory = workspaceRoot,
+                    BaseBranch = "main",
+                    RoundCount = 1,
+                    StartedAtUtc = DateTime.UtcNow.AddMinutes(-3),
+                    LastUpdatedAtUtc = DateTime.UtcNow.AddMinutes(-2),
+                    Agents =
+                    [
+                        new ArenaAgentStatusFile
+                        {
+                            AgentId = "arena-live-bootstrap/model-a",
+                            AgentName = "model-a",
+                            Status = "running",
+                            Model = "model-a",
+                            WorktreeName = "model-a",
+                            WorktreePath = Path.Combine(workspaceRoot, "worktrees", "model-a"),
+                            Branch = "arena/model-a",
+                            UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-2)
+                        },
+                        new ArenaAgentStatusFile
+                        {
+                            AgentId = "arena-live-bootstrap/model-b",
+                            AgentName = "model-b",
+                            Status = "running",
+                            Model = "model-b",
+                            WorktreeName = "model-b",
+                            WorktreePath = Path.Combine(workspaceRoot, "worktrees", "model-b"),
+                            Branch = "arena/model-b",
+                            UpdatedAtUtc = DateTime.UtcNow.AddMinutes(-2)
+                        }
+                    ]
+                },
+                new CancellationTokenSource(),
+                "Arena started.");
+
+            var service = new DesktopAppService(
+                new LocaleStateService(shellOptions),
+                new BootstrapProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    settingsResolver,
+                    projectSummaryService,
+                    toolRegistry,
+                    toolExecutor,
+                    channelRegistry,
+                    extensionCatalog,
+                    workspaceInspectionService,
+                    authFlowService,
+                    mcpConnectionManager,
+                    transcriptStore,
+                    activeTurnRegistry,
+                    arenaSessionRegistry,
+                    interruptedStore),
+                new ArenaProjectionService(arenaSessionRegistry),
+                new AuthProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    authFlowService),
+                new ChannelProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    channelRegistry),
+                new WorkspaceProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    workspaceInspectionService,
+                    new GitWorktreeService(new GitCliService(), runtimeProfileService)),
+                new McpProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    mcpRegistry,
+                    mcpConnectionManager),
+                new ExtensionProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    extensionCatalog),
+                new SessionProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    transcriptStore,
+                    toolExecutor,
+                    CreateSessionHost(
+                        runtimeProfileService,
+                        compatibilityService,
+                        transcriptStore,
+                        activeTurnRegistry,
+                        interruptedStore),
+                    activeTurnRegistry));
+
+            ArenaSessionEvent? observedEvent = null;
+            service.ArenaEvent += (_, arenaEvent) => observedEvent = arenaEvent;
+
+            var payload = await service.GetBootstrapAsync();
+            var activeArenaSession = Assert.Single(payload.ActiveArenaSessions);
+            Assert.Equal("arena-live-bootstrap", activeArenaSession.SessionId);
+            Assert.Equal("running", activeArenaSession.Status);
+            Assert.Equal(2, activeArenaSession.Agents.Count);
+
+            var activeArenaSessions = await service.GetActiveArenaSessionsAsync();
+            Assert.Single(activeArenaSessions);
+            Assert.Equal("arena-live-bootstrap", activeArenaSessions[0].SessionId);
+
+            arenaSessionRegistry.Update(
+                "arena-live-bootstrap",
+                state => state.SelectedWinner = "model-a",
+                ArenaSessionEventKind.SessionUpdated,
+                "Winner selected.");
+
+            Assert.NotNull(observedEvent);
+            Assert.Equal(ArenaSessionEventKind.SessionUpdated, observedEvent!.Kind);
+            Assert.Equal("model-a", observedEvent.SelectedWinner);
+
+            var cancelResult = await service.CancelArenaSessionAsync(new CancelArenaSessionRequest
+            {
+                SessionId = "arena-live-bootstrap"
+            });
+
+            Assert.True(cancelResult.WasCancelled);
+            Assert.Contains("Cancellation requested", cancelResult.Message);
+            Assert.Equal("cancelling", (await service.GetActiveArenaSessionsAsync()).Single().Status);
         }
         finally
         {

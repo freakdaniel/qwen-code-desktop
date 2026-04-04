@@ -289,6 +289,7 @@ export const fallbackBootstrap: AppBootstrapPayload = {
     },
   ],
   activeTurns: [],
+  activeArenaSessions: [],
   recoverableTurns: [],
   projectSummary: {
     hasHistory: false,

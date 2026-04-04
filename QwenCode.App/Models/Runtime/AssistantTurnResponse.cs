@@ -8,6 +8,10 @@ public sealed class AssistantTurnResponse
 
     public string Model { get; init; } = string.Empty;
 
+    public string StopReason { get; init; } = string.Empty;
+
+    public AssistantExecutionStats Stats { get; init; } = new();
+
     public IReadOnlyList<AssistantToolCall> ToolCalls { get; init; } = [];
 
     public IReadOnlyList<AssistantToolCallResult> ToolExecutions { get; init; } = [];

@@ -26,6 +26,8 @@ public sealed class AppBootstrapPayload
 
     public required IReadOnlyList<ActiveTurnState> ActiveTurns { get; init; }
 
+    public required IReadOnlyList<ActiveArenaSessionState> ActiveArenaSessions { get; init; }
+
     public required IReadOnlyList<RecoverableTurnState> RecoverableTurns { get; init; }
 
     public required ProjectSummarySnapshot ProjectSummary { get; init; }

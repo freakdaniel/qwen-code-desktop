@@ -60,6 +60,7 @@ internal static class TestServiceFactory
         var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService);
         var interruptedTurnStore = new InterruptedTurnStore();
         var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);
+        var arenaSessionRegistry = new ArenaSessionRegistry();
         var sessionHost = CreateSessionHost(
             runtimeProfileService,
             compatibilityService,
@@ -83,7 +84,9 @@ internal static class TestServiceFactory
                 mcpConnectionManager,
                 transcriptStore,
                 activeTurnRegistry,
+                arenaSessionRegistry,
                 interruptedTurnStore),
+            new ArenaProjectionService(arenaSessionRegistry),
             new AuthProjectionService(
                 shellOptions,
                 workspacePathResolver,
@@ -121,10 +124,25 @@ internal static class TestServiceFactory
         ITranscriptStore? transcriptStore = null,
         IActiveTurnRegistry? activeTurnRegistry = null,
         IInterruptedTurnStore? interruptedTurnStore = null,
-        IUserPromptHookService? userPromptHookService = null)
+        IUserPromptHookService? userPromptHookService = null,
+        IHookLifecycleService? hookLifecycleService = null)
     {
         var approvalPolicyService = new ApprovalPolicyService();
         var effectiveInterruptedTurnStore = interruptedTurnStore ?? new InterruptedTurnStore();
+        var effectiveTranscriptStore = transcriptStore ?? new DesktopSessionCatalogService(runtimeProfileService);
+        var effectiveUserQuestionToolService = new UserQuestionToolService();
+        var pendingApprovalResolver = new PendingApprovalResolver();
+        var sessionMessageBus = new SessionMessageBus(
+            new PendingToolApprovalMessageHandler(
+                effectiveTranscriptStore,
+                pendingApprovalResolver,
+                runtimeProfileService),
+            new PendingQuestionAnswerMessageHandler(
+                effectiveTranscriptStore,
+                pendingApprovalResolver,
+                runtimeProfileService,
+                effectiveUserQuestionToolService));
+
         return new DesktopSessionHostService(
             runtimeProfileService,
             new CommandActionRuntime(
@@ -135,15 +153,15 @@ internal static class TestServiceFactory
             CreateAssistantTurnRuntime(),
             new ChatCompressionService(),
             new NativeToolHostService(runtimeProfileService, approvalPolicyService),
-            new PassthroughHookLifecycleService(),
-            new UserQuestionToolService(),
+            hookLifecycleService ?? new PassthroughHookLifecycleService(),
+            effectiveUserQuestionToolService,
             userPromptHookService ?? new PassthroughUserPromptHookService(),
-            transcriptStore ?? new DesktopSessionCatalogService(runtimeProfileService),
+            effectiveTranscriptStore,
             activeTurnRegistry ?? new ActiveTurnRegistry(effectiveInterruptedTurnStore),
             effectiveInterruptedTurnStore,
             new SessionTranscriptWriter(),
             new SessionEventFactory(),
-            new PendingApprovalResolver());
+            sessionMessageBus);
     }
 
     internal static IAssistantTurnRuntime CreateAssistantTurnRuntime(

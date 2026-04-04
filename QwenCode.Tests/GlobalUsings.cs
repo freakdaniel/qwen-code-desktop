@@ -8,6 +8,7 @@ global using Microsoft.Extensions.Options;
 global using QwenCode.App.Agents;
 global using QwenCode.App.Compatibility;
 global using QwenCode.App.Desktop;
+global using QwenCode.App.Extensions;
 global using QwenCode.App.Hooks;
 global using QwenCode.App.Infrastructure;
 global using QwenCode.App.Mcp;

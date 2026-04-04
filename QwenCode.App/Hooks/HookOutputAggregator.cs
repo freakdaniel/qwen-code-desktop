@@ -18,8 +18,10 @@ public sealed class HookOutputAggregator
         var additionalContexts = new List<string>();
         string systemMessage = string.Empty;
         string modifiedPrompt = string.Empty;
+        string stopReason = string.Empty;
         bool hasBlock = false;
         bool hasAllow = false;
+        bool? continueExecution = null;
 
         foreach (var execution in executions)
         {
@@ -61,14 +63,26 @@ public sealed class HookOutputAggregator
                 systemMessage = output.SystemMessage;
             }
 
+            if (!string.IsNullOrWhiteSpace(output.StopReason))
+            {
+                stopReason = output.StopReason;
+            }
+
             if (!string.IsNullOrWhiteSpace(output.ModifiedPrompt))
             {
                 modifiedPrompt = output.ModifiedPrompt;
+            }
+
+            if (output.Continue.HasValue)
+            {
+                continueExecution = output.Continue.Value;
             }
         }
 
         return new HookOutput
         {
+            Continue = continueExecution,
+            StopReason = stopReason,
             Decision = hasBlock
                 ? "block"
                 : hasAllow

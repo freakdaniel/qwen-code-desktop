@@ -6,6 +6,8 @@ public interface IExtensionCatalogService
 {
     ExtensionSnapshot Inspect(WorkspacePaths paths);
 
+    IReadOnlyList<CommandHookConfiguration> ListActiveHooks(WorkspacePaths paths);
+
     ExtensionSettingsSnapshot GetSettings(WorkspacePaths paths, GetExtensionSettingsRequest request);
 
     ExtensionSnapshot Install(WorkspacePaths paths, InstallExtensionRequest request);

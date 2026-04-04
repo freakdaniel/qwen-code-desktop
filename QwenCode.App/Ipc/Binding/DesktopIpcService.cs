@@ -20,6 +20,14 @@ public sealed class DesktopIpcService(
     public Task<IReadOnlyList<ActiveTurnState>> GetActiveTurns()
         => desktopProjectionService.GetActiveTurnsAsync();
 
+    [IpcInvoke("qwen-desktop:arena:get-active-sessions")]
+    public Task<IReadOnlyList<ActiveArenaSessionState>> GetActiveArenaSessions()
+        => desktopProjectionService.GetActiveArenaSessionsAsync();
+
+    [IpcInvoke("qwen-desktop:arena:cancel")]
+    public Task<CancelArenaSessionResult> CancelArenaSession(CancelArenaSessionRequest request)
+        => desktopProjectionService.CancelArenaSessionAsync(request);
+
     [IpcInvoke("qwen-desktop:app:set-locale")]
     public Task<DesktopStateChangedEvent> SetLocale(SetLocaleRequest request)
         => desktopProjectionService.SetLocaleAsync(request.Locale);
@@ -148,5 +156,11 @@ public sealed class DesktopIpcService(
     public void SubscribeSessionEvents(Action<DesktopSessionEvent> emit)
     {
         desktopProjectionService.SessionEvent += (_, sessionEvent) => emit(sessionEvent);
+    }
+
+    [IpcEvent("qwen-desktop:arena:event")]
+    public void SubscribeArenaEvents(Action<ArenaSessionEvent> emit)
+    {
+        desktopProjectionService.ArenaEvent += (_, arenaEvent) => emit(arenaEvent);
     }
 }

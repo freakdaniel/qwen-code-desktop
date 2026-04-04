@@ -22,6 +22,18 @@ public sealed class SessionHostCancellationTests
             var approvalPolicyService = new ApprovalPolicyService();
             var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService);
             var interruptedTurnStore = new InterruptedTurnStore();
+            var userQuestionToolService = new UserQuestionToolService();
+            var pendingApprovalResolver = new PendingApprovalResolver();
+            var sessionMessageBus = new SessionMessageBus(
+                new PendingToolApprovalMessageHandler(
+                    sessionCatalog,
+                    pendingApprovalResolver,
+                    runtimeProfileService),
+                new PendingQuestionAnswerMessageHandler(
+                    sessionCatalog,
+                    pendingApprovalResolver,
+                    runtimeProfileService,
+                    userQuestionToolService));
             var sessionHost = new DesktopSessionHostService(
                 runtimeProfileService,
                 new CommandActionRuntime(
@@ -33,14 +45,14 @@ public sealed class SessionHostCancellationTests
                 new ChatCompressionService(),
                 new NativeToolHostService(runtimeProfileService, approvalPolicyService),
                 new PassthroughHookLifecycleService(),
-                new UserQuestionToolService(),
+                userQuestionToolService,
                 new PassthroughUserPromptHookService(),
                 sessionCatalog,
                 new ActiveTurnRegistry(interruptedTurnStore),
                 interruptedTurnStore,
                 new SessionTranscriptWriter(),
                 new SessionEventFactory(),
-                new PendingApprovalResolver());
+                sessionMessageBus);
 
             var emittedEvents = new List<DesktopSessionEvent>();
             var turnStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

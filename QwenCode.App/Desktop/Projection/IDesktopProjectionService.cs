@@ -10,9 +10,15 @@ public interface IDesktopProjectionService
 
     event EventHandler<AuthStatusSnapshot>? AuthChanged;
 
+    event EventHandler<ArenaSessionEvent>? ArenaEvent;
+
     Task<AppBootstrapPayload> GetBootstrapAsync();
 
     Task<IReadOnlyList<ActiveTurnState>> GetActiveTurnsAsync();
+
+    Task<IReadOnlyList<ActiveArenaSessionState>> GetActiveArenaSessionsAsync();
+
+    Task<CancelArenaSessionResult> CancelArenaSessionAsync(CancelArenaSessionRequest request);
 
     Task<DesktopSessionDetail?> GetSessionAsync(GetDesktopSessionRequest request);
 

@@ -54,7 +54,7 @@ public sealed class SubagentCoordinatorService(
         }
 
         var executionId = $"agent-{Guid.NewGuid():N}";
-        var timestampUtc = DateTime.UtcNow;
+        var startedAtUtc = DateTime.UtcNow;
         var executionDirectory = Path.Combine(runtimeProfile.RuntimeBaseDirectory, "agents");
         Directory.CreateDirectory(executionDirectory);
 
@@ -96,6 +96,10 @@ public sealed class SubagentCoordinatorService(
             runtimeRequest,
             runtimeEvent => eventSink?.Invoke(ForwardSubagentRuntimeEvent(agent.Name, runtimeEvent)),
             cancellationToken);
+        var endedAtUtc = DateTime.UtcNow;
+        var status = ResolveOverallStatus(response);
+        var resolvedStopReason = AssistantExecutionDiagnostics.ResolveStopReason(response);
+        var resolvedStats = AssistantExecutionDiagnostics.ResolveStats(response, startedAtUtc, endedAtUtc);
         var stopHook = await ExecuteHookAsync(
             runtimeProfile,
             HookEventName.SubagentStop,
@@ -104,15 +108,15 @@ public sealed class SubagentCoordinatorService(
             description,
             effectivePrompt,
             agent.Name,
-            ResolveOverallStatus(response),
+            status,
             cancellationToken,
             response.Summary);
         eventSink?.Invoke(CreateSubagentRuntimeEvent(
             MapCompletionStage(response),
             agent.Name,
-            ResolveOverallStatus(response),
+            status,
             "agent",
-            $"Subagent '{agent.Name}' finished with status '{ResolveOverallStatus(response)}'."));
+            $"Subagent '{agent.Name}' finished with status '{status}'."));
 
         await PersistTranscriptAsync(
             transcriptPath,
@@ -122,8 +126,7 @@ public sealed class SubagentCoordinatorService(
             response,
             cancellationToken);
 
-        var report = BuildReport(agent, description, effectivePrompt, runtimeProfile, response, stopHook.AggregateOutput);
-        var status = ResolveOverallStatus(response);
+        var report = BuildReport(agent, description, effectivePrompt, runtimeProfile, response, resolvedStopReason, resolvedStats, stopHook.AggregateOutput);
         var reportApprovalState = ResolveApprovalState(response, approvalState);
         var record = new SubagentExecutionRecord
         {
@@ -138,6 +141,8 @@ public sealed class SubagentCoordinatorService(
             Report = report,
             ProviderName = response.ProviderName,
             Model = response.Model,
+            StopReason = resolvedStopReason,
+            Stats = resolvedStats,
             TranscriptPath = transcriptPath,
             AllowedTools = agent.Tools,
             ToolExecutions = response.ToolExecutions
@@ -150,7 +155,9 @@ public sealed class SubagentCoordinatorService(
                     ChangedFiles = item.Execution.ChangedFiles
                 })
                 .ToArray(),
-            TimestampUtc = timestampUtc
+            StartedAtUtc = startedAtUtc,
+            EndedAtUtc = endedAtUtc,
+            TimestampUtc = endedAtUtc
         };
         await File.WriteAllTextAsync(
             artifactPath,
@@ -372,6 +379,8 @@ Operational rules:
         string prompt,
         QwenRuntimeProfile runtimeProfile,
         AssistantTurnResponse response,
+        string stopReason,
+        AssistantExecutionStats stats,
         HookOutput stopHookOutput)
     {
         var compatibility = compatibilityService.Inspect(new WorkspacePaths { WorkspaceRoot = runtimeProfile.ProjectRoot });
@@ -389,6 +398,8 @@ Operational rules:
         builder.AppendLine($"Workspace: {runtimeProfile.ProjectRoot}");
         builder.AppendLine($"Provider: {response.ProviderName}");
         builder.AppendLine($"Model: {response.Model}");
+        builder.AppendLine($"Stop reason: {stopReason}");
+        builder.AppendLine($"Runtime stats: rounds={stats.RoundCount}, toolCalls={stats.ToolCallCount}, successful={stats.SuccessfulToolCallCount}, failed={stats.FailedToolCallCount}, durationMs={stats.DurationMs}");
         builder.AppendLine();
         builder.AppendLine("Delegated prompt:");
         builder.AppendLine(prompt.Trim());

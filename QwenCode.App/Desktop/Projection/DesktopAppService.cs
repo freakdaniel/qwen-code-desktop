@@ -5,6 +5,7 @@ namespace QwenCode.App.Desktop;
 public sealed class DesktopAppService(
     ILocaleStateService localeStateService,
     IDesktopBootstrapProjectionService bootstrapProjectionService,
+    IDesktopArenaProjectionService arenaProjectionService,
     IDesktopAuthProjectionService authProjectionService,
     IDesktopChannelProjectionService channelProjectionService,
     IDesktopWorkspaceProjectionService workspaceProjectionService,
@@ -20,6 +21,12 @@ public sealed class DesktopAppService(
         remove => authProjectionService.AuthChanged -= value;
     }
 
+    public event EventHandler<ArenaSessionEvent>? ArenaEvent
+    {
+        add => arenaProjectionService.ArenaEvent += value;
+        remove => arenaProjectionService.ArenaEvent -= value;
+    }
+
     public event EventHandler<DesktopSessionEvent>? SessionEvent
     {
         add => sessionProjectionService.SessionEvent += value;
@@ -28,6 +35,12 @@ public sealed class DesktopAppService(
 
     public Task<AppBootstrapPayload> GetBootstrapAsync() =>
         Task.FromResult(bootstrapProjectionService.CreateBootstrap(localeStateService.CurrentLocale));
+
+    public Task<IReadOnlyList<ActiveArenaSessionState>> GetActiveArenaSessionsAsync() =>
+        arenaProjectionService.GetActiveArenaSessionsAsync();
+
+    public Task<CancelArenaSessionResult> CancelArenaSessionAsync(CancelArenaSessionRequest request) =>
+        arenaProjectionService.CancelArenaSessionAsync(request);
 
     public Task<DesktopStateChangedEvent> SetLocaleAsync(string locale)
     {

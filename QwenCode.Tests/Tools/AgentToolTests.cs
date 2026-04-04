@@ -51,6 +51,8 @@ public sealed class AgentToolTests
             Assert.Contains("\"AgentName\": \"Explore\"", persisted);
             Assert.Contains("Inspect the runtime module", persisted);
             Assert.Contains("\"ProviderName\": \"fallback\"", persisted);
+            Assert.Contains("\"StopReason\": \"completed\"", persisted);
+            Assert.Contains("\"RoundCount\": 1", persisted);
             Assert.Contains("\"TranscriptPath\":", persisted);
         }
         finally
@@ -156,6 +158,7 @@ public sealed class AgentToolTests
         services.AddSingleton<IDesktopEnvironmentPaths>(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot, workspaceRoot, AppContext.BaseDirectory));
         services.AddOptions<NativeAssistantRuntimeOptions>()
             .Configure(options => options.Provider = "fallback");
+        services.AddInfrastructureServices();
         services.AddCompatibilityServices();
         services.AddPermissionServices();
         services.AddRuntimeServices();

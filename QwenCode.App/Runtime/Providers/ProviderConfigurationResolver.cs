@@ -22,13 +22,16 @@ public sealed class ProviderConfigurationResolver(
         var mergedSettings = LoadMergedSettings(projectRoot);
         var settingsEnvironment = ReadEnvironment(mergedSettings);
 
-        var authType = GetString(mergedSettings, "security", "auth", "selectedType");
+        var authType = FirstNonEmpty(
+            request.AuthTypeOverride,
+            GetString(mergedSettings, "security", "auth", "selectedType"));
         if (string.IsNullOrWhiteSpace(authType))
         {
             authType = "openai";
         }
 
         var configuredModel = FirstNonEmpty(
+            request.ModelOverride,
             options.Model,
             Environment.GetEnvironmentVariable("QWENCODE_ASSISTANT_MODEL"),
             ReadEnvironmentValue(settingsEnvironment, "OPENAI_MODEL", "QWEN_MODEL"),
@@ -45,6 +48,7 @@ public sealed class ProviderConfigurationResolver(
             options.ApiKeyEnvironmentVariable,
             ResolveDefaultApiKeyEnvironmentVariable(authType));
         var apiKey = ResolveApiKey(
+            request.ApiKeyOverride,
             options,
             settingsEnvironment,
             apiKeyEnvironmentVariable,
@@ -55,6 +59,7 @@ public sealed class ProviderConfigurationResolver(
             qwenOAuthTokenManager);
 
         var baseUrl = FirstNonEmpty(
+            request.EndpointOverride,
             options.Endpoint,
             Environment.GetEnvironmentVariable("QWENCODE_ASSISTANT_ENDPOINT"),
             modelProvider?.BaseUrl,
@@ -203,6 +208,7 @@ public sealed class ProviderConfigurationResolver(
     }
 
     private static string ResolveApiKey(
+        string requestApiKey,
         NativeAssistantRuntimeOptions options,
         IReadOnlyDictionary<string, string> settingsEnvironment,
         string apiKeyEnvironmentVariable,
@@ -212,6 +218,11 @@ public sealed class ProviderConfigurationResolver(
         IQwenOAuthCredentialStore? qwenOAuthCredentialStore,
         IQwenOAuthTokenManager? qwenOAuthTokenManager)
     {
+        if (!string.IsNullOrWhiteSpace(requestApiKey))
+        {
+            return requestApiKey;
+        }
+
         if (!string.IsNullOrWhiteSpace(options.ApiKey))
         {
             return options.ApiKey;

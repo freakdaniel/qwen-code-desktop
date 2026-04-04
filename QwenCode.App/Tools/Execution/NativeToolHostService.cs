@@ -24,6 +24,7 @@ public sealed class NativeToolHostService(
     ILspToolService? lspToolService = null,
     ISkillToolService? skillToolService = null,
     ISubagentCoordinator? subagentCoordinator = null,
+    IAgentArenaService? agentArenaService = null,
     IHookLifecycleService? hookLifecycleService = null) : IToolExecutor
 {
     private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", ".electron", "dist"];
@@ -35,6 +36,7 @@ public sealed class NativeToolHostService(
     private readonly ILspToolService lspTools = lspToolService ?? new RoslynLspToolService();
     private readonly ISkillToolService skills = skillToolService ?? new SkillToolService(new QwenCompatibilityService(new DefaultDesktopEnvironmentPaths()));
     private readonly IHookLifecycleService? hooks = hookLifecycleService;
+    private readonly IAgentArenaService? arena = agentArenaService;
 
     public NativeToolHostSnapshot Inspect(WorkspacePaths paths)
     {
@@ -187,6 +189,7 @@ public sealed class NativeToolHostService(
                 "todo_write" => ExecuteTodoWriteAsync(runtimeProfile, arguments, approvalState, cancellationToken),
                 "save_memory" => ExecuteSaveMemoryAsync(runtimeProfile, arguments, approvalState, cancellationToken),
                 "agent" => agents.ExecuteAsync(paths, runtimeProfile, arguments, approvalState, eventSink, cancellationToken),
+                "arena" => ExecuteArenaAsync(paths, runtimeProfile, arguments, approvalState, eventSink, cancellationToken),
                 "skill" => ExecuteSkillAsync(runtimeProfile, arguments, approvalState, cancellationToken),
                 "exit_plan_mode" => Task.FromResult(ExecuteExitPlanMode(runtimeProfile, approvalState)),
                 "web_fetch" => ExecuteWebFetchAsync(runtimeProfile, arguments, approvalState, cancellationToken),
@@ -200,6 +203,17 @@ public sealed class NativeToolHostService(
                 "cron_delete" => Task.FromResult(ExecuteCronDelete(arguments, runtimeProfile, approvalState)),
                 _ => Task.FromResult(Error(request.ToolName, "Tool is not implemented by the native .NET host yet.", runtimeProfile.ProjectRoot))
             };
+
+    private Task<NativeToolExecutionResult> ExecuteArenaAsync(
+        WorkspacePaths paths,
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        Action<AssistantRuntimeEvent>? eventSink,
+        CancellationToken cancellationToken) =>
+        arena is null
+            ? Task.FromResult(Error("arena", "Arena runtime is not available in this host instance.", runtimeProfile.ProjectRoot, approvalState))
+            : arena.ExecuteAsync(paths, runtimeProfile, arguments, approvalState, eventSink, cancellationToken);
 
     private async Task<NativeToolExecutionResult> ApplyPermissionRequestHooksAsync(
         QwenRuntimeProfile runtimeProfile,

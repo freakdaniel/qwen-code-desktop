@@ -1,3 +1,5 @@
+using QwenCode.App.Runtime;
+
 namespace QwenCode.App.Models;
 
 public sealed class SubagentExecutionRecord
@@ -24,11 +26,19 @@ public sealed class SubagentExecutionRecord
 
     public string Model { get; init; } = string.Empty;
 
+    public string StopReason { get; init; } = string.Empty;
+
+    public AssistantExecutionStats Stats { get; init; } = new();
+
     public string TranscriptPath { get; init; } = string.Empty;
 
     public IReadOnlyList<string> AllowedTools { get; init; } = [];
 
     public IReadOnlyList<SubagentToolExecutionRecord> ToolExecutions { get; init; } = [];
+
+    public DateTime StartedAtUtc { get; init; }
+
+    public DateTime EndedAtUtc { get; init; }
 
     public DateTime TimestampUtc { get; init; }
 }
