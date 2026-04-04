@@ -130,6 +130,73 @@ public sealed class GitWorktreeService(
         return Inspect(paths);
     }
 
+    public ApplyWorktreeChangesResult ApplyWorktreeChanges(string sourceRepositoryPath, string worktreePath)
+    {
+        if (!Directory.Exists(sourceRepositoryPath))
+        {
+            throw new InvalidOperationException($"Source repository path does not exist: {sourceRepositoryPath}");
+        }
+
+        if (!Directory.Exists(worktreePath))
+        {
+            throw new InvalidOperationException($"Worktree path does not exist: {worktreePath}");
+        }
+
+        var normalizedSource = Path.GetFullPath(sourceRepositoryPath);
+        var normalizedWorktree = Path.GetFullPath(worktreePath);
+        var appliedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deletedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var nameStatusResult = gitCliService.Run(normalizedWorktree, "diff", "--name-status", "--find-renames");
+        if (!nameStatusResult.Success)
+        {
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(nameStatusResult.StandardError)
+                    ? "Failed to read worktree diff."
+                    : nameStatusResult.StandardError.Trim());
+        }
+
+        foreach (var change in ParseNameStatus(nameStatusResult.StandardOutput))
+        {
+            switch (change.Kind)
+            {
+                case "delete":
+                    DeleteTarget(normalizedSource, change.TargetPath, deletedFiles);
+                    break;
+                case "rename":
+                    if (!string.IsNullOrWhiteSpace(change.SourcePath) &&
+                        !string.Equals(change.SourcePath, change.TargetPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        DeleteTarget(normalizedSource, change.SourcePath, deletedFiles);
+                    }
+
+                    CopyTarget(normalizedWorktree, normalizedSource, change.TargetPath, appliedFiles);
+                    break;
+                default:
+                    CopyTarget(normalizedWorktree, normalizedSource, change.TargetPath, appliedFiles);
+                    break;
+            }
+        }
+
+        var untrackedResult = gitCliService.Run(normalizedWorktree, "ls-files", "--others", "--exclude-standard");
+        if (untrackedResult.Success)
+        {
+            foreach (var relativePath in untrackedResult.StandardOutput
+                         .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                CopyTarget(normalizedWorktree, normalizedSource, relativePath, appliedFiles);
+            }
+        }
+
+        return new ApplyWorktreeChangesResult
+        {
+            SourceRepositoryPath = normalizedSource,
+            WorktreePath = normalizedWorktree,
+            AppliedFiles = appliedFiles.OrderBy(static item => item, StringComparer.OrdinalIgnoreCase).ToArray(),
+            DeletedFiles = deletedFiles.OrderBy(static item => item, StringComparer.OrdinalIgnoreCase).ToArray()
+        };
+    }
+
     public GitRepositorySnapshot Inspect(WorkspacePaths paths)
     {
         var runtimeProfile = runtimeProfileService.Inspect(paths);
@@ -405,6 +472,79 @@ public sealed class GitWorktreeService(
             }));
     }
 
+    private static IReadOnlyList<GitNameStatusChange> ParseNameStatus(string stdout)
+    {
+        var changes = new List<GitNameStatusChange>();
+        foreach (var rawLine in stdout.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = rawLine.Split('\t', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length < 2)
+            {
+                continue;
+            }
+
+            var statusCode = parts[0];
+            var kind = statusCode[0] switch
+            {
+                'D' => "delete",
+                'R' => "rename",
+                _ => "copy"
+            };
+
+            changes.Add(kind switch
+            {
+                "rename" when parts.Length >= 3 => new GitNameStatusChange(kind, parts[1], parts[2]),
+                "delete" => new GitNameStatusChange(kind, parts[1], parts[1]),
+                _ => new GitNameStatusChange(kind, string.Empty, parts[1])
+            });
+        }
+
+        return changes;
+    }
+
+    private static void CopyTarget(
+        string worktreeRoot,
+        string sourceRoot,
+        string relativePath,
+        ISet<string> appliedFiles)
+    {
+        var sourcePath = Path.GetFullPath(Path.Combine(worktreeRoot, relativePath));
+        if (!PathStartsWith(sourcePath, worktreeRoot))
+        {
+            throw new InvalidOperationException("Worktree file path escaped the worktree root.");
+        }
+
+        if (!File.Exists(sourcePath))
+        {
+            return;
+        }
+
+        var targetPath = Path.GetFullPath(Path.Combine(sourceRoot, relativePath));
+        if (!PathStartsWith(targetPath, sourceRoot))
+        {
+            throw new InvalidOperationException("Applied file path escaped the source repository root.");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+        File.Copy(sourcePath, targetPath, overwrite: true);
+        appliedFiles.Add(targetPath);
+    }
+
+    private static void DeleteTarget(string sourceRoot, string relativePath, ISet<string> deletedFiles)
+    {
+        var targetPath = Path.GetFullPath(Path.Combine(sourceRoot, relativePath));
+        if (!PathStartsWith(targetPath, sourceRoot))
+        {
+            throw new InvalidOperationException("Deleted file path escaped the source repository root.");
+        }
+
+        if (File.Exists(targetPath))
+        {
+            File.Delete(targetPath);
+            deletedFiles.Add(targetPath);
+        }
+    }
+
     private static IReadOnlyList<string> ReadExistingWorktreeNames(string configPath)
     {
         if (!File.Exists(configPath))
@@ -434,4 +574,14 @@ public sealed class GitWorktreeService(
             return [];
         }
     }
+
+    private static bool PathStartsWith(string path, string root) =>
+        path.StartsWith(
+            root.EndsWith(Path.DirectorySeparatorChar) || root.EndsWith(Path.AltDirectorySeparatorChar)
+                ? root
+                : root + Path.DirectorySeparatorChar,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) ||
+        string.Equals(path, root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    private sealed record GitNameStatusChange(string Kind, string SourcePath, string TargetPath);
 }

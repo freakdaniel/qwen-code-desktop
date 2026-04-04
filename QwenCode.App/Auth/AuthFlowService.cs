@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using QwenCode.App.Compatibility;
+using QwenCode.App.Config;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
 
@@ -16,7 +17,8 @@ public sealed class AuthFlowService(
     IQwenOAuthCredentialStore qwenOAuthCredentialStore,
     HttpClient httpClient,
     IAuthUrlLauncher authUrlLauncher,
-    IQwenOAuthTokenManager? qwenOAuthTokenManager = null) : IAuthFlowService
+    IQwenOAuthTokenManager? qwenOAuthTokenManager = null,
+    IConfigService? configService = null) : IAuthFlowService
 {
     private const string CodingPlanEnvKey = "BAILIAN_CODING_PLAN_API_KEY";
     private const string QwenOAuthBaseUrl = "https://chat.qwen.ai";
@@ -32,13 +34,14 @@ public sealed class AuthFlowService(
                                                                 qwenOAuthCredentialStore,
                                                                 environmentPaths,
                                                                 httpClient);
+    private readonly IConfigService config = configService ?? new RuntimeConfigService(environmentPaths);
 
     public event EventHandler<AuthStatusSnapshot>? AuthChanged;
 
     public AuthStatusSnapshot GetStatus(WorkspacePaths paths)
     {
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var mergedSettings = LoadMergedSettings(runtimeProfile);
+        var mergedSettings = config.Inspect(paths).MergedSettings;
         var qwenCredentials = tokenManager.GetValidCredentialsAsync().GetAwaiter().GetResult();
 
         var selectedType = FirstNonEmpty(GetString(mergedSettings, "security", "auth", "selectedType"), "openai");
@@ -77,7 +80,7 @@ public sealed class AuthFlowService(
         CancellationToken cancellationToken = default)
     {
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var settingsPath = ResolveSettingsPath(runtimeProfile, request.Scope);
+        var settingsPath = config.ResolveSettingsPath(paths, request.Scope);
         var root = LoadSettingsRoot(settingsPath);
         var authType = string.IsNullOrWhiteSpace(request.AuthType) ? "openai" : request.AuthType.Trim();
 
@@ -114,7 +117,7 @@ public sealed class AuthFlowService(
         }
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var settingsPath = ResolveSettingsPath(runtimeProfile, request.Scope);
+        var settingsPath = config.ResolveSettingsPath(paths, request.Scope);
         var root = LoadSettingsRoot(settingsPath);
         var region = string.Equals(request.Region, "global", StringComparison.OrdinalIgnoreCase) ? "global" : "china";
         var template = CreateCodingPlanTemplate(region);
@@ -145,7 +148,7 @@ public sealed class AuthFlowService(
         }
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var settingsPath = ResolveSettingsPath(runtimeProfile, request.Scope);
+        var settingsPath = config.ResolveSettingsPath(paths, request.Scope);
         var root = LoadSettingsRoot(settingsPath);
         SetValue(root, "security", "auth", "selectedType", "qwen-oauth");
         RemoveValue(root, "security", "auth", "apiKey");
@@ -235,7 +238,7 @@ public sealed class AuthFlowService(
         CancellationToken cancellationToken = default)
     {
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var settingsPath = ResolveSettingsPath(runtimeProfile, request.Scope);
+        var settingsPath = config.ResolveSettingsPath(paths, request.Scope);
         var root = LoadSettingsRoot(settingsPath);
 
         RemoveValue(root, "security", "auth", "selectedType");
@@ -251,40 +254,6 @@ public sealed class AuthFlowService(
         }
 
         return PublishStatus(paths);
-    }
-
-    private JsonObject LoadMergedSettings(QwenRuntimeProfile runtimeProfile)
-    {
-        var merged = new JsonObject();
-        foreach (var settingsPath in GetSettingsPaths(runtimeProfile))
-        {
-            if (!File.Exists(settingsPath))
-            {
-                continue;
-            }
-
-            try
-            {
-                if (JsonNode.Parse(File.ReadAllText(settingsPath)) is JsonObject layer)
-                {
-                    MergeObjects(merged, layer);
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        return merged;
-    }
-
-    private IEnumerable<string> GetSettingsPaths(QwenRuntimeProfile runtimeProfile)
-    {
-        var programDataRoot = ResolveProgramDataRoot();
-        yield return GetSystemDefaultsPath(programDataRoot);
-        yield return Path.Combine(runtimeProfile.GlobalQwenDirectory, "settings.json");
-        yield return Path.Combine(runtimeProfile.ProjectRoot, ".qwen", "settings.json");
-        yield return GetSystemSettingsPath(programDataRoot);
     }
 
     private string ResolveSelectedScope(QwenRuntimeProfile runtimeProfile)
@@ -439,11 +408,6 @@ public sealed class AuthFlowService(
             .FirstOrDefault(provider => string.Equals(provider["id"]?.GetValue<string?>(), modelId, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string ResolveSettingsPath(QwenRuntimeProfile runtimeProfile, string scope) =>
-        string.Equals(scope, "project", StringComparison.OrdinalIgnoreCase)
-            ? Path.Combine(runtimeProfile.ProjectRoot, ".qwen", "settings.json")
-            : Path.Combine(runtimeProfile.GlobalQwenDirectory, "settings.json");
-
     private static JsonObject LoadSettingsRoot(string path)
     {
         if (!File.Exists(path))
@@ -547,29 +511,6 @@ public sealed class AuthFlowService(
         var json = JsonSerializer.Serialize(template.Select(item => new { item.Id, item.Name, item.BaseUrl }));
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(json));
         return Convert.ToHexString(bytes).ToLowerInvariant();
-    }
-
-    private string ResolveProgramDataRoot() =>
-        Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_SETTINGS_PATH") is { Length: > 0 } overridePath
-            ? Path.GetDirectoryName(overridePath) ?? string.Empty
-            : environmentPaths.ProgramDataDirectory is { Length: > 0 } commonAppData
-                ? Path.Combine(commonAppData, "qwen-code")
-                : string.Empty;
-
-    private static string GetSystemDefaultsPath(string programDataRoot)
-    {
-        var overridePath = Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_DEFAULTS_PATH");
-        return string.IsNullOrWhiteSpace(overridePath)
-            ? Path.Combine(programDataRoot, "system-defaults.json")
-            : overridePath;
-    }
-
-    private static string GetSystemSettingsPath(string programDataRoot)
-    {
-        var overridePath = Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_SETTINGS_PATH");
-        return string.IsNullOrWhiteSpace(overridePath)
-            ? Path.Combine(programDataRoot, "settings.json")
-            : overridePath;
     }
 
     private static void MergeObjects(JsonObject target, JsonObject source)

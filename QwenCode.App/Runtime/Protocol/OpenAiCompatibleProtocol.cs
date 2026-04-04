@@ -28,10 +28,18 @@ internal static class OpenAiCompatibleProtocol
             ["temperature"] = temperature,
             ["stream"] = false,
             ["max_tokens"] = maxOutputTokens,
-            ["messages"] = BuildMessages(request, promptContext, toolHistory, systemPrompt),
-            ["tools"] = BuildTools(request.AllowedToolNames),
-            ["tool_choice"] = "auto"
+            ["messages"] = BuildMessages(request, promptContext, toolHistory, systemPrompt)
         };
+
+        if (!request.DisableTools)
+        {
+            payload["tools"] = BuildTools(request.AllowedToolNames);
+            payload["tool_choice"] = "auto";
+        }
+        else
+        {
+            payload["tool_choice"] = "none";
+        }
 
         if (metadata is not null && metadata.Count > 0)
         {

@@ -9,4 +9,6 @@ public interface IGitWorktreeService
     GitRepositorySnapshot CreateManagedWorktree(WorkspacePaths paths, CreateManagedWorktreeRequest request);
 
     GitRepositorySnapshot CleanupManagedSession(WorkspacePaths paths, CleanupManagedWorktreeSessionRequest request);
+
+    ApplyWorktreeChangesResult ApplyWorktreeChanges(string sourceRepositoryPath, string worktreePath);
 }

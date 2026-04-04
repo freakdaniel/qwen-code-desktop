@@ -27,4 +27,14 @@ public sealed class AssistantTurnRequest
     public string SystemPromptOverride { get; init; } = string.Empty;
 
     public IReadOnlyList<string> AllowedToolNames { get; init; } = [];
+
+    public string ModelOverride { get; init; } = string.Empty;
+
+    public string AuthTypeOverride { get; init; } = string.Empty;
+
+    public string EndpointOverride { get; init; } = string.Empty;
+
+    public string ApiKeyOverride { get; init; } = string.Empty;
+
+    public bool DisableTools { get; init; }
 }

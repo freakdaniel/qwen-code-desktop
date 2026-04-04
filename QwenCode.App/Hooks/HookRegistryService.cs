@@ -1,16 +1,40 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using QwenCode.App.Extensions;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
 
 namespace QwenCode.App.Hooks;
 
-public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPaths)
+public sealed class HookRegistryService(
+    IDesktopEnvironmentPaths environmentPaths,
+    IExtensionCatalogService? extensionCatalogService = null)
 {
     public HookExecutionPlan BuildUserPromptSubmitPlan(QwenRuntimeProfile runtimeProfile)
-        => BuildPlan(runtimeProfile, HookEventName.UserPromptSubmit);
+        => BuildPlan(
+            runtimeProfile,
+            new HookInvocationRequest
+            {
+                EventName = HookEventName.UserPromptSubmit,
+                SessionId = string.Empty,
+                WorkingDirectory = runtimeProfile.ProjectRoot,
+                TranscriptPath = string.Empty
+            });
 
     public HookExecutionPlan BuildPlan(QwenRuntimeProfile runtimeProfile, HookEventName eventName)
+        => BuildPlan(
+            runtimeProfile,
+            new HookInvocationRequest
+            {
+                EventName = eventName,
+                SessionId = string.Empty,
+                WorkingDirectory = runtimeProfile.ProjectRoot,
+                TranscriptPath = string.Empty
+            });
+
+    public HookExecutionPlan BuildPlan(QwenRuntimeProfile runtimeProfile, HookInvocationRequest request)
     {
+        var eventName = request.EventName;
         var projectSettingsPath = Path.Combine(runtimeProfile.ProjectRoot, ".qwen", "settings.json");
         var userSettingsPath = Path.Combine(runtimeProfile.GlobalQwenDirectory, "settings.json");
         var systemRoot = ResolveProgramDataRoot();
@@ -63,9 +87,15 @@ public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPath
                     }
 
                     var sequential = TryGetBoolean(definition, "sequential");
+                    var matcher = TryGetString(definition, "matcher", out var parsedMatcher) ? parsedMatcher : string.Empty;
                     foreach (var hookElement in hooksElement.EnumerateArray())
                     {
-                        if (!TryParseHook(hookElement, layer.Source, eventName, sequential, out var hook))
+                        if (!TryParseHook(hookElement, layer.Source, eventName, sequential, matcher, out var hook))
+                        {
+                            continue;
+                        }
+
+                        if (!MatchesRequest(hook, request))
                         {
                             continue;
                         }
@@ -85,6 +115,30 @@ public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPath
             catch
             {
                 // Ignore malformed hook configuration layers.
+            }
+        }
+
+        if (extensionCatalogService is not null)
+        {
+            foreach (var hook in extensionCatalogService.ListActiveHooks(new WorkspacePaths
+                     {
+                         WorkspaceRoot = runtimeProfile.ProjectRoot
+                     }))
+            {
+                if (!MatchesRequest(hook, request))
+                {
+                    continue;
+                }
+
+                var hookKey = BuildHookKey(hook);
+                if (state.Disabled.Contains(hook.Name) ||
+                    state.Disabled.Contains(hook.Command) ||
+                    !seenKeys.Add(hookKey))
+                {
+                    continue;
+                }
+
+                hooks.Add(hook);
             }
         }
 
@@ -164,6 +218,7 @@ public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPath
         HookConfigSource source,
         HookEventName eventName,
         bool sequential,
+        string matcher,
         out CommandHookConfiguration hook)
     {
         hook = null!;
@@ -179,6 +234,7 @@ public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPath
         {
             Command = command,
             Name = TryGetString(hookElement, "name", out var name) ? name : string.Empty,
+            Matcher = matcher,
             Description = TryGetString(hookElement, "description", out var description) ? description : string.Empty,
             TimeoutMs = TryGetInt32(hookElement, "timeout", out var timeoutMs) && timeoutMs > 0 ? timeoutMs : 60_000,
             EnvironmentVariables = ReadEnvironmentVariables(hookElement),
@@ -235,7 +291,52 @@ public sealed class HookRegistryService(IDesktopEnvironmentPaths environmentPath
     private static string BuildHookKey(CommandHookConfiguration hook) =>
         string.IsNullOrWhiteSpace(hook.Name)
             ? hook.Command
-            : $"{hook.Name}:{hook.Command}";
+            : $"{hook.Name}:{hook.Command}:{hook.Matcher}";
+
+    private static bool MatchesRequest(CommandHookConfiguration hook, HookInvocationRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(hook.Matcher) || hook.Matcher == "*")
+        {
+            return true;
+        }
+
+        return request.EventName switch
+        {
+            HookEventName.PreToolUse or HookEventName.PostToolUse or HookEventName.PostToolUseFailure or HookEventName.PermissionRequest
+                => MatchesRegexOrExact(hook.Matcher, request.ToolName),
+            HookEventName.SubagentStart or HookEventName.SubagentStop
+                => MatchesRegexOrExact(hook.Matcher, request.AgentName),
+            HookEventName.PreCompact
+                => string.Equals(hook.Matcher, GetMetadataString(request, "trigger"), StringComparison.Ordinal),
+            HookEventName.Notification
+                => string.Equals(hook.Matcher, GetMetadataString(request, "notification_type"), StringComparison.Ordinal),
+            HookEventName.SessionStart or HookEventName.SessionEnd
+                => MatchesRegexOrExact(hook.Matcher, GetMetadataString(request, "trigger")),
+            _ => true
+        };
+    }
+
+    private static bool MatchesRegexOrExact(string matcher, string candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return true;
+        }
+
+        try
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(candidate, matcher);
+        }
+        catch
+        {
+            return string.Equals(matcher, candidate, StringComparison.Ordinal);
+        }
+    }
+
+    private static string GetMetadataString(HookInvocationRequest request, string propertyName) =>
+        request.Metadata.TryGetPropertyValue(propertyName, out var value) && value is JsonValue jsonValue && jsonValue.TryGetValue<string>(out var stringValue)
+            ? stringValue
+            : string.Empty;
 
     private static bool TryNavigate(JsonElement element, IReadOnlyList<string> path, out JsonElement result)
     {

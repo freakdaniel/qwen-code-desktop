@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using QwenCode.App.Agents;
 using QwenCode.App.Auth;
 using QwenCode.App.Channels;
 using QwenCode.App.Compatibility;
@@ -27,6 +28,7 @@ public sealed class BootstrapProjectionService(
     IMcpConnectionManager mcpConnectionManager,
     ITranscriptStore transcriptStore,
     IActiveTurnRegistry activeTurnRegistry,
+    IArenaSessionRegistry arenaSessionRegistry,
     IInterruptedTurnStore interruptedTurnStore) : IDesktopBootstrapProjectionService
 {
     private readonly DesktopShellOptions _options = options.Value;
@@ -50,6 +52,7 @@ public sealed class BootstrapProjectionService(
             AdoptionPatterns = DesktopProjectionCatalog.AdoptionPatterns,
             RecentSessions = transcriptStore.ListSessions(workspace),
             ActiveTurns = activeTurnRegistry.ListActiveTurns(),
+            ActiveArenaSessions = arenaSessionRegistry.ListActiveSessions(),
             RecoverableTurns = interruptedTurnStore.ListRecoverableTurns(runtime.ChatsDirectory),
             ProjectSummary = projectSummary,
             QwenCompatibility = settingsResolver.InspectCompatibility(workspace),

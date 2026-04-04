@@ -24,6 +24,14 @@ public sealed class DesktopIpcService(
     public Task<IReadOnlyList<ActiveTurnState>> GetActiveTurns()
         => desktopProjectionService.GetActiveTurnsAsync();
 
+    [IpcInvoke("qwen-desktop:arena:get-active-sessions")]
+    public Task<IReadOnlyList<ActiveArenaSessionState>> GetActiveArenaSessions()
+        => desktopProjectionService.GetActiveArenaSessionsAsync();
+
+    [IpcInvoke("qwen-desktop:arena:cancel")]
+    public Task<CancelArenaSessionResult> CancelArenaSession(CancelArenaSessionRequest request)
+        => desktopProjectionService.CancelArenaSessionAsync(request);
+
     [IpcInvoke("qwen-desktop:app:set-locale")]
     public Task<DesktopStateChangedEvent> SetLocale(SetLocaleRequest request)
         => desktopProjectionService.SetLocaleAsync(request.Locale);
@@ -96,6 +104,14 @@ public sealed class DesktopIpcService(
     public Task<McpSnapshot> ReconnectMcpServer(ReconnectMcpServerRequest request)
         => desktopProjectionService.ReconnectMcpServerAsync(request);
 
+    [IpcInvoke("qwen-desktop:prompts:get-registry")]
+    public Task<PromptRegistrySnapshot> GetPromptRegistry(GetPromptRegistryRequest request)
+        => desktopProjectionService.GetPromptRegistryAsync(request);
+
+    [IpcInvoke("qwen-desktop:prompts:invoke")]
+    public Task<McpPromptInvocationResult> InvokeRegisteredPrompt(InvokePromptRegistryEntryRequest request)
+        => desktopProjectionService.InvokeRegisteredPromptAsync(request);
+
     [IpcInvoke("qwen-desktop:extensions:get-settings")]
     public Task<ExtensionSettingsSnapshot> GetExtensionSettings(GetExtensionSettingsRequest request)
         => desktopProjectionService.GetExtensionSettingsAsync(request);
@@ -144,6 +160,10 @@ public sealed class DesktopIpcService(
     public Task<DismissInterruptedTurnResult> DismissInterruptedTurn(DismissInterruptedTurnRequest request)
         => desktopProjectionService.DismissInterruptedTurnAsync(request);
 
+    [IpcInvoke("qwen-desktop:followup:get-suggestions")]
+    public Task<FollowupSuggestionSnapshot> GetFollowupSuggestions(GetFollowupSuggestionsRequest request)
+        => desktopProjectionService.GetFollowupSuggestionsAsync(request);
+
     [IpcEvent("qwen-desktop:app:state-changed")]
     public void SubscribeStateChanged(Action<DesktopStateChangedEvent> emit)
     {
@@ -160,5 +180,11 @@ public sealed class DesktopIpcService(
     public void SubscribeSessionEvents(Action<DesktopSessionEvent> emit)
     {
         desktopProjectionService.SessionEvent += (_, sessionEvent) => emit(sessionEvent);
+    }
+
+    [IpcEvent("qwen-desktop:arena:event")]
+    public void SubscribeArenaEvents(Action<ArenaSessionEvent> emit)
+    {
+        desktopProjectionService.ArenaEvent += (_, arenaEvent) => emit(arenaEvent);
     }
 }

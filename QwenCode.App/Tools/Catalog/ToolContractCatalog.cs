@@ -21,6 +21,7 @@ internal static class ToolContractCatalog
         new("todo_write", "TodoWrite", "modify", true, "native://tools/todo_write"),
         new("save_memory", "SaveMemory", "modify", true, "native://tools/save_memory"),
         new("agent", "Agent", "coordination", true, "native://tools/agent"),
+        new("arena", "Arena", "coordination", true, "native://tools/arena"),
         new("skill", "Skill", "read", true, "native://tools/skill"),
         new("exit_plan_mode", "ExitPlanMode", "control", true, "native://tools/exit_plan_mode"),
         new("web_fetch", "WebFetch", "execute", true, "native://tools/web_fetch"),

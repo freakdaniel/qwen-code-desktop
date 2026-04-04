@@ -51,6 +51,12 @@ public sealed class AssistantTurnRuntimeTests
 
             Assert.Equal("tool-provider", response.ProviderName);
             Assert.Equal("Tool loop complete after 1 native execution(s).", response.Summary);
+            Assert.Equal("completed", response.StopReason);
+            Assert.Equal(2, response.Stats.RoundCount);
+            Assert.Equal(1, response.Stats.ToolCallCount);
+            Assert.Equal(1, response.Stats.SuccessfulToolCallCount);
+            Assert.Equal(0, response.Stats.FailedToolCallCount);
+            Assert.True(response.Stats.DurationMs >= 0);
             var toolExecution = Assert.Single(response.ToolExecutions);
             Assert.Equal("read_file", toolExecution.Execution.ToolName);
             Assert.Equal("completed", toolExecution.Execution.Status);
@@ -155,6 +161,10 @@ public sealed class AssistantTurnRuntimeTests
 
             Assert.Equal("loop-provider", response.ProviderName);
             Assert.Contains("loop detection", response.Summary, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("tool-loop-detected", response.StopReason);
+            Assert.Equal(4, response.Stats.ToolCallCount);
+            Assert.Equal(0, response.Stats.SuccessfulToolCallCount);
+            Assert.Equal(4, response.Stats.FailedToolCallCount);
             Assert.Equal(4, response.ToolExecutions.Count);
             Assert.All(response.ToolExecutions, item => Assert.Equal("read_file", item.Execution.ToolName));
         }

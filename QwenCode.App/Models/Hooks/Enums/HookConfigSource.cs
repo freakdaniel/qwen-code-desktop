@@ -4,5 +4,6 @@ public enum HookConfigSource
 {
     Project,
     User,
-    System
+    System,
+    Extensions
 }

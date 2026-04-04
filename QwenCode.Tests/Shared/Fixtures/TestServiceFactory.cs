@@ -2,7 +2,10 @@ using Microsoft.Extensions.Options;
 using QwenCode.App.Auth;
 using QwenCode.App.Channels;
 using QwenCode.App.Extensions;
+using QwenCode.App.Followup;
 using QwenCode.App.Infrastructure;
+using QwenCode.App.Prompts;
+using QwenCode.App.Config;
 
 namespace QwenCode.Tests.Shared.Fixtures;
 
@@ -61,14 +64,36 @@ internal static class TestServiceFactory
         var chatRecordingService = new ChatRecordingService();
         var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService, chatRecordingService);
         var sessionService = (ISessionService)transcriptStore;
+        var promptRegistryService = new PromptRegistryService(
+            mcpConnectionManager,
+            new McpToolRuntimeService(
+                mcpRegistry,
+                new FileMcpTokenStore(environmentPaths),
+                new HttpClient(),
+                runtimeProfileService));
         var interruptedTurnStore = new InterruptedTurnStore();
         var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);
+        var arenaSessionRegistry = new ArenaSessionRegistry();
         var sessionHost = CreateSessionHost(
             runtimeProfileService,
             compatibilityService,
             transcriptStore,
             activeTurnRegistry,
             interruptedTurnStore);
+        var followupSuggestionService = new FollowupSuggestionService(
+            transcriptStore,
+            activeTurnRegistry,
+            interruptedTurnStore,
+            arenaSessionRegistry,
+            runtimeProfileService,
+            new ProviderBackedFollowupSuggestionGenerator(
+                runtimeProfileService,
+                new AssistantPromptAssembler(projectSummaryService),
+                new StaticContentGenerator(static _ => null),
+                Options.Create(new NativeAssistantRuntimeOptions
+                {
+                    Provider = "fallback"
+                })));
 
         return new DesktopAppService(
             new LocaleStateService(shellOptions),
@@ -86,7 +111,9 @@ internal static class TestServiceFactory
                 mcpConnectionManager,
                 transcriptStore,
                 activeTurnRegistry,
+                arenaSessionRegistry,
                 interruptedTurnStore),
+            new ArenaProjectionService(arenaSessionRegistry),
             new AuthProjectionService(
                 shellOptions,
                 workspacePathResolver,
@@ -106,6 +133,14 @@ internal static class TestServiceFactory
                 workspacePathResolver,
                 mcpRegistry,
                 mcpConnectionManager),
+            new PromptProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                promptRegistryService),
+            new FollowupProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                followupSuggestionService),
             new ExtensionProjectionService(
                 shellOptions,
                 workspacePathResolver,
@@ -126,11 +161,25 @@ internal static class TestServiceFactory
         ITranscriptStore? transcriptStore = null,
         IActiveTurnRegistry? activeTurnRegistry = null,
         IInterruptedTurnStore? interruptedTurnStore = null,
-        IUserPromptHookService? userPromptHookService = null)
+        IUserPromptHookService? userPromptHookService = null,
+        IHookLifecycleService? hookLifecycleService = null)
     {
         var approvalPolicyService = new ApprovalPolicyService();
         var effectiveInterruptedTurnStore = interruptedTurnStore ?? new InterruptedTurnStore();
         var chatRecordingService = new ChatRecordingService();
+        var effectiveUserQuestionToolService = new UserQuestionToolService();
+        var effectiveTranscriptStore = transcriptStore ?? new DesktopSessionCatalogService(runtimeProfileService, chatRecordingService);
+        var pendingApprovalResolver = new PendingApprovalResolver();
+        var sessionMessageBus = new SessionMessageBus(
+            new PendingToolApprovalMessageHandler(
+                effectiveTranscriptStore,
+                pendingApprovalResolver,
+                runtimeProfileService),
+            new PendingQuestionAnswerMessageHandler(
+                effectiveTranscriptStore,
+                pendingApprovalResolver,
+                runtimeProfileService,
+                effectiveUserQuestionToolService));
         return new DesktopSessionHostService(
             runtimeProfileService,
             new CommandActionRuntime(
@@ -142,54 +191,62 @@ internal static class TestServiceFactory
             new ChatCompressionService(),
             chatRecordingService,
             new NativeToolHostService(runtimeProfileService, approvalPolicyService),
-            new PassthroughHookLifecycleService(),
-            new UserQuestionToolService(),
+            hookLifecycleService ?? new PassthroughHookLifecycleService(),
+            effectiveUserQuestionToolService,
             userPromptHookService ?? new PassthroughUserPromptHookService(),
-            transcriptStore ?? new DesktopSessionCatalogService(runtimeProfileService, chatRecordingService),
+            effectiveTranscriptStore,
             activeTurnRegistry ?? new ActiveTurnRegistry(effectiveInterruptedTurnStore),
             effectiveInterruptedTurnStore,
             new SessionTranscriptWriter(),
             new SessionEventFactory(),
-            new PendingApprovalResolver());
+            sessionMessageBus);
     }
 
     internal static IAssistantTurnRuntime CreateAssistantTurnRuntime(
         IAssistantResponseProvider? primaryProvider = null,
-        IToolExecutor? toolExecutor = null) =>
-        new AssistantTurnRuntime(
+        IToolExecutor? toolExecutor = null)
+    {
+        var environmentPaths = new FakeDesktopEnvironmentPaths(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+        var configService = new RuntimeConfigService(environmentPaths);
+        var modelConfigResolver = new ModelConfigResolver(new ModelRegistryService(configService));
+
+        var providers = primaryProvider is null
+            ? new IAssistantResponseProvider[]
+            {
+                new OpenAiCompatibleAssistantResponseProvider(
+                    new HttpClient(),
+                    new ProviderConfigurationResolver(
+                        environmentPaths,
+                        configService: configService,
+                        modelConfigResolver: modelConfigResolver),
+                    new TokenLimitService()),
+                new FallbackAssistantResponseProvider()
+            }
+            : [primaryProvider, new FallbackAssistantResponseProvider()];
+
+        return new AssistantTurnRuntime(
             new AssistantPromptAssembler(
                 new ProjectSummaryService(),
                 new DesktopSessionCatalogService(
-                    new QwenRuntimeProfileService(
-                        new FakeDesktopEnvironmentPaths(
-                            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData))),
+                    new QwenRuntimeProfileService(environmentPaths),
                     new ChatRecordingService())),
-            primaryProvider is null
-                ? [
-                    new OpenAiCompatibleAssistantResponseProvider(
-                        new HttpClient(),
-                        new ProviderConfigurationResolver(
-                            new FakeDesktopEnvironmentPaths(
-                                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData))),
-                        new TokenLimitService()),
-                    new FallbackAssistantResponseProvider()
-                ]
-                : [primaryProvider, new FallbackAssistantResponseProvider()],
+            providers,
             new ToolCallScheduler(
                 new NonInteractiveToolExecutor(toolExecutor ?? new FakeToolExecutor()),
                 new LoopDetectionService()),
             new LoopDetectionService(),
             new TokenLimitService(),
             new ProviderConfigurationResolver(
-                new FakeDesktopEnvironmentPaths(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData))),
+                environmentPaths,
+                configService: configService,
+                modelConfigResolver: modelConfigResolver),
             Options.Create(new NativeAssistantRuntimeOptions
             {
                 Provider = primaryProvider?.Name ?? "fallback"
             }));
+    }
 
     private sealed class PassthroughUserPromptHookService : IUserPromptHookService
     {

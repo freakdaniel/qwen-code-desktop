@@ -32,7 +32,8 @@ public sealed class ToolCallScheduler(
                 return new ToolSchedulingResult
                 {
                     ContinueTurnLoop = false,
-                    TerminalSummary = $"Assistant runtime stopped because loop detection found repeated tool calls for '{toolCall.ToolName}'."
+                    TerminalSummary = $"Assistant runtime stopped because loop detection found repeated tool calls for '{toolCall.ToolName}'.",
+                    TerminalStopReason = "tool-loop-detected"
                 };
             }
 
@@ -58,7 +59,8 @@ public sealed class ToolCallScheduler(
                 return new ToolSchedulingResult
                 {
                     ContinueTurnLoop = false,
-                    TerminalSummary = $"Assistant runtime requested native tool '{toolCall.ToolName}', but this subagent runtime is not allowed to execute it."
+                    TerminalSummary = $"Assistant runtime requested native tool '{toolCall.ToolName}', but this subagent runtime is not allowed to execute it.",
+                    TerminalStopReason = "tool-blocked"
                 };
             }
 
@@ -98,7 +100,8 @@ public sealed class ToolCallScheduler(
                 return new ToolSchedulingResult
                 {
                     ContinueTurnLoop = false,
-                    TerminalSummary = BuildTerminalSummary(execution)
+                    TerminalSummary = BuildTerminalSummary(execution),
+                    TerminalStopReason = AssistantExecutionDiagnostics.ResolveStopReasonFromStatus(execution.Status)
                 };
             }
         }

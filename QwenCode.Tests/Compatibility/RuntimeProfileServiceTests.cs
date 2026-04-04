@@ -34,6 +34,10 @@ public sealed class RuntimeProfileServiceTests
                   "advanced": {
                     "runtimeOutputDir": ".qwen-runtime"
                   },
+                  "checkpointing": true,
+                  "chatCompression": {
+                    "contextPercentageThreshold": 0.61
+                  },
                   "permissions": {
                     "defaultMode": "auto-edit",
                     "confirmShellCommands": true,
@@ -64,6 +68,8 @@ public sealed class RuntimeProfileServiceTests
             Assert.Contains("Edit", profile.ApprovalProfile.AskRules);
             Assert.Contains("Read(.env)", profile.ApprovalProfile.DenyRules);
             Assert.Equal(["TEAM.md", "QWEN.md"], profile.ContextFileNames);
+            Assert.True(profile.Checkpointing);
+            Assert.Equal(0.61d, profile.ChatCompression?.ContextPercentageThreshold);
         }
         finally
         {

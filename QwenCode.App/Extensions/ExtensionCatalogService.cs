@@ -34,6 +34,51 @@ public sealed partial class ExtensionCatalogService(
         return BuildSnapshot(extensions);
     }
 
+    public IReadOnlyList<CommandHookConfiguration> ListActiveHooks(WorkspacePaths paths)
+    {
+        var runtimeProfile = runtimeProfileService.Inspect(paths);
+        if (!runtimeProfile.IsWorkspaceTrusted)
+        {
+            return [];
+        }
+
+        var extensionsDirectory = GetExtensionsDirectory(runtimeProfile);
+        var enablementConfig = ReadEnablementConfig(extensionsDirectory);
+        if (!Directory.Exists(extensionsDirectory))
+        {
+            return [];
+        }
+
+        var hooks = new List<CommandHookConfiguration>();
+        foreach (var wrapperPath in Directory.EnumerateDirectories(extensionsDirectory))
+        {
+            try
+            {
+                var metadata = ReadInstallMetadata(wrapperPath);
+                var effectivePath = ResolveEffectivePath(wrapperPath, metadata);
+                if (!Directory.Exists(effectivePath))
+                {
+                    continue;
+                }
+
+                var manifest = LoadManifest(effectivePath);
+                var workspaceEnabled = IsEnabled(manifest.Name, runtimeProfile.ProjectRoot, enablementConfig);
+                if (!workspaceEnabled)
+                {
+                    continue;
+                }
+
+                hooks.AddRange(manifest.Hooks);
+            }
+            catch
+            {
+                // Invalid extensions should not block hook discovery.
+            }
+        }
+
+        return hooks;
+    }
+
     public ExtensionSettingsSnapshot GetSettings(WorkspacePaths paths, GetExtensionSettingsRequest request)
     {
         var runtimeProfile = runtimeProfileService.Inspect(paths);
@@ -389,6 +434,7 @@ public sealed partial class ExtensionCatalogService(
             SkillRoots: ParseStringList(manifestObject["skills"]),
             AgentRoots: ParseStringList(manifestObject["agents"]),
             Settings: ParseSettings(manifestObject["settings"]),
+            Hooks: ParseHooks(manifestObject["hooks"]),
             McpServers: ParsePropertyNames(manifestObject["mcpServers"]),
             Channels: ParsePropertyNames(manifestObject["channels"]),
             SettingsCount: ParseSettings(manifestObject["settings"]).Count,
@@ -423,6 +469,77 @@ public sealed partial class ExtensionCatalogService(
             })
             .OfType<ExtensionSettingDefinition>()
             .ToArray();
+    }
+
+    private static IReadOnlyList<CommandHookConfiguration> ParseHooks(JsonNode? node)
+    {
+        if (node is not JsonObject objectNode)
+        {
+            return [];
+        }
+
+        var hooks = new List<CommandHookConfiguration>();
+        foreach (var property in objectNode)
+        {
+            if (property.Value is not JsonArray definitions ||
+                !Enum.TryParse<HookEventName>(property.Key, ignoreCase: false, out var eventName))
+            {
+                continue;
+            }
+
+            foreach (var definitionNode in definitions.OfType<JsonObject>())
+            {
+                var matcher = definitionNode["matcher"]?.GetValue<string>()?.Trim() ?? string.Empty;
+                var sequential = definitionNode["sequential"]?.GetValue<bool>() ?? false;
+                if (definitionNode["hooks"] is not JsonArray hookArray)
+                {
+                    continue;
+                }
+
+                foreach (var hookNode in hookArray.OfType<JsonObject>())
+                {
+                    var type = hookNode["type"]?.GetValue<string>()?.Trim();
+                    var command = hookNode["command"]?.GetValue<string>()?.Trim();
+                    if (!string.Equals(type, "command", StringComparison.OrdinalIgnoreCase) ||
+                        string.IsNullOrWhiteSpace(command))
+                    {
+                        continue;
+                    }
+
+                    hooks.Add(new CommandHookConfiguration
+                    {
+                        Command = command,
+                        Name = hookNode["name"]?.GetValue<string>()?.Trim() ?? string.Empty,
+                        Matcher = matcher,
+                        Description = hookNode["description"]?.GetValue<string>()?.Trim() ?? string.Empty,
+                        TimeoutMs = hookNode["timeout"]?.GetValue<int?>() is { } timeout && timeout > 0 ? timeout : 60_000,
+                        EnvironmentVariables = ParseEnvironmentVariables(hookNode["env"]),
+                        Source = HookConfigSource.Extensions,
+                        EventName = eventName,
+                        Sequential = sequential
+                    });
+                }
+            }
+        }
+
+        return hooks;
+    }
+
+    private static IReadOnlyDictionary<string, string> ParseEnvironmentVariables(JsonNode? node)
+    {
+        if (node is not JsonObject objectNode)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return objectNode
+            .Where(static pair => pair.Value is JsonValue)
+            .Select(static pair => (pair.Key, Value: pair.Value!.GetValue<string>()))
+            .Where(static pair => !string.IsNullOrWhiteSpace(pair.Value))
+            .ToDictionary(
+                static pair => pair.Key,
+                static pair => pair.Value,
+                StringComparer.OrdinalIgnoreCase);
     }
 
     private static IReadOnlyList<string> ParseStringList(JsonNode? node, IReadOnlyList<string>? fallback = null)
@@ -912,6 +1029,7 @@ public sealed partial class ExtensionCatalogService(
         IReadOnlyList<string> SkillRoots,
         IReadOnlyList<string> AgentRoots,
         IReadOnlyList<ExtensionSettingDefinition> Settings,
+        IReadOnlyList<CommandHookConfiguration> Hooks,
         IReadOnlyList<string> McpServers,
         IReadOnlyList<string> Channels,
         int SettingsCount,

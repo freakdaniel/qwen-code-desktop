@@ -17,6 +17,9 @@ public static class SessionServiceCollectionExtensions
         services.AddSingleton<ISessionTranscriptWriter, SessionTranscriptWriter>();
         services.AddSingleton<ISessionEventFactory, SessionEventFactory>();
         services.AddSingleton<IPendingApprovalResolver, PendingApprovalResolver>();
+        services.AddSingleton<PendingToolApprovalMessageHandler>();
+        services.AddSingleton<PendingQuestionAnswerMessageHandler>();
+        services.AddSingleton<ISessionMessageBus, SessionMessageBus>();
         services.AddSingleton<ISessionHost, DesktopSessionHostService>();
 
         return services;

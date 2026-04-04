@@ -5,10 +5,13 @@ namespace QwenCode.App.Desktop;
 public sealed class DesktopAppService(
     ILocaleStateService localeStateService,
     IDesktopBootstrapProjectionService bootstrapProjectionService,
+    IDesktopArenaProjectionService arenaProjectionService,
     IDesktopAuthProjectionService authProjectionService,
     IDesktopChannelProjectionService channelProjectionService,
     IDesktopWorkspaceProjectionService workspaceProjectionService,
     IDesktopMcpProjectionService mcpProjectionService,
+    IDesktopPromptProjectionService promptProjectionService,
+    IDesktopFollowupProjectionService followupProjectionService,
     IDesktopExtensionProjectionService extensionProjectionService,
     IDesktopSessionProjectionService sessionProjectionService) : IDesktopProjectionService
 {
@@ -20,6 +23,12 @@ public sealed class DesktopAppService(
         remove => authProjectionService.AuthChanged -= value;
     }
 
+    public event EventHandler<ArenaSessionEvent>? ArenaEvent
+    {
+        add => arenaProjectionService.ArenaEvent += value;
+        remove => arenaProjectionService.ArenaEvent -= value;
+    }
+
     public event EventHandler<DesktopSessionEvent>? SessionEvent
     {
         add => sessionProjectionService.SessionEvent += value;
@@ -28,6 +37,12 @@ public sealed class DesktopAppService(
 
     public Task<AppBootstrapPayload> GetBootstrapAsync() =>
         Task.FromResult(bootstrapProjectionService.CreateBootstrap(localeStateService.CurrentLocale));
+
+    public Task<IReadOnlyList<ActiveArenaSessionState>> GetActiveArenaSessionsAsync() =>
+        arenaProjectionService.GetActiveArenaSessionsAsync();
+
+    public Task<CancelArenaSessionResult> CancelArenaSessionAsync(CancelArenaSessionRequest request) =>
+        arenaProjectionService.CancelArenaSessionAsync(request);
 
     public Task<DesktopStateChangedEvent> SetLocaleAsync(string locale)
     {
@@ -87,6 +102,12 @@ public sealed class DesktopAppService(
     public Task<McpSnapshot> ReconnectMcpServerAsync(ReconnectMcpServerRequest request) =>
         mcpProjectionService.ReconnectServerAsync(request);
 
+    public Task<PromptRegistrySnapshot> GetPromptRegistryAsync(GetPromptRegistryRequest request) =>
+        promptProjectionService.GetPromptRegistryAsync(request);
+
+    public Task<McpPromptInvocationResult> InvokeRegisteredPromptAsync(InvokePromptRegistryEntryRequest request) =>
+        promptProjectionService.InvokeRegisteredPromptAsync(request);
+
     public Task<ExtensionSettingsSnapshot> GetExtensionSettingsAsync(GetExtensionSettingsRequest request) =>
         extensionProjectionService.GetSettingsAsync(request);
 
@@ -131,4 +152,7 @@ public sealed class DesktopAppService(
 
     public Task<DismissInterruptedTurnResult> DismissInterruptedTurnAsync(DismissInterruptedTurnRequest request) =>
         sessionProjectionService.DismissInterruptedTurnAsync(request);
+
+    public Task<FollowupSuggestionSnapshot> GetFollowupSuggestionsAsync(GetFollowupSuggestionsRequest request) =>
+        followupProjectionService.GetSuggestionsAsync(request);
 }

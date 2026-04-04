@@ -6,6 +6,8 @@ public sealed class CommandHookConfiguration
 
     public string Name { get; init; } = string.Empty;
 
+    public string Matcher { get; init; } = string.Empty;
+
     public string Description { get; init; } = string.Empty;
 
     public int TimeoutMs { get; init; } = 60_000;

@@ -3,6 +3,7 @@ using QwenCode.App.Compatibility;
 using QwenCode.App.Hooks;
 using QwenCode.App.Runtime;
 using QwenCode.App.Tools;
+using System.Text.Json.Nodes;
 
 namespace QwenCode.App.Sessions;
 
@@ -21,7 +22,7 @@ public sealed class DesktopSessionHostService(
     IInterruptedTurnStore interruptedTurnStore,
     ISessionTranscriptWriter transcriptWriter,
     ISessionEventFactory sessionEventFactory,
-    IPendingApprovalResolver pendingApprovalResolver) : ISessionHost
+    ISessionMessageBus sessionMessageBus) : ISessionHost
 {
     public event EventHandler<DesktopSessionEvent>? SessionEvent;
 
@@ -178,6 +179,46 @@ public sealed class DesktopSessionHostService(
         var timestampUtc = DateTime.UtcNow;
         Directory.CreateDirectory(runtimeProfile.ChatsDirectory);
         cancellationToken.ThrowIfCancellationRequested();
+
+        var sessionStartHook = await ExecuteLifecycleHookAsync(
+            runtimeProfile,
+            HookEventName.SessionStart,
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            prompt: request.Prompt,
+            metadata: new JsonObject
+            {
+                ["trigger"] = createdNewSession ? "new" : "resume",
+                ["source"] = createdNewSession ? "new" : "resume",
+                ["model"] = "native-runtime",
+                ["permission_mode"] = runtimeProfile.ApprovalProfile.DefaultMode
+            },
+            cancellationToken: cancellationToken);
+        parentUuid = await AppendLifecycleHookContextEntriesAsync(
+            transcriptPath,
+            parentUuid,
+            sessionId,
+            workingDirectory,
+            gitBranch,
+            sessionStartHook,
+            cancellationToken);
+        if (sessionStartHook.IsBlocked)
+        {
+            return await BuildBlockedTurnResultAsync(
+                paths,
+                sessionId,
+                transcriptPath,
+                workingDirectory,
+                gitBranch,
+                request.Prompt,
+                request.Prompt,
+                CreatePromptHookResult(request.Prompt, sessionStartHook),
+                createdNewSession,
+                parentUuid,
+                timestampUtc,
+                cancellationToken);
+        }
 
         var hookResult = await userPromptHookService.ExecuteAsync(
             runtimeProfile,
@@ -374,8 +415,6 @@ public sealed class DesktopSessionHostService(
                     toolExecution.ToolName));
             },
             cancellationToken);
-        var assistantSummary = assistantResponse.Summary;
-        var assistantTimestamp = DateTime.UtcNow;
         parentUuid = await transcriptWriter.AppendAssistantToolExecutionsAsync(
             transcriptPath,
             sessionId,
@@ -383,6 +422,33 @@ public sealed class DesktopSessionHostService(
             gitBranch,
             assistantResponse.ToolExecutions,
             cancellationToken);
+        var stopHook = await ExecuteLifecycleHookAsync(
+            runtimeProfile,
+            HookEventName.Stop,
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            prompt: effectivePrompt,
+            toolName: toolExecution.ToolName,
+            toolStatus: toolExecution.Status,
+            approvalState: toolExecution.ApprovalState,
+            toolOutput: assistantResponse.Summary,
+            metadata: new JsonObject
+            {
+                ["stop_hook_active"] = true,
+                ["last_assistant_message"] = assistantResponse.Summary
+            },
+            cancellationToken: cancellationToken);
+        parentUuid = await AppendLifecycleHookContextEntriesAsync(
+            transcriptPath,
+            parentUuid,
+            sessionId,
+            workingDirectory,
+            gitBranch,
+            stopHook,
+            cancellationToken);
+        var assistantSummary = ApplyStopHookSummary(assistantResponse.Summary, stopHook);
+        var assistantTimestamp = DateTime.UtcNow;
         await transcriptWriter.AppendEntryAsync(
             transcriptPath,
             new
@@ -461,6 +527,22 @@ public sealed class DesktopSessionHostService(
             resolvedCommand?.Name ?? string.Empty,
             toolExecution.ToolName,
             "completed"));
+        await ExecuteNotificationHookAsync(
+            runtimeProfile,
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            "turn_completed",
+            assistantSummary,
+            cancellationToken);
+        await ExecuteSessionEndHookAsync(
+            runtimeProfile,
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            "completed",
+            assistantSummary,
+            cancellationToken);
 
         return result;
     }
@@ -475,15 +557,15 @@ public sealed class DesktopSessionHostService(
             throw new InvalidOperationException("SessionId is required to approve a pending tool.");
         }
 
-        var detail = sessionCatalogService.GetSession(paths, new GetDesktopSessionRequest
+        var approvalContext = await sessionMessageBus.RequestPendingToolApprovalAsync(new PendingToolApprovalMessageRequest
         {
-            SessionId = request.SessionId
-        })
-            ?? throw new InvalidOperationException("Session transcript was not found.");
-        var workingDirectory = string.IsNullOrWhiteSpace(detail.Session.WorkingDirectory)
-            ? runtimeProfileService.Inspect(paths).ProjectRoot
-            : detail.Session.WorkingDirectory;
-        var gitBranch = detail.Session.GitBranch;
+            Paths = paths,
+            SessionId = request.SessionId,
+            EntryId = request.EntryId
+        }, cancellationToken);
+        var detail = approvalContext.Detail;
+        var workingDirectory = approvalContext.WorkingDirectory;
+        var gitBranch = approvalContext.GitBranch;
 
         return await activeTurnRegistry.RunAsync(
             request.SessionId,
@@ -494,7 +576,7 @@ public sealed class DesktopSessionHostService(
                 workingDirectory,
                 gitBranch,
                 string.Empty),
-            token => ApprovePendingToolCoreAsync(paths, request, token),
+            token => ApprovePendingToolCoreAsync(paths, request, approvalContext, token),
             async () => await BuildCancelledTurnResultAsync(
                 paths,
                 request.SessionId,
@@ -519,15 +601,16 @@ public sealed class DesktopSessionHostService(
             throw new InvalidOperationException("SessionId is required to answer a pending question.");
         }
 
-        var detail = sessionCatalogService.GetSession(paths, new GetDesktopSessionRequest
+        var answerContext = await sessionMessageBus.RequestPendingQuestionAnswerAsync(new PendingQuestionAnswerMessageRequest
         {
-            SessionId = request.SessionId
-        })
-            ?? throw new InvalidOperationException("Session transcript was not found.");
-        var workingDirectory = string.IsNullOrWhiteSpace(detail.Session.WorkingDirectory)
-            ? runtimeProfileService.Inspect(paths).ProjectRoot
-            : detail.Session.WorkingDirectory;
-        var gitBranch = detail.Session.GitBranch;
+            Paths = paths,
+            SessionId = request.SessionId,
+            EntryId = request.EntryId,
+            Answers = request.Answers
+        }, cancellationToken);
+        var detail = answerContext.Detail;
+        var workingDirectory = answerContext.WorkingDirectory;
+        var gitBranch = answerContext.GitBranch;
 
         return await activeTurnRegistry.RunAsync(
             request.SessionId,
@@ -538,7 +621,7 @@ public sealed class DesktopSessionHostService(
                 workingDirectory,
                 gitBranch,
                 "ask_user_question"),
-            token => AnswerPendingQuestionCoreAsync(paths, request, token),
+            token => AnswerPendingQuestionCoreAsync(paths, request, answerContext, token),
             async () => await BuildCancelledTurnResultAsync(
                 paths,
                 request.SessionId,
@@ -556,6 +639,7 @@ public sealed class DesktopSessionHostService(
     private async Task<DesktopSessionTurnResult> ApprovePendingToolCoreAsync(
         WorkspacePaths paths,
         ApproveDesktopSessionToolRequest request,
+        PendingToolApprovalMessageResponse approvalContext,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.SessionId))
@@ -563,12 +647,8 @@ public sealed class DesktopSessionHostService(
             throw new InvalidOperationException("SessionId is required to approve a pending tool.");
         }
 
-        var detail = sessionCatalogService.GetSession(paths, new GetDesktopSessionRequest
-        {
-            SessionId = request.SessionId
-        })
-            ?? throw new InvalidOperationException("Session transcript was not found.");
-        var pendingTool = pendingApprovalResolver.ResolvePendingTool(detail, request.EntryId);
+        var detail = approvalContext.Detail;
+        var pendingTool = approvalContext.PendingTool;
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
         var execution = await nativeToolHostService.ExecuteAsync(
@@ -590,10 +670,8 @@ public sealed class DesktopSessionHostService(
             cancellationToken);
 
         var parentUuid = transcriptWriter.TryReadLastEntryUuid(detail.TranscriptPath);
-        var gitBranch = pendingTool.GitBranch;
-        var workingDirectory = string.IsNullOrWhiteSpace(pendingTool.WorkingDirectory)
-            ? runtimeProfile.ProjectRoot
-            : pendingTool.WorkingDirectory;
+        var gitBranch = approvalContext.GitBranch;
+        var workingDirectory = approvalContext.WorkingDirectory;
 
         PublishSessionEvent(sessionEventFactory.CreateToolApproved(
             request.SessionId,
@@ -754,6 +832,22 @@ public sealed class DesktopSessionHostService(
             string.Empty,
             execution.ToolName,
             execution.Status));
+        await ExecuteNotificationHookAsync(
+            runtimeProfile,
+            request.SessionId,
+            workingDirectory,
+            detail.TranscriptPath,
+            "turn_completed",
+            assistantSummary,
+            cancellationToken);
+        await ExecuteSessionEndHookAsync(
+            runtimeProfile,
+            request.SessionId,
+            workingDirectory,
+            detail.TranscriptPath,
+            execution.Status,
+            assistantSummary,
+            cancellationToken);
 
         return result;
     }
@@ -761,6 +855,7 @@ public sealed class DesktopSessionHostService(
     private async Task<DesktopSessionTurnResult> AnswerPendingQuestionCoreAsync(
         WorkspacePaths paths,
         AnswerDesktopSessionQuestionRequest request,
+        PendingQuestionAnswerMessageResponse answerContext,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.SessionId))
@@ -768,21 +863,13 @@ public sealed class DesktopSessionHostService(
             throw new InvalidOperationException("SessionId is required to answer a pending question.");
         }
 
-        var detail = sessionCatalogService.GetSession(paths, new GetDesktopSessionRequest
-        {
-            SessionId = request.SessionId
-        })
-            ?? throw new InvalidOperationException("Session transcript was not found.");
-        var pendingQuestion = pendingApprovalResolver.ResolvePendingQuestion(detail, request.EntryId);
-        var questions = pendingQuestion.Questions.Count > 0
-            ? pendingQuestion.Questions
-            : userQuestionToolService.ParseQuestions(pendingQuestion.Arguments);
-        var answers = userQuestionToolService.ValidateAnswers(questions, request.Answers);
+        var detail = answerContext.Detail;
+        var pendingQuestion = answerContext.PendingQuestion;
+        var questions = answerContext.Questions;
+        var answers = answerContext.Answers;
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var workingDirectory = string.IsNullOrWhiteSpace(pendingQuestion.WorkingDirectory)
-            ? runtimeProfile.ProjectRoot
-            : pendingQuestion.WorkingDirectory;
+        var workingDirectory = answerContext.WorkingDirectory;
         var execution = userQuestionToolService.CreateAnsweredResult(
             workingDirectory,
             string.IsNullOrWhiteSpace(pendingQuestion.ApprovalState) ? "ask" : pendingQuestion.ApprovalState,
@@ -798,7 +885,7 @@ public sealed class DesktopSessionHostService(
             cancellationToken);
 
         var parentUuid = transcriptWriter.TryReadLastEntryUuid(detail.TranscriptPath);
-        var gitBranch = pendingQuestion.GitBranch;
+        var gitBranch = answerContext.GitBranch;
 
         PublishSessionEvent(sessionEventFactory.CreateUserInputReceived(
             request.SessionId,
@@ -961,6 +1048,22 @@ public sealed class DesktopSessionHostService(
             string.Empty,
             execution.ToolName,
             execution.Status));
+        await ExecuteNotificationHookAsync(
+            runtimeProfile,
+            request.SessionId,
+            workingDirectory,
+            detail.TranscriptPath,
+            "turn_completed",
+            assistantSummary,
+            cancellationToken);
+        await ExecuteSessionEndHookAsync(
+            runtimeProfile,
+            request.SessionId,
+            workingDirectory,
+            detail.TranscriptPath,
+            execution.Status,
+            assistantSummary,
+            cancellationToken);
 
         return result;
     }
@@ -1005,6 +1108,46 @@ public sealed class DesktopSessionHostService(
         return currentParentUuid;
     }
 
+    private async Task<string?> AppendLifecycleHookContextEntriesAsync(
+        string transcriptPath,
+        string? parentUuid,
+        string sessionId,
+        string workingDirectory,
+        string gitBranch,
+        HookLifecycleResult hookResult,
+        CancellationToken cancellationToken)
+    {
+        var currentParentUuid = parentUuid;
+
+        if (!string.IsNullOrWhiteSpace(hookResult.AggregateOutput.SystemMessage))
+        {
+            currentParentUuid = await AppendSystemEntryAsync(
+                transcriptPath,
+                currentParentUuid,
+                sessionId,
+                workingDirectory,
+                gitBranch,
+                hookResult.AggregateOutput.SystemMessage,
+                "hook-system-message",
+                cancellationToken);
+        }
+
+        if (!string.IsNullOrWhiteSpace(hookResult.AggregateOutput.AdditionalContext))
+        {
+            currentParentUuid = await AppendSystemEntryAsync(
+                transcriptPath,
+                currentParentUuid,
+                sessionId,
+                workingDirectory,
+                gitBranch,
+                hookResult.AggregateOutput.AdditionalContext,
+                "hook-additional-context",
+                cancellationToken);
+        }
+
+        return currentParentUuid;
+    }
+
     private async Task<string?> AppendCompressionCheckpointAsync(
         QwenRuntimeProfile runtimeProfile,
         string transcriptPath,
@@ -1014,7 +1157,7 @@ public sealed class DesktopSessionHostService(
         string gitBranch,
         CancellationToken cancellationToken)
     {
-        var checkpoint = await chatCompressionService.TryCreateCheckpointAsync(transcriptPath, cancellationToken);
+        var checkpoint = await chatCompressionService.TryCreateCheckpointAsync(runtimeProfile, transcriptPath, cancellationToken);
         if (checkpoint is null)
         {
             return parentUuid;
@@ -1032,7 +1175,11 @@ public sealed class DesktopSessionHostService(
                 {
                     ["trigger"] = "auto",
                     ["compressedEntries"] = checkpoint.CompressedEntryCount,
-                    ["preservedEntries"] = checkpoint.PreservedEntryCount
+                    ["preservedEntries"] = checkpoint.PreservedEntryCount,
+                    ["estimatedTokens"] = checkpoint.EstimatedTokenCount,
+                    ["contextWindowTokens"] = checkpoint.EstimatedContextWindowTokens,
+                    ["contextPercentage"] = checkpoint.EstimatedContextPercentage,
+                    ["thresholdPercentage"] = checkpoint.ThresholdPercentage
                 }
             },
             cancellationToken);
@@ -1145,6 +1292,22 @@ public sealed class DesktopSessionHostService(
             string.Empty,
             string.Empty,
             "blocked"));
+        await ExecuteNotificationHookAsync(
+            runtimeProfileService.Inspect(paths),
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            "turn_blocked",
+            blockMessage,
+            cancellationToken);
+        await ExecuteSessionEndHookAsync(
+            runtimeProfileService.Inspect(paths),
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            "blocked",
+            blockMessage,
+            cancellationToken);
 
         return new DesktopSessionTurnResult
         {
@@ -1276,6 +1439,23 @@ public sealed class DesktopSessionHostService(
                 MetadataPath = session.MetadataPath
             };
         }
+
+        await ExecuteNotificationHookAsync(
+            runtimeProfileService.Inspect(paths),
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            "turn_cancelled",
+            cancellationMessage,
+            cancellationToken);
+        await ExecuteSessionEndHookAsync(
+            runtimeProfileService.Inspect(paths),
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            "cancelled",
+            cancellationMessage,
+            cancellationToken);
 
         return new DesktopSessionTurnResult
         {
@@ -1501,5 +1681,130 @@ public sealed class DesktopSessionHostService(
             ExitCode = -1,
             ChangedFiles = []
         };
+
+    private static UserPromptHookResult CreatePromptHookResult(string prompt, HookLifecycleResult hookResult) =>
+        new()
+        {
+            EffectivePrompt = prompt,
+            AdditionalContext = hookResult.AggregateOutput.AdditionalContext,
+            SystemMessage = hookResult.AggregateOutput.SystemMessage,
+            IsBlocked = hookResult.IsBlocked,
+            BlockReason = ResolveHookBlockReason(hookResult),
+            Executions = hookResult.Executions
+        };
+
+    private static string ApplyStopHookSummary(string assistantSummary, HookLifecycleResult stopHook)
+    {
+        if (!stopHook.IsBlocked && stopHook.AggregateOutput.Continue != false)
+        {
+            return assistantSummary;
+        }
+
+        return !string.IsNullOrWhiteSpace(stopHook.AggregateOutput.StopReason)
+            ? stopHook.AggregateOutput.StopReason
+            : ResolveHookBlockReason(stopHook);
+    }
+
+    private async Task<HookLifecycleResult> ExecuteLifecycleHookAsync(
+        QwenRuntimeProfile runtimeProfile,
+        HookEventName eventName,
+        string sessionId,
+        string workingDirectory,
+        string transcriptPath,
+        string prompt = "",
+        string toolName = "",
+        string toolStatus = "",
+        string approvalState = "",
+        string toolOutput = "",
+        string reason = "",
+        string agentName = "",
+        JsonObject? metadata = null,
+        CancellationToken cancellationToken = default) =>
+        await hookLifecycleService.ExecuteAsync(
+            runtimeProfile,
+            new HookInvocationRequest
+            {
+                EventName = eventName,
+                SessionId = sessionId,
+                WorkingDirectory = workingDirectory,
+                TranscriptPath = transcriptPath,
+                Prompt = prompt,
+                ToolName = toolName,
+                ToolStatus = toolStatus,
+                ApprovalState = approvalState,
+                ToolOutput = toolOutput,
+                Reason = reason,
+                AgentName = agentName,
+                Metadata = metadata ?? []
+            },
+            cancellationToken);
+
+    private async Task ExecuteSessionEndHookAsync(
+        QwenRuntimeProfile runtimeProfile,
+        string sessionId,
+        string workingDirectory,
+        string transcriptPath,
+        string trigger,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        _ = await ExecuteLifecycleHookAsync(
+            runtimeProfile,
+            HookEventName.SessionEnd,
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            reason: message,
+            metadata: new JsonObject
+            {
+                ["trigger"] = trigger,
+                ["reason"] = trigger
+            },
+            cancellationToken: cancellationToken);
+    }
+
+    private async Task ExecuteNotificationHookAsync(
+        QwenRuntimeProfile runtimeProfile,
+        string sessionId,
+        string workingDirectory,
+        string transcriptPath,
+        string notificationType,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        _ = await ExecuteLifecycleHookAsync(
+            runtimeProfile,
+            HookEventName.Notification,
+            sessionId,
+            workingDirectory,
+            transcriptPath,
+            reason: message,
+            metadata: new JsonObject
+            {
+                ["notification_type"] = notificationType,
+                ["message"] = message
+            },
+            cancellationToken: cancellationToken);
+    }
+
+    private static string ResolveHookBlockReason(HookLifecycleResult hookResult)
+    {
+        if (!string.IsNullOrWhiteSpace(hookResult.BlockReason))
+        {
+            return hookResult.BlockReason;
+        }
+
+        if (!string.IsNullOrWhiteSpace(hookResult.AggregateOutput.StopReason))
+        {
+            return hookResult.AggregateOutput.StopReason;
+        }
+
+        if (!string.IsNullOrWhiteSpace(hookResult.AggregateOutput.Reason))
+        {
+            return hookResult.AggregateOutput.Reason;
+        }
+
+        return "Execution was blocked by a configured hook.";
+    }
 
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using QwenCode.App.Models;
 using QwenCode.App.Options;
@@ -22,6 +23,8 @@ public sealed class AssistantTurnRuntime(
         Action<AssistantRuntimeEvent>? eventSink = null,
         CancellationToken cancellationToken = default)
     {
+        var startedAtUtc = DateTime.UtcNow;
+        var stopwatch = Stopwatch.StartNew();
         loopDetectionService.Reset(request.SessionId);
 
         try
@@ -67,7 +70,7 @@ public sealed class AssistantTurnRuntime(
                     cancellationToken);
                 if (response is not null)
                 {
-                    return response;
+                    return FinalizeResponse(response, startedAtUtc, stopwatch.ElapsedMilliseconds);
                 }
             }
             catch
@@ -121,6 +124,7 @@ public sealed class AssistantTurnRuntime(
         var maxIterations = Math.Max(1, _options.MaxToolIterations);
         for (var iteration = 0; iteration < maxIterations; iteration++)
         {
+            var roundCount = iteration + 1;
             var response = await provider.TryGenerateAsync(
                 request,
                 promptContext,
@@ -161,7 +165,9 @@ public sealed class AssistantTurnRuntime(
                     Summary = $"Assistant runtime stopped because loop detection found a repeated content pattern.",
                     ProviderName = provider.Name,
                     Model = response.Model,
-                    ToolExecutions = toolHistory.ToArray()
+                    StopReason = "content-loop-detected",
+                    ToolExecutions = toolHistory.ToArray(),
+                    Stats = AssistantExecutionDiagnostics.BuildStats(roundCount, toolHistory)
                 };
             }
 
@@ -172,7 +178,10 @@ public sealed class AssistantTurnRuntime(
                     Summary = response.Summary,
                     ProviderName = response.ProviderName,
                     Model = response.Model,
-                    ToolExecutions = toolHistory.ToArray()
+                    StopReason = AssistantExecutionDiagnostics.ResolveStopReason(response),
+                    ToolCalls = response.ToolCalls,
+                    ToolExecutions = toolHistory.ToArray(),
+                    Stats = AssistantExecutionDiagnostics.BuildStats(roundCount, toolHistory)
                 };
             }
 
@@ -187,12 +196,26 @@ public sealed class AssistantTurnRuntime(
 
             if (!scheduleResult.ContinueTurnLoop)
             {
+                var terminalStats = string.Equals(scheduleResult.TerminalStopReason, "tool-loop-detected", StringComparison.OrdinalIgnoreCase)
+                    ? new AssistantExecutionStats
+                    {
+                        RoundCount = roundCount,
+                        ToolCallCount = toolHistory.Count,
+                        SuccessfulToolCallCount = 0,
+                        FailedToolCallCount = toolHistory.Count,
+                        DurationMs = 0
+                    }
+                    : AssistantExecutionDiagnostics.BuildStats(roundCount, toolHistory);
+
                 return new AssistantTurnResponse
                 {
                     Summary = scheduleResult.TerminalSummary,
                     ProviderName = response.ProviderName,
                     Model = response.Model,
-                    ToolExecutions = toolHistory.ToArray()
+                    StopReason = scheduleResult.TerminalStopReason,
+                    ToolCalls = response.ToolCalls,
+                    ToolExecutions = toolHistory.ToArray(),
+                    Stats = terminalStats
                 };
             }
         }
@@ -205,9 +228,36 @@ public sealed class AssistantTurnRuntime(
         {
             Summary = fallbackSummary,
             ProviderName = provider.Name,
-            Model = _options.Model,
-            ToolExecutions = toolHistory.ToArray()
+            Model = string.IsNullOrWhiteSpace(request.ModelOverride) ? _options.Model : request.ModelOverride,
+            StopReason = "iteration-limit",
+            ToolExecutions = toolHistory.ToArray(),
+            Stats = AssistantExecutionDiagnostics.BuildStats(maxIterations, toolHistory)
         };
     }
 
+    private static AssistantTurnResponse FinalizeResponse(
+        AssistantTurnResponse response,
+        DateTime startedAtUtc,
+        long durationMs)
+    {
+        var endedAtUtc = startedAtUtc.AddMilliseconds(Math.Max(0, durationMs));
+        var resolvedStats = AssistantExecutionDiagnostics.ResolveStats(response, startedAtUtc, endedAtUtc);
+        return new AssistantTurnResponse
+        {
+            Summary = response.Summary,
+            ProviderName = response.ProviderName,
+            Model = response.Model,
+            StopReason = AssistantExecutionDiagnostics.ResolveStopReason(response),
+            Stats = new AssistantExecutionStats
+            {
+                RoundCount = resolvedStats.RoundCount,
+                ToolCallCount = resolvedStats.ToolCallCount,
+                SuccessfulToolCallCount = resolvedStats.SuccessfulToolCallCount,
+                FailedToolCallCount = resolvedStats.FailedToolCallCount,
+                DurationMs = Math.Max(resolvedStats.DurationMs, durationMs)
+            },
+            ToolCalls = response.ToolCalls,
+            ToolExecutions = response.ToolExecutions
+        };
+    }
 }
