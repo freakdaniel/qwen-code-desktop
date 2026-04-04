@@ -1,69 +1,36 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using QwenCode.App.Config;
 using QwenCode.App.Models;
 using QwenCode.App.Infrastructure;
 
 namespace QwenCode.App.Compatibility;
 
-public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environmentPaths)
+public sealed class QwenRuntimeProfileService(
+    IDesktopEnvironmentPaths environmentPaths,
+    IConfigService? configService = null)
 {
     private static readonly StringComparer PathComparer =
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    private readonly IConfigService config = configService ?? new RuntimeConfigService(environmentPaths);
 
     public QwenRuntimeProfile Inspect(WorkspacePaths paths)
     {
-        var projectRoot = string.IsNullOrWhiteSpace(paths.WorkspaceRoot)
-            ? Environment.CurrentDirectory
-            : Path.GetFullPath(paths.WorkspaceRoot);
-        var globalQwenDirectory = Path.Combine(environmentPaths.HomeDirectory, ".qwen");
-
-        var projectSettingsPath = Path.Combine(projectRoot, ".qwen", "settings.json");
-        var userSettingsPath = Path.Combine(globalQwenDirectory, "settings.json");
-        var systemRoot = ResolveProgramDataRoot();
-        var systemDefaultsPath = GetSystemDefaultsPath(systemRoot);
-        var systemSettingsPath = GetSystemSettingsPath(systemRoot);
-
-        var initialTrustSettings = BuildMergedSettings(
-            [
-                new SettingsLayer(systemDefaultsPath, "system-defaults"),
-                new SettingsLayer(userSettingsPath, "user-settings"),
-                new SettingsLayer(systemSettingsPath, "system-settings")
-            ]);
-        var workspaceTrust = ResolveWorkspaceTrust(projectRoot, globalQwenDirectory, initialTrustSettings.FolderTrustEnabled);
-        var mergedSettings = BuildMergedSettings(
-            workspaceTrust.IsTrusted
-                ?
-                [
-                    new SettingsLayer(systemDefaultsPath, "system-defaults"),
-                    new SettingsLayer(userSettingsPath, "user-settings"),
-                    new SettingsLayer(projectSettingsPath, "project-settings"),
-                    new SettingsLayer(systemSettingsPath, "system-settings")
-                ]
-                :
-                [
-                    new SettingsLayer(systemDefaultsPath, "system-defaults"),
-                    new SettingsLayer(userSettingsPath, "user-settings"),
-                    new SettingsLayer(systemSettingsPath, "system-settings")
-                ]);
-
+        var snapshot = config.Inspect(paths);
         var runtimeSource = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("QWEN_RUNTIME_DIR"))
             ? "environment"
-            : mergedSettings.RuntimeSource;
-        var runtimeDirectory = ResolveRuntimeBaseDirectory(globalQwenDirectory, projectRoot, mergedSettings.RuntimeOutputDirectory);
-        var projectDataDirectory = Path.Combine(runtimeDirectory, "projects", SanitizePath(projectRoot));
-        var historyDirectory = Path.Combine(runtimeDirectory, "history", ComputeProjectHash(projectRoot));
-        var contextFileNames = mergedSettings.ContextFileNames.Count > 0
-            ? mergedSettings.ContextFileNames
+            : snapshot.RuntimeSource;
+        var runtimeDirectory = ResolveRuntimeBaseDirectory(snapshot.GlobalQwenDirectory, snapshot.ProjectRoot, snapshot.RuntimeOutputDirectory);
+        var projectDataDirectory = Path.Combine(runtimeDirectory, "projects", SanitizePath(snapshot.ProjectRoot));
+        var historyDirectory = Path.Combine(runtimeDirectory, "history", ComputeProjectHash(snapshot.ProjectRoot));
+        var contextFileNames = snapshot.ContextFileNames.Count > 0
+            ? snapshot.ContextFileNames
             : ["QWEN.md", "AGENTS.md"];
-        if (!workspaceTrust.IsTrusted && !mergedSettings.FolderTrustEnabled)
-        {
-            workspaceTrust = new WorkspaceTrustDecision(true, string.Empty);
-        }
 
         return new QwenRuntimeProfile
         {
-            ProjectRoot = projectRoot,
-            GlobalQwenDirectory = globalQwenDirectory,
+            ProjectRoot = snapshot.ProjectRoot,
+            GlobalQwenDirectory = snapshot.GlobalQwenDirectory,
             RuntimeBaseDirectory = runtimeDirectory,
             RuntimeSource = runtimeSource,
             ProjectDataDirectory = projectDataDirectory,
@@ -71,19 +38,23 @@ public sealed class QwenRuntimeProfileService(IDesktopEnvironmentPaths environme
             HistoryDirectory = historyDirectory,
             ContextFileNames = contextFileNames,
             ContextFilePaths = contextFileNames
-                .Select(fileName => Path.Combine(projectRoot, fileName))
+                .Select(fileName => Path.Combine(snapshot.ProjectRoot, fileName))
                 .ToArray(),
-            FolderTrustEnabled = mergedSettings.FolderTrustEnabled,
-            IsWorkspaceTrusted = workspaceTrust.IsTrusted,
-            WorkspaceTrustSource = workspaceTrust.Source,
+            ModelName = snapshot.ModelName,
+            EmbeddingModel = snapshot.EmbeddingModel,
+            ChatCompression = snapshot.ChatCompression,
+            Checkpointing = snapshot.Checkpointing,
+            FolderTrustEnabled = snapshot.FolderTrustEnabled,
+            IsWorkspaceTrusted = snapshot.IsWorkspaceTrusted,
+            WorkspaceTrustSource = snapshot.WorkspaceTrustSource,
             ApprovalProfile = new ApprovalProfile
             {
-                DefaultMode = mergedSettings.DefaultApprovalMode,
-                ConfirmShellCommands = mergedSettings.ConfirmShellCommands,
-                ConfirmFileEdits = mergedSettings.ConfirmFileEdits,
-                AllowRules = mergedSettings.AllowRules,
-                AskRules = mergedSettings.AskRules,
-                DenyRules = mergedSettings.DenyRules
+                DefaultMode = snapshot.DefaultApprovalMode,
+                ConfirmShellCommands = snapshot.ConfirmShellCommands,
+                ConfirmFileEdits = snapshot.ConfirmFileEdits,
+                AllowRules = snapshot.AllowRules,
+                AskRules = snapshot.AskRules,
+                DenyRules = snapshot.DenyRules
             }
         };
     }

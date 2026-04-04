@@ -36,17 +36,13 @@ public sealed class FollowupSuggestionServiceTests
             var generator = new ProviderBackedFollowupSuggestionGenerator(
                 runtimeProfileService,
                 new AssistantPromptAssembler(new ProjectSummaryService()),
-                [
-                    new StaticAssistantResponseProvider(
-                        "qwen-compatible",
-                        static (_, _) => new AssistantTurnResponse
-                        {
-                            Summary = "run the tests",
-                            ProviderName = "qwen-compatible",
-                            Model = "qwen3-coder-plus"
-                        }),
-                    new FallbackAssistantResponseProvider()
-                ],
+                new StaticContentGenerator(static _ => new LlmContentResponse
+                {
+                    Content = "run the tests",
+                    ProviderName = "qwen-compatible",
+                    Model = "qwen3-coder-plus",
+                    StopReason = "completed"
+                }),
                 Options.Create(new NativeAssistantRuntimeOptions
                 {
                     Provider = "qwen-compatible"
@@ -121,17 +117,13 @@ public sealed class FollowupSuggestionServiceTests
             var generator = new ProviderBackedFollowupSuggestionGenerator(
                 runtimeProfileService,
                 new AssistantPromptAssembler(new ProjectSummaryService()),
-                [
-                    new StaticAssistantResponseProvider(
-                        "qwen-compatible",
-                        static (_, _) => new AssistantTurnResponse
-                        {
-                            Summary = "Looks good",
-                            ProviderName = "qwen-compatible",
-                            Model = "qwen3-coder-plus"
-                        }),
-                    new FallbackAssistantResponseProvider()
-                ],
+                new StaticContentGenerator(static _ => new LlmContentResponse
+                {
+                    Content = "Looks good",
+                    ProviderName = "qwen-compatible",
+                    Model = "qwen3-coder-plus",
+                    StopReason = "completed"
+                }),
                 Options.Create(new NativeAssistantRuntimeOptions
                 {
                     Provider = "qwen-compatible"

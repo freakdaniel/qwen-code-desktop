@@ -1,3 +1,5 @@
+using QwenCode.App.Config;
+
 namespace QwenCode.Tests.Tools;
 
 public sealed class AgentToolTests
@@ -159,6 +161,7 @@ public sealed class AgentToolTests
         services.AddOptions<NativeAssistantRuntimeOptions>()
             .Configure(options => options.Provider = "fallback");
         services.AddInfrastructureServices();
+        services.AddConfigServices();
         services.AddCompatibilityServices();
         services.AddPermissionServices();
         services.AddRuntimeServices();

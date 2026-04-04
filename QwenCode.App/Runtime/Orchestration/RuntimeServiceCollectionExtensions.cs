@@ -10,6 +10,10 @@ public static class RuntimeServiceCollectionExtensions
     {
         services.AddSingleton<HttpClient>();
         services.AddSingleton<ProviderConfigurationResolver>();
+        services.AddSingleton<IModelRegistry, ModelRegistryService>();
+        services.AddSingleton<IModelConfigResolver, ModelConfigResolver>();
+        services.AddSingleton<IBaseLlmClient, OpenAiCompatibleBaseLlmClient>();
+        services.AddSingleton<IContentGenerator, ContentGenerator>();
         services.AddSingleton<ILoopDetectionService, LoopDetectionService>();
         services.AddSingleton<IAssistantPromptAssembler, AssistantPromptAssembler>();
         services.AddSingleton<ISlashCommandRuntime, SlashCommandRuntime>();

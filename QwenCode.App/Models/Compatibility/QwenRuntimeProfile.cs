@@ -20,6 +20,14 @@ public sealed class QwenRuntimeProfile
 
     public required IReadOnlyList<string> ContextFilePaths { get; init; }
 
+    public string ModelName { get; init; } = string.Empty;
+
+    public string EmbeddingModel { get; init; } = string.Empty;
+
+    public RuntimeChatCompressionSettings? ChatCompression { get; init; }
+
+    public bool Checkpointing { get; init; } = true;
+
     public bool FolderTrustEnabled { get; init; }
 
     public bool IsWorkspaceTrusted { get; init; }

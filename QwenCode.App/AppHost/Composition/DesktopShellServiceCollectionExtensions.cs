@@ -4,6 +4,7 @@ using QwenCode.App.Agents;
 using QwenCode.App.Auth;
 using QwenCode.App.Channels;
 using QwenCode.App.Compatibility;
+using QwenCode.App.Config;
 using QwenCode.App.Desktop;
 using QwenCode.App.Extensions;
 using QwenCode.App.Hooks;
@@ -17,6 +18,7 @@ using QwenCode.App.Runtime;
 using QwenCode.App.Sessions;
 using QwenCode.App.Tools;
 using QwenCode.App.Followup;
+using QwenCode.App.Output;
 using QwenCode.App.Models;
 
 namespace QwenCode.App.AppHost;
@@ -34,6 +36,7 @@ public static class DesktopShellServiceCollectionExtensions
 
         services
             .AddInfrastructureServices()
+            .AddConfigServices()
             .AddAuthServices()
             .AddChannelServices()
             .AddCompatibilityServices()
@@ -44,6 +47,7 @@ public static class DesktopShellServiceCollectionExtensions
             .AddMcpServices()
             .AddPromptServices()
             .AddFollowupServices()
+            .AddOutputServices()
             .AddAgentServices()
             .AddToolServices()
             .AddSessionServices()

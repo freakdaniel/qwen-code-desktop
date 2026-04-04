@@ -5,16 +5,23 @@ namespace QwenCode.App.Sessions;
 
 public sealed class ChatCompressionService : IChatCompressionService
 {
-    private const int CompressionThresholdEntries = 20;
+    private const int MinimumCompressionEntries = 12;
     private const int PreserveEntries = 8;
     private const int RecentCompressionWindow = 6;
     private const int MaxBulletCount = 12;
     private const int MaxBulletLength = 180;
+    private const double DefaultContextThreshold = 0.72d;
 
     public Task<ChatCompressionCheckpoint?> TryCreateCheckpointAsync(
+        QwenRuntimeProfile runtimeProfile,
         string transcriptPath,
         CancellationToken cancellationToken = default)
     {
+        if (!runtimeProfile.Checkpointing)
+        {
+            return Task.FromResult<ChatCompressionCheckpoint?>(null);
+        }
+
         if (string.IsNullOrWhiteSpace(transcriptPath) || !File.Exists(transcriptPath))
         {
             return Task.FromResult<ChatCompressionCheckpoint?>(null);
@@ -45,7 +52,7 @@ public sealed class ChatCompressionService : IChatCompressionService
             }
         }
 
-        if (entries.Count <= CompressionThresholdEntries)
+        if (entries.Count < MinimumCompressionEntries)
         {
             return Task.FromResult<ChatCompressionCheckpoint?>(null);
         }
@@ -53,6 +60,17 @@ public sealed class ChatCompressionService : IChatCompressionService
         if (entries.TakeLast(RecentCompressionWindow)
             .Any(static entry => entry.Type == "system" &&
                                  string.Equals(entry.Status, "chat-compression", StringComparison.OrdinalIgnoreCase)))
+        {
+            return Task.FromResult<ChatCompressionCheckpoint?>(null);
+        }
+
+        var estimatedTokenCount = entries.Sum(static entry => EstimateTokens(entry.Body, entry.Name, entry.Status));
+        var contextWindowTokens = InferContextWindowTokens(runtimeProfile.ModelName);
+        var estimatedContextPercentage = contextWindowTokens <= 0
+            ? 0d
+            : (double)estimatedTokenCount / contextWindowTokens;
+        var thresholdPercentage = runtimeProfile.ChatCompression?.ContextPercentageThreshold ?? DefaultContextThreshold;
+        if (estimatedContextPercentage < thresholdPercentage)
         {
             return Task.FromResult<ChatCompressionCheckpoint?>(null);
         }
@@ -74,7 +92,8 @@ public sealed class ChatCompressionService : IChatCompressionService
         }
 
         var summary =
-            $"Compression checkpoint: summarized {compressibleEntries.Length} earlier transcript entries and preserved the latest {Math.Min(PreserveEntries, entries.Count)} entries." +
+            $"Compression checkpoint: estimated {estimatedTokenCount} of {contextWindowTokens} tokens ({estimatedContextPercentage:P1}) " +
+            $"and summarized {compressibleEntries.Length} earlier transcript entries while preserving the latest {Math.Min(PreserveEntries, entries.Count)} entries." +
             Environment.NewLine +
             string.Join(Environment.NewLine, bullets);
 
@@ -82,7 +101,13 @@ public sealed class ChatCompressionService : IChatCompressionService
         {
             Summary = summary,
             CompressedEntryCount = compressibleEntries.Length,
-            PreservedEntryCount = Math.Min(PreserveEntries, entries.Count)
+            PreservedEntryCount = Math.Min(PreserveEntries, entries.Count),
+            EstimatedTokenCount = estimatedTokenCount,
+            EstimatedContextWindowTokens = contextWindowTokens,
+            EstimatedContextPercentage = estimatedContextPercentage,
+            ThresholdPercentage = thresholdPercentage,
+            Trigger = "context-threshold",
+            CreatedAtUtc = DateTime.UtcNow
         });
     }
 
@@ -165,6 +190,39 @@ public sealed class ChatCompressionService : IChatCompressionService
 
     private static string FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+
+    private static int EstimateTokens(string body, string name, string status)
+    {
+        var combined = string.Join(" ", new[] { body, name, status }.Where(static value => !string.IsNullOrWhiteSpace(value)));
+        if (string.IsNullOrWhiteSpace(combined))
+        {
+            return 0;
+        }
+
+        return Math.Max(1, (int)Math.Ceiling(combined.Length / 4d));
+    }
+
+    private static int InferContextWindowTokens(string modelName)
+    {
+        if (string.IsNullOrWhiteSpace(modelName))
+        {
+            return 32_000;
+        }
+
+        if (modelName.Contains("plus", StringComparison.OrdinalIgnoreCase) ||
+            modelName.Contains("max", StringComparison.OrdinalIgnoreCase))
+        {
+            return 131_072;
+        }
+
+        if (modelName.Contains("coder", StringComparison.OrdinalIgnoreCase) ||
+            modelName.Contains("qwen3", StringComparison.OrdinalIgnoreCase))
+        {
+            return 65_536;
+        }
+
+        return 32_000;
+    }
 
     private sealed record CompressionEntry(string Type, string Status, string Name, string Body);
 }

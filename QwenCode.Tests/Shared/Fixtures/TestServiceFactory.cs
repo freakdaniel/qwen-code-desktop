@@ -5,6 +5,7 @@ using QwenCode.App.Extensions;
 using QwenCode.App.Followup;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Prompts;
+using QwenCode.App.Config;
 
 namespace QwenCode.Tests.Shared.Fixtures;
 
@@ -85,9 +86,7 @@ internal static class TestServiceFactory
             new ProviderBackedFollowupSuggestionGenerator(
                 runtimeProfileService,
                 new AssistantPromptAssembler(projectSummaryService),
-                [
-                    new FallbackAssistantResponseProvider()
-                ],
+                new StaticContentGenerator(static _ => null),
                 Options.Create(new NativeAssistantRuntimeOptions
                 {
                     Provider = "fallback"
@@ -146,9 +145,9 @@ internal static class TestServiceFactory
                 shellOptions,
                 workspacePathResolver,
                 transcriptStore,
-                toolExecutor,
-                sessionHost,
-                activeTurnRegistry));
+                    toolExecutor,
+                    sessionHost,
+                    activeTurnRegistry));
     }
 
     internal static DesktopSessionHostService CreateSessionHost(
@@ -199,26 +198,37 @@ internal static class TestServiceFactory
 
     internal static IAssistantTurnRuntime CreateAssistantTurnRuntime(
         IAssistantResponseProvider? primaryProvider = null,
-        IToolExecutor? toolExecutor = null) =>
-        new AssistantTurnRuntime(
+        IToolExecutor? toolExecutor = null)
+    {
+        var environmentPaths = new FakeDesktopEnvironmentPaths(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+        var configService = new RuntimeConfigService(environmentPaths);
+        var modelConfigResolver = new ModelConfigResolver(new ModelRegistryService(configService));
+
+        var providers = primaryProvider is null
+            ? new IAssistantResponseProvider[]
+            {
+                new OpenAiCompatibleAssistantResponseProvider(
+                    new HttpClient(),
+                    new ProviderConfigurationResolver(
+                        environmentPaths,
+                        configService: configService,
+                        modelConfigResolver: modelConfigResolver)),
+                new FallbackAssistantResponseProvider()
+            }
+            : [primaryProvider, new FallbackAssistantResponseProvider()];
+
+        return new AssistantTurnRuntime(
             new AssistantPromptAssembler(new ProjectSummaryService()),
-            primaryProvider is null
-                ? [
-                    new OpenAiCompatibleAssistantResponseProvider(
-                        new HttpClient(),
-                        new ProviderConfigurationResolver(
-                            new FakeDesktopEnvironmentPaths(
-                                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)))),
-                    new FallbackAssistantResponseProvider()
-                ]
-                : [primaryProvider, new FallbackAssistantResponseProvider()],
+            providers,
             toolExecutor ?? new FakeToolExecutor(),
             new LoopDetectionService(),
             Options.Create(new NativeAssistantRuntimeOptions
             {
                 Provider = primaryProvider?.Name ?? "fallback"
             }));
+    }
 
     private sealed class PassthroughUserPromptHookService : IUserPromptHookService
     {

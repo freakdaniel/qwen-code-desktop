@@ -428,6 +428,17 @@ public sealed class SessionHostTurnTests
             Directory.CreateDirectory(workspaceRoot);
             Directory.CreateDirectory(homeRoot);
             Directory.CreateDirectory(systemRoot);
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            await File.WriteAllTextAsync(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "checkpointing": true,
+                  "chatCompression": {
+                    "contextPercentageThreshold": 0.001
+                  }
+                }
+                """);
 
             var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
             var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
@@ -476,6 +487,7 @@ public sealed class SessionHostTurnTests
             var transcript = File.ReadAllLines(result.Session.TranscriptPath);
             Assert.Contains(transcript, line => line.Contains("\"status\":\"chat-compression\"", StringComparison.Ordinal));
             Assert.Contains(transcript, line => line.Contains("Compression checkpoint:", StringComparison.Ordinal));
+            Assert.Contains(transcript, line => line.Contains("tokens", StringComparison.Ordinal));
         }
         finally
         {

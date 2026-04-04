@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using QwenCode.App.Auth;
+using QwenCode.App.Config;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Options;
 using QwenCode.App.Models;
@@ -10,17 +11,20 @@ namespace QwenCode.App.Runtime;
 public sealed class ProviderConfigurationResolver(
     IDesktopEnvironmentPaths environmentPaths,
     IQwenOAuthCredentialStore? qwenOAuthCredentialStore = null,
-    IQwenOAuthTokenManager? qwenOAuthTokenManager = null)
+    IQwenOAuthTokenManager? qwenOAuthTokenManager = null,
+    IConfigService? configService = null,
+    IModelConfigResolver? modelConfigResolver = null)
 {
+    private readonly IConfigService config = configService ?? new RuntimeConfigService(environmentPaths);
+    private readonly IModelConfigResolver? _modelConfigResolver = modelConfigResolver;
+
     public ResolvedProviderConfiguration Resolve(
         AssistantTurnRequest request,
         NativeAssistantRuntimeOptions options)
     {
-        var projectRoot = string.IsNullOrWhiteSpace(request.RuntimeProfile.ProjectRoot)
-            ? environmentPaths.CurrentDirectory
-            : Path.GetFullPath(request.RuntimeProfile.ProjectRoot);
-        var mergedSettings = LoadMergedSettings(projectRoot);
-        var settingsEnvironment = ReadEnvironment(mergedSettings);
+        var snapshot = config.Inspect(new WorkspacePaths { WorkspaceRoot = request.RuntimeProfile.ProjectRoot });
+        var mergedSettings = snapshot.MergedSettings;
+        var settingsEnvironment = snapshot.Environment;
 
         var authType = FirstNonEmpty(
             request.AuthTypeOverride,
@@ -39,12 +43,19 @@ public sealed class ProviderConfigurationResolver(
             Environment.GetEnvironmentVariable("QWEN_MODEL"),
             GetString(mergedSettings, "model", "name"));
 
+        var resolvedModelMetadata = _modelConfigResolver?.Resolve(
+            new WorkspacePaths { WorkspaceRoot = request.RuntimeProfile.ProjectRoot },
+            configuredModel,
+            authType);
+        authType = FirstNonEmpty(resolvedModelMetadata?.AuthType, authType);
+
         var modelProvider = FindModelProvider(mergedSettings, authType, configuredModel);
-        var resolvedModel = FirstNonEmpty(configuredModel, modelProvider?.Id, "qwen3-coder-plus");
+        var resolvedModel = FirstNonEmpty(configuredModel, resolvedModelMetadata?.Id, modelProvider?.Id, "qwen3-coder-plus");
         modelProvider ??= FindModelProvider(mergedSettings, authType, resolvedModel);
 
         var apiKeyEnvironmentVariable = FirstNonEmpty(
             modelProvider?.EnvironmentVariableName,
+            resolvedModelMetadata?.ApiKeyEnvironmentVariable,
             options.ApiKeyEnvironmentVariable,
             ResolveDefaultApiKeyEnvironmentVariable(authType));
         var apiKey = ResolveApiKey(
@@ -63,6 +74,7 @@ public sealed class ProviderConfigurationResolver(
             options.Endpoint,
             Environment.GetEnvironmentVariable("QWENCODE_ASSISTANT_ENDPOINT"),
             modelProvider?.BaseUrl,
+            resolvedModelMetadata?.BaseUrl,
             ReadEnvironmentValue(settingsEnvironment, "OPENAI_BASE_URL", "QWEN_BASE_URL"),
             Environment.GetEnvironmentVariable("OPENAI_BASE_URL"),
             Environment.GetEnvironmentVariable("QWEN_BASE_URL"),
@@ -89,87 +101,6 @@ public sealed class ProviderConfigurationResolver(
             ExtraBody = settingsExtraBody,
             IsDashScope = isDashScope
         };
-    }
-
-    private JsonObject LoadMergedSettings(string projectRoot)
-    {
-        var merged = new JsonObject();
-        foreach (var settingsPath in GetSettingsPaths(projectRoot))
-        {
-            if (!File.Exists(settingsPath))
-            {
-                continue;
-            }
-
-            try
-            {
-                using var stream = File.OpenRead(settingsPath);
-                using var document = JsonDocument.Parse(stream);
-                if (JsonNode.Parse(document.RootElement.GetRawText()) is JsonObject settingsObject)
-                {
-                    OpenAiCompatibleProtocol.MergeObjects(merged, settingsObject);
-                }
-            }
-            catch
-            {
-                // Ignore malformed settings layers and continue with remaining layers.
-            }
-        }
-
-        return merged;
-    }
-
-    private IEnumerable<string> GetSettingsPaths(string projectRoot)
-    {
-        var globalQwenDirectory = Path.Combine(environmentPaths.HomeDirectory, ".qwen");
-        var programDataRoot = ResolveProgramDataRoot();
-
-        yield return GetSystemDefaultsPath(programDataRoot);
-        yield return Path.Combine(globalQwenDirectory, "settings.json");
-        yield return Path.Combine(projectRoot, ".qwen", "settings.json");
-        yield return GetSystemSettingsPath(programDataRoot);
-    }
-
-    private string ResolveProgramDataRoot() =>
-        Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_SETTINGS_PATH") is { Length: > 0 } overridePath
-            ? Path.GetDirectoryName(overridePath) ?? string.Empty
-            : environmentPaths.ProgramDataDirectory is { Length: > 0 } commonAppData
-                ? Path.Combine(commonAppData, "qwen-code")
-                : string.Empty;
-
-    private static string GetSystemDefaultsPath(string programDataRoot)
-    {
-        var overridePath = Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_DEFAULTS_PATH");
-        return string.IsNullOrWhiteSpace(overridePath)
-            ? Path.Combine(programDataRoot, "system-defaults.json")
-            : overridePath;
-    }
-
-    private static string GetSystemSettingsPath(string programDataRoot)
-    {
-        var overridePath = Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_SETTINGS_PATH");
-        return string.IsNullOrWhiteSpace(overridePath)
-            ? Path.Combine(programDataRoot, "settings.json")
-            : overridePath;
-    }
-
-    private static IReadOnlyDictionary<string, string> ReadEnvironment(JsonObject mergedSettings)
-    {
-        if (GetNode(mergedSettings, "env") is not JsonObject envObject)
-        {
-            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        return envObject
-            .Where(static pair => pair.Value is JsonValue)
-            .Select(pair => new KeyValuePair<string, string?>(
-                pair.Key,
-                pair.Value?.GetValue<string>()))
-            .Where(static pair => !string.IsNullOrWhiteSpace(pair.Value))
-            .ToDictionary(
-                static pair => pair.Key,
-                static pair => pair.Value!,
-                StringComparer.OrdinalIgnoreCase);
     }
 
     private static IReadOnlyDictionary<string, string> BuildHeaders(

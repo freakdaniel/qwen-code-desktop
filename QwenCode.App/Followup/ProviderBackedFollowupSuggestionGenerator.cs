@@ -9,7 +9,7 @@ namespace QwenCode.App.Followup;
 public sealed class ProviderBackedFollowupSuggestionGenerator(
     QwenRuntimeProfileService runtimeProfileService,
     IAssistantPromptAssembler promptAssembler,
-    IEnumerable<IAssistantResponseProvider> providers,
+    IContentGenerator contentGenerator,
     IOptions<NativeAssistantRuntimeOptions> options) : IFollowupSuggestionGenerator
 {
     private const string SuggestionPrompt = """
@@ -35,7 +35,6 @@ Stay silent if the next step is not obvious.
 Reply with ONLY the suggestion, no quotes or explanation.
 """;
 
-    private readonly IReadOnlyList<IAssistantResponseProvider> providerChain = providers.ToArray();
     private readonly NativeAssistantRuntimeOptions runtimeOptions = options.Value;
 
     public async Task<FollowupSuggestion?> GenerateAsync(
@@ -73,78 +72,58 @@ Reply with ONLY the suggestion, no quotes or explanation.
         };
         var promptContext = await promptAssembler.AssembleAsync(request, cancellationToken);
 
-        foreach (var provider in BuildProviderChain())
+        try
         {
-            try
+            var response = await contentGenerator.GenerateContentAsync(
+                new LlmContentRequest
+                {
+                    SessionId = request.SessionId,
+                    Prompt = request.Prompt,
+                    WorkingDirectory = request.WorkingDirectory,
+                    TranscriptPath = request.TranscriptPath,
+                    RuntimeProfile = request.RuntimeProfile,
+                    PromptContext = promptContext,
+                    GitBranch = request.GitBranch,
+                    SystemPrompt = request.SystemPromptOverride,
+                    ModelOverride = request.ModelOverride,
+                    AuthTypeOverride = request.AuthTypeOverride,
+                    EndpointOverride = request.EndpointOverride,
+                    ApiKeyOverride = request.ApiKeyOverride,
+                    TemperatureOverride = runtimeOptions.Temperature,
+                    DisableTools = true
+                },
+                cancellationToken);
+            if (response is null ||
+                !string.IsNullOrWhiteSpace(response.StopReason) &&
+                !string.Equals(response.StopReason, "completed", StringComparison.OrdinalIgnoreCase))
             {
-                var response = await provider.TryGenerateAsync(
-                    request,
-                    promptContext,
-                    [],
-                    runtimeOptions,
-                    cancellationToken: cancellationToken);
-                if (response is null ||
-                    !string.IsNullOrWhiteSpace(response.StopReason) &&
-                    !string.Equals(response.StopReason, "completed", StringComparison.OrdinalIgnoreCase) ||
-                    response.ToolCalls.Count > 0)
-                {
-                    continue;
-                }
-
-                if (string.Equals(response.ProviderName, "fallback", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                var normalized = FollowupSuggestionFilter.Normalize(response.Summary);
-                var filterReason = FollowupSuggestionFilter.GetFilterReason(normalized);
-                if (!string.IsNullOrWhiteSpace(filterReason))
-                {
-                    continue;
-                }
-
-                return new FollowupSuggestion
-                {
-                    Text = normalized,
-                    Kind = "predicted-next-step",
-                    Source = provider.Name,
-                    Confidence = 90
-                };
+                return null;
             }
-            catch
+
+            if (string.Equals(response.ProviderName, "fallback", StringComparison.OrdinalIgnoreCase))
             {
-                // Ignore provider failures and fall back to heuristic suggestions.
+                return null;
             }
+
+            var normalized = FollowupSuggestionFilter.Normalize(response.Content);
+            var filterReason = FollowupSuggestionFilter.GetFilterReason(normalized);
+            if (!string.IsNullOrWhiteSpace(filterReason))
+            {
+                return null;
+            }
+
+            return new FollowupSuggestion
+            {
+                Text = normalized,
+                Kind = "predicted-next-step",
+                Source = response.ProviderName,
+                Confidence = 90
+            };
         }
-
-        return null;
-    }
-
-    private IReadOnlyList<IAssistantResponseProvider> BuildProviderChain()
-    {
-        var preferred = providerChain.FirstOrDefault(provider =>
-            string.Equals(provider.Name, runtimeOptions.Provider, StringComparison.OrdinalIgnoreCase));
-        var candidates = new List<IAssistantResponseProvider>();
-
-        if (preferred is not null &&
-            !string.Equals(preferred.Name, "fallback", StringComparison.OrdinalIgnoreCase))
+        catch
         {
-            candidates.Add(preferred);
+            // Ignore provider failures and fall back to heuristic suggestions.
+            return null;
         }
-
-        foreach (var provider in providerChain)
-        {
-            if (string.Equals(provider.Name, "fallback", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (!candidates.Contains(provider))
-            {
-                candidates.Add(provider);
-            }
-        }
-
-        return candidates;
     }
 }

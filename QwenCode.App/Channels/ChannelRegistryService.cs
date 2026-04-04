@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using QwenCode.App.Compatibility;
+using QwenCode.App.Config;
 using QwenCode.App.Extensions;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
@@ -10,7 +11,8 @@ namespace QwenCode.App.Channels;
 public sealed class ChannelRegistryService(
     IDesktopEnvironmentPaths environmentPaths,
     ISettingsResolver settingsResolver,
-    IExtensionCatalogService extensionCatalogService) : IChannelRegistryService
+    IExtensionCatalogService extensionCatalogService,
+    IConfigService? configService = null) : IChannelRegistryService
 {
     private const int PairingExpiryMinutes = 60;
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -19,6 +21,7 @@ public sealed class ChannelRegistryService(
     };
 
     private static readonly string[] BuiltInTypes = ["telegram", "weixin", "dingtalk"];
+    private readonly IConfigService config = configService ?? new RuntimeConfigService(environmentPaths);
 
     public ChannelSnapshot Inspect(WorkspacePaths workspace)
     {
@@ -146,23 +149,11 @@ public sealed class ChannelRegistryService(
 
     private IReadOnlyList<ConfiguredChannel> ReadConfiguredChannels(QwenRuntimeProfile runtime, WorkspacePaths workspace)
     {
-        var globalQwenDirectory = runtime.GlobalQwenDirectory;
-        var projectSettingsPath = Path.Combine(runtime.ProjectRoot, ".qwen", "settings.json");
-        var userSettingsPath = Path.Combine(globalQwenDirectory, "settings.json");
-        var programDataRoot = ResolveProgramDataRoot();
-        var systemDefaultsPath = ResolveSystemDefaultsPath(programDataRoot);
-        var systemSettingsPath = ResolveSystemSettingsPath(programDataRoot);
-
-        var layers = new List<(string Path, string Scope)>
-        {
-            (systemDefaultsPath, "system-defaults"),
-            (userSettingsPath, "user")
-        };
-        if (runtime.IsWorkspaceTrusted)
-        {
-            layers.Add((projectSettingsPath, "project"));
-        }
-        layers.Add((systemSettingsPath, "system"));
+        var snapshot = config.Inspect(workspace);
+        var layers = snapshot.SettingsLayers
+            .Where(static layer => layer.Included)
+            .Select(static layer => (layer.Path, layer.Scope))
+            .ToArray();
 
         var merged = new Dictionary<string, ChannelConfigAccumulator>(StringComparer.OrdinalIgnoreCase);
 
@@ -222,29 +213,6 @@ public sealed class ChannelRegistryService(
     }
 
     private string GetChannelsRoot() => Path.Combine(environmentPaths.HomeDirectory, ".qwen", "channels");
-
-    private string ResolveProgramDataRoot() =>
-        Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_SETTINGS_PATH") is { Length: > 0 } overridePath
-            ? Path.GetDirectoryName(overridePath) ?? string.Empty
-            : environmentPaths.ProgramDataDirectory is { Length: > 0 } commonAppData
-                ? Path.Combine(commonAppData, "qwen-code")
-                : string.Empty;
-
-    private static string ResolveSystemDefaultsPath(string programDataRoot)
-    {
-        var overridePath = Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_DEFAULTS_PATH");
-        return string.IsNullOrWhiteSpace(overridePath)
-            ? Path.Combine(programDataRoot, "system-defaults.json")
-            : overridePath;
-    }
-
-    private static string ResolveSystemSettingsPath(string programDataRoot)
-    {
-        var overridePath = Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_SETTINGS_PATH");
-        return string.IsNullOrWhiteSpace(overridePath)
-            ? Path.Combine(programDataRoot, "settings.json")
-            : overridePath;
-    }
 
     private static ChannelServiceInfo? ReadServiceInfo(string channelsRoot)
     {

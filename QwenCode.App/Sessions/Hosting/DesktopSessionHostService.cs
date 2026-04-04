@@ -1120,7 +1120,7 @@ public sealed class DesktopSessionHostService(
         string gitBranch,
         CancellationToken cancellationToken)
     {
-        var checkpoint = await chatCompressionService.TryCreateCheckpointAsync(transcriptPath, cancellationToken);
+        var checkpoint = await chatCompressionService.TryCreateCheckpointAsync(runtimeProfile, transcriptPath, cancellationToken);
         if (checkpoint is null)
         {
             return parentUuid;
@@ -1138,7 +1138,11 @@ public sealed class DesktopSessionHostService(
                 {
                     ["trigger"] = "auto",
                     ["compressedEntries"] = checkpoint.CompressedEntryCount,
-                    ["preservedEntries"] = checkpoint.PreservedEntryCount
+                    ["preservedEntries"] = checkpoint.PreservedEntryCount,
+                    ["estimatedTokens"] = checkpoint.EstimatedTokenCount,
+                    ["contextWindowTokens"] = checkpoint.EstimatedContextWindowTokens,
+                    ["contextPercentage"] = checkpoint.EstimatedContextPercentage,
+                    ["thresholdPercentage"] = checkpoint.ThresholdPercentage
                 }
             },
             cancellationToken);
