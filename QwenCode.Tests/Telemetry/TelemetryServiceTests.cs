@@ -30,6 +30,7 @@ public sealed class TelemetryServiceTests
             Assert.DoesNotContain("very secret prompt", content);
             Assert.Contains("[redacted]", content);
             Assert.True(snapshot.Metrics.ContainsKey("qwen.prompt.count"));
+            Assert.True(snapshot.Metrics.ContainsKey("prompt.count"));
         }
         finally
         {
@@ -148,6 +149,7 @@ public sealed class TelemetryServiceTests
             Assert.Contains("\"event.name\":\"cli_config\"", content);
             Assert.Contains("\"event.name\":\"user_prompt\"", content);
             Assert.True(snapshot.Metrics.ContainsKey("qwen.session.count"));
+            Assert.True(snapshot.Metrics.ContainsKey("session.count"));
             Assert.True(snapshot.Metrics.ContainsKey("qwen.prompt.count"));
         }
         finally

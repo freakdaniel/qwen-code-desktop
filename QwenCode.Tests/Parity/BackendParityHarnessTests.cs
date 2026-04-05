@@ -95,6 +95,7 @@ public sealed class BackendParityHarnessTests
             Assert.Equal("session-1", document.RootElement.GetProperty("session_id").GetString());
             Assert.Equal("[redacted]", document.RootElement.GetProperty("prompt").GetString());
             Assert.True(snapshot.Metrics.ContainsKey("qwen.prompt.count"));
+            Assert.True(snapshot.Metrics.ContainsKey("prompt.count"));
             Assert.Equal(1, snapshot.EventCount);
         }
         finally
@@ -127,6 +128,9 @@ public sealed class BackendParityHarnessTests
                 Path.Combine(workspaceRoot, ".qwen", "settings.json"),
                 $$"""
                 {
+                  "env": {
+                    "{{envKey}}": "provider-key"
+                  },
                   "security": {
                     "auth": {
                       "selectedType": "{{authType}}"
@@ -137,8 +141,6 @@ public sealed class BackendParityHarnessTests
                   }
                 }
                 """);
-
-            Environment.SetEnvironmentVariable(envKey, "provider-key");
 
             var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot, workspaceRoot);
             var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
@@ -158,7 +160,6 @@ public sealed class BackendParityHarnessTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable(envKey, null);
             Directory.Delete(root, recursive: true);
         }
     }

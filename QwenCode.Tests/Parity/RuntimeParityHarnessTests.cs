@@ -117,6 +117,109 @@ public sealed class RuntimeParityHarnessTests
     }
 
     [Fact]
+    public async Task ProviderStreamingHarness_OpenRouter_AddsProviderHeaders()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-parity-openrouter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "openrouter"
+                    }
+                  },
+                  "env": {
+                    "OPENROUTER_API_KEY": "openrouter-key"
+                  },
+                  "model": {
+                    "name": "openai/gpt-4.1"
+                  }
+                }
+                """);
+
+            HttpRequestMessage? capturedRequest = null;
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((request, _) =>
+            {
+                capturedRequest = request;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "choices": [
+                            {
+                              "message": {
+                                "content": "ok"
+                              }
+                            }
+                          ]
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json")
+                });
+            }));
+
+            var runtimeProfile = CreateRuntimeProfile(workspaceRoot, homeRoot);
+            var provider = new OpenAiCompatibleAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                new TokenLimitService());
+
+            var response = await provider.TryGenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "parity-openrouter-session",
+                    Prompt = "Continue",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "parity-openrouter-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        ChangedFiles = []
+                    }
+                },
+                new AssistantPromptContext
+                {
+                    SessionSummary = "Transcript messages loaded: 0",
+                    HistoryHighlights = [],
+                    ContextFiles = [],
+                    Messages = []
+                },
+                [],
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "openai-compatible"
+                });
+
+            Assert.NotNull(response);
+            Assert.NotNull(capturedRequest);
+            Assert.Equal("https://github.com/QwenLM/qwen-code.git", capturedRequest!.Headers.GetValues("HTTP-Referer").Single());
+            Assert.Equal("Qwen Code", capturedRequest.Headers.GetValues("X-OpenRouter-Title").Single());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task ChannelsHarness_Runtime_RespectsCollectDefaultsAndAttachmentPromptShaping()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-parity-channel-{Guid.NewGuid():N}");

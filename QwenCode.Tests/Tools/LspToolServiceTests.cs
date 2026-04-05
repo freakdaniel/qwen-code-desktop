@@ -183,9 +183,103 @@ public sealed class LspToolServiceTests
     }
 
     [Fact]
-    public async Task NativeToolHostService_ExecuteAsync_LspCodeActions_ReturnsNotImplementedMessage()
+    public async Task NativeToolHostService_ExecuteAsync_LspPrepareCallHierarchy_ReturnsResolvedSymbol()
     {
         var fixture = await CreateLspFixtureAsync();
+
+        try
+        {
+            var (line, character) = FindLineAndCharacter(fixture.FooContent, "void Run();");
+            var result = await fixture.Host.ExecuteAsync(
+                fixture.Workspace,
+                new ExecuteNativeToolRequest
+                {
+                    ToolName = "lsp",
+                    ArgumentsJson = $$"""{"operation":"prepareCallHierarchy","filePath":"{{fixture.FooFilePath.Replace("\\", "\\\\")}}","line":{{line}},"character":{{character + 6}}}"""
+                });
+
+            Assert.Equal("completed", result.Status);
+            Assert.Contains("Call hierarchy item", result.Output);
+            Assert.Contains("Run", result.Output);
+            Assert.Contains("Foo.cs", result.Output);
+        }
+        finally
+        {
+            fixture.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_LspIncomingCalls_ReturnsCallers()
+    {
+        var fixture = await CreateLspFixtureAsync();
+
+        try
+        {
+            var (line, character) = FindLineAndCharacter(fixture.FooContent, "void Run();");
+            var result = await fixture.Host.ExecuteAsync(
+                fixture.Workspace,
+                new ExecuteNativeToolRequest
+                {
+                    ToolName = "lsp",
+                    ArgumentsJson = $$"""{"operation":"incomingCalls","filePath":"{{fixture.FooFilePath.Replace("\\", "\\\\")}}","line":{{line}},"character":{{character + 6}}}"""
+                });
+
+            Assert.Equal("completed", result.Status);
+            Assert.Contains("Incoming calls", result.Output);
+            Assert.Contains("Test", result.Output);
+            Assert.Contains("Bar.cs", result.Output);
+        }
+        finally
+        {
+            fixture.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_LspOutgoingCalls_ReturnsCallees()
+    {
+        var fixture = await CreateLspFixtureAsync();
+
+        try
+        {
+            var (line, character) = FindLineAndCharacter(fixture.BarContent, "void Test()");
+            var result = await fixture.Host.ExecuteAsync(
+                fixture.Workspace,
+                new ExecuteNativeToolRequest
+                {
+                    ToolName = "lsp",
+                    ArgumentsJson = $$"""{"operation":"outgoingCalls","filePath":"{{fixture.BarFilePath.Replace("\\", "\\\\")}}","line":{{line}},"character":{{character + 6}}}"""
+                });
+
+            Assert.Equal("completed", result.Status);
+            Assert.Contains("Outgoing calls", result.Output);
+            Assert.Contains("Foo", result.Output);
+            Assert.Contains("Run", result.Output);
+        }
+        finally
+        {
+            fixture.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_LspCodeActions_ReturnsSuggestionsForDiagnostics()
+    {
+        var fixture = await CreateLspFixtureAsync();
+        var brokenFilePath = Path.Combine(fixture.WorkspaceRoot, "Broken.cs");
+        await File.WriteAllTextAsync(
+            brokenFilePath,
+            """
+            namespace Demo;
+            public sealed class Broken
+            {
+                public void Test()
+                {
+                    var value = ;
+                }
+            }
+            """);
 
         try
         {
@@ -194,11 +288,12 @@ public sealed class LspToolServiceTests
                 new ExecuteNativeToolRequest
                 {
                     ToolName = "lsp",
-                    ArgumentsJson = $$"""{"operation":"codeActions","filePath":"{{fixture.FooFilePath.Replace("\\", "\\\\")}}","line":1,"character":1}"""
+                    ArgumentsJson = $$"""{"operation":"codeActions","filePath":"{{brokenFilePath.Replace("\\", "\\\\")}}","line":5,"character":21}"""
                 });
 
-            Assert.Equal("error", result.Status);
-            Assert.Contains("not implemented yet", result.ErrorMessage);
+            Assert.Equal("completed", result.Status);
+            Assert.Contains("Code actions", result.Output);
+            Assert.Contains("CS", result.Output);
         }
         finally
         {

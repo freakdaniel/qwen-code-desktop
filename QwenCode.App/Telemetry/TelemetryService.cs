@@ -323,6 +323,20 @@ public sealed class TelemetryService(ILogger<TelemetryService> logger) : ITeleme
             return;
         }
 
+        foreach (var expandedMetricName in ExpandMetricAliases(metricName))
+        {
+            await IncrementMetricUnsafeAsync(runtimeProfile, expandedMetricName, value, unit, tags, cancellationToken);
+        }
+    }
+
+    private async Task IncrementMetricUnsafeAsync(
+        QwenRuntimeProfile runtimeProfile,
+        string metricName,
+        double value,
+        string unit,
+        IReadOnlyDictionary<string, string>? tags,
+        CancellationToken cancellationToken)
+    {
         var paths = ResolvePaths(runtimeProfile);
         Directory.CreateDirectory(Path.GetDirectoryName(paths.MetricsPath)!);
 
@@ -527,5 +541,15 @@ public sealed class TelemetryService(ILogger<TelemetryService> logger) : ITeleme
         }
 
         return Path.GetFullPath(Path.Combine(projectRoot, value));
+    }
+
+    private static IReadOnlyList<string> ExpandMetricAliases(string metricName)
+    {
+        if (!metricName.StartsWith("qwen.", StringComparison.OrdinalIgnoreCase))
+        {
+            return [metricName];
+        }
+
+        return [metricName, metricName["qwen.".Length..]];
     }
 }
