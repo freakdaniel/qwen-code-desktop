@@ -1,6 +1,8 @@
 <Solution>
-  <Project Path="QwenCode.Core/QwenCode.Core.csproj" />
-  <Project Path="QwenCode.App/QwenCode.App.csproj" />
-  <Project Path="QwenCode.IpcGen/QwenCode.IpcGen.csproj" />
-  <Project Path="QwenCode.Tests/QwenCode.Tests.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/QwenCode.Core/QwenCode.Core.csproj" />
+    <Project Path="src/QwenCode.App/QwenCode.App.csproj" />
+    <Project Path="src/QwenCode.IpcGen/QwenCode.IpcGen.csproj" />
+    <Project Path="src/QwenCode.Tests/QwenCode.Tests.csproj" />
+  </Folder>
 </Solution>

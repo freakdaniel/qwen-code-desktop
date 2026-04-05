@@ -1,0 +1,72 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using QwenCode.App.Agents;
+using QwenCode.App.Auth;
+using QwenCode.App.Channels;
+using QwenCode.App.Compatibility;
+using QwenCode.App.Config;
+using QwenCode.App.Desktop;
+using QwenCode.App.Extensions;
+using QwenCode.App.Hooks;
+using QwenCode.App.Ide;
+using QwenCode.App.Ipc;
+using QwenCode.App.Infrastructure;
+using QwenCode.App.Mcp;
+using QwenCode.App.Options;
+using QwenCode.App.Permissions;
+using QwenCode.App.Prompts;
+using QwenCode.App.Runtime;
+using QwenCode.App.Sessions;
+using QwenCode.App.Tools;
+using QwenCode.App.Telemetry;
+using QwenCode.App.Followup;
+using QwenCode.App.Output;
+using QwenCode.App.Models;
+
+namespace QwenCode.App.AppHost;
+
+/// <summary>
+/// Provides extension members for Desktop Shell Service Collection
+/// </summary>
+public static class DesktopShellServiceCollectionExtensions
+{
+    /// <summary>
+    /// Executes add desktop shell services
+    /// </summary>
+    /// <param name="services">The services</param>
+    /// <param name="configuration">The configuration to apply</param>
+    /// <returns>The resulting i service collection</returns>
+    public static IServiceCollection AddDesktopShellServices(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddOptions<DesktopShellOptions>()
+            .Bind(configuration.GetSection(DesktopShellOptions.SectionName));
+        services.AddOptions<NativeAssistantRuntimeOptions>()
+            .Bind(configuration.GetSection(NativeAssistantRuntimeOptions.SectionName));
+
+        services
+            .AddInfrastructureServices()
+            .AddConfigServices()
+            .AddAuthServices()
+            .AddChannelServices()
+            .AddCompatibilityServices()
+            .AddExtensionServices()
+            .AddHookServices()
+            .AddIdeServices()
+            .AddPermissionServices()
+            .AddTelemetryServices()
+            .AddRuntimeServices()
+            .AddMcpServices()
+            .AddPromptServices()
+            .AddFollowupServices()
+            .AddOutputServices()
+            .AddAgentServices()
+            .AddToolServices()
+            .AddSessionServices()
+            .AddDesktopServices()
+            .AddAppHostServices();
+
+        return services;
+    }
+}

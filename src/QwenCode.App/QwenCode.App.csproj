@@ -1,0 +1,116 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>QwenCode.App</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\QwenCode.Core\QwenCode.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ElectronNET.Core" Version="0.4.1" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.3.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.0" />
+    <PackageReference Include="Serilog" Version="4.3.0" />
+    <PackageReference Include="Serilog.Extensions.Logging" Version="9.0.2" />
+    <PackageReference Include="Serilog.Settings.Configuration" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Agents\**\*.cs" />
+    <Compile Remove="Auth\**\*.cs" />
+    <Compile Remove="Channels\**\*.cs" />
+    <Compile Remove="Compatibility\**\*.cs" />
+    <Compile Remove="Config\**\*.cs" />
+    <Compile Remove="Extensions\**\*.cs" />
+    <Compile Remove="Followup\**\*.cs" />
+    <Compile Remove="Hooks\**\*.cs" />
+    <Compile Remove="Ide\**\*.cs" />
+    <Compile Remove="Infrastructure\**\*.cs" />
+    <Compile Remove="Mcp\**\*.cs" />
+    <Compile Remove="Models\**\*.cs" />
+    <Compile Remove="Options\**\*.cs" />
+    <Compile Remove="Permissions\**\*.cs" />
+    <Compile Remove="Prompts\**\*.cs" />
+    <Compile Remove="Runtime\**\*.cs" />
+    <Compile Remove="Services\**\*.cs" />
+    <Compile Remove="Sessions\**\*.cs" />
+    <Compile Remove="Telemetry\**\*.cs" />
+    <Compile Remove="Tools\**\*.cs" />
+    <Compile Remove="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <ElectronPackageId>io.github.freakdaniel.QwenCodeDesktop</ElectronPackageId>
+    <Title>Qwen Code Desktop</Title>
+    <Version>0.1.0</Version>
+    <Description>Native desktop shell for Qwen with a fully local .NET runtime and React-based workspace.</Description>
+    <Company>freakdaniel</Company>
+    <ElectronVersion>34.2.0</ElectronVersion>
+    <ElectronSkipMigrationChecks>true</ElectronSkipMigrationChecks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="electron\preload.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\QwenCode.Core\Channels\plugin-host\channel-plugin-host.mjs">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>Channels\plugin-host\channel-plugin-host.mjs</Link>
+    </Content>
+    <Content Include=".electron\custom_main.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Name="NpmInstall" BeforeTargets="BuildFrontend" Inputs="Frontend\package.json;Frontend\package-lock.json" Outputs="Frontend\node_modules\.package-lock.json" Condition="Exists('Frontend\package.json') AND Exists('Frontend\package-lock.json')">
+    <Message Importance="high" Text="-&gt; npm ci (Frontend)" />
+    <Exec Command="npm ci --prefer-offline" WorkingDirectory="Frontend" />
+  </Target>
+
+  <Target Name="BuildFrontend" BeforeTargets="Build" Inputs="Frontend\src\**\*;Frontend\index.html;Frontend\vite.config.ts;Frontend\tsconfig.json;Frontend\tsconfig.app.json" Outputs="wwwroot\index.html" Condition="Exists('Frontend\package.json') AND '$(SkipFrontend)' != 'true'">
+    <Message Importance="high" Text="-&gt; Building Frontend (Vite)" />
+    <Exec Command="npm run build" WorkingDirectory="Frontend" />
+  </Target>
+
+  <Target Name="RestoreElectronRuntime" AfterTargets="Build" Inputs="$(OutputPath).electron\package.json" Outputs="$(OutputPath).electron\node_modules\.package-lock.json" Condition="Exists('$(OutputPath).electron\package.json')">
+    <Message Importance="high" Text="-&gt; npm install (Electron host)" />
+    <Exec Command="npm install --prefer-offline --no-audit --no-fund" WorkingDirectory="$(OutputPath).electron" />
+  </Target>
+
+  <Target Name="PrepareDesktopRun" BeforeTargets="Run" DependsOnTargets="BuildFrontend;CopyFrontendDist;RestoreElectronRuntime" />
+
+  <Target Name="CopyFrontendDist" AfterTargets="Build" Condition="Exists('wwwroot/index.html')">
+    <ItemGroup>
+      <FrontendFiles Include="wwwroot\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FrontendFiles)" DestinationFiles="@(FrontendFiles->'$(OutputPath)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
