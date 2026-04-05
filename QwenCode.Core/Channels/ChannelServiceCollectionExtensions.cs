@@ -9,6 +9,8 @@ public static class ChannelServiceCollectionExtensions
     {
         services.TryAddSingleton<HttpClient>();
         services.AddSingleton<IChannelRegistryService, ChannelRegistryService>();
+        services.AddSingleton<IChannelPluginRegistryService, ChannelPluginRegistryService>();
+        services.AddSingleton<IChannelPluginRuntimeService, ChannelPluginRuntimeService>();
         services.AddSingleton<IChannelSessionRouter, ChannelSessionRouterService>();
         services.AddSingleton<IChannelAdapter, TelegramChannelAdapter>();
         services.AddSingleton<IChannelAdapter, WeixinChannelAdapter>();

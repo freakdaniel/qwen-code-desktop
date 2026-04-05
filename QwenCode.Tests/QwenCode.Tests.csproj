@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\QwenCode.Core\QwenCode.Core.csproj" />
     <ProjectReference Include="..\QwenCode.App\QwenCode.App.csproj" />
   </ItemGroup>
 

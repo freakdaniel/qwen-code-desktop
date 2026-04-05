@@ -8,10 +8,11 @@ public sealed class IdeClientServiceTests
     [Fact]
     public async Task IdeClientService_ConnectAsync_LoadsToolsAndEnablesDiffing()
     {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "qwen-ide-client-workspace");
         var backend = new FakeIdeBackendService(new IdeConnectionSnapshot
         {
             Status = "connected",
-            WorkspacePath = "D:\\workspace",
+            WorkspacePath = workspacePath,
             Port = "4111"
         });
         var transport = new FakeIdeCompanionTransport
@@ -21,7 +22,7 @@ public sealed class IdeClientServiceTests
         };
         var service = new IdeClientService(backend, transport);
 
-        var snapshot = await service.ConnectAsync("D:\\workspace");
+        var snapshot = await service.ConnectAsync(workspacePath);
 
         Assert.Equal("connected", snapshot.Status);
         Assert.True(snapshot.SupportsDiff);
@@ -31,10 +32,12 @@ public sealed class IdeClientServiceTests
     [Fact]
     public async Task IdeClientService_OpenDiffAsync_ResolvesThroughCliDecision()
     {
+        var workspacePath = Path.Combine(Path.GetTempPath(), "qwen-ide-client-workspace");
+        var filePath = Path.Combine(workspacePath, "a.cs");
         var backend = new FakeIdeBackendService(new IdeConnectionSnapshot
         {
             Status = "connected",
-            WorkspacePath = "D:\\workspace",
+            WorkspacePath = workspacePath,
             Port = "4111"
         });
         var transport = new FakeIdeCompanionTransport
@@ -44,11 +47,11 @@ public sealed class IdeClientServiceTests
             CloseDiffContent = """{"content":"patched"}"""
         };
         var service = new IdeClientService(backend, transport);
-        _ = await service.ConnectAsync("D:\\workspace");
+        _ = await service.ConnectAsync(workspacePath);
 
-        var pending = service.OpenDiffAsync("D:\\workspace\\a.cs", "new-content");
+        var pending = service.OpenDiffAsync(filePath, "new-content");
         await Task.Delay(20);
-        await service.ResolveDiffFromCliAsync("D:\\workspace\\a.cs", "accepted");
+        await service.ResolveDiffFromCliAsync(filePath, "accepted");
         var result = await pending;
 
         Assert.Equal("accepted", result.Status);

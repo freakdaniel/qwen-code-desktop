@@ -199,19 +199,31 @@ public sealed class NativeToolHostTests
             var allowedShellRead = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
             {
                 ToolName = "run_shell_command",
-                ArgumentsJson = """{"command":"more docs\\guide.txt"}"""
+                ArgumentsJson = JsonSerializer.Serialize(new
+                {
+                    command = CrossPlatformTestSupport.GetReadFileShellCommand(
+                        OperatingSystem.IsWindows() ? @"docs\guide.txt" : "docs/guide.txt")
+                })
             });
 
             var gatedShellWrite = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
             {
                 ToolName = "run_shell_command",
-                ArgumentsJson = """{"command":"echo hello > src/output.txt"}"""
+                ArgumentsJson = JsonSerializer.Serialize(new
+                {
+                    command = CrossPlatformTestSupport.GetWriteFileShellCommand(
+                        OperatingSystem.IsWindows() ? @"src\output.txt" : "src/output.txt",
+                        "hello")
+                })
             });
 
             var deniedShellRead = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
             {
                 ToolName = "run_shell_command",
-                ArgumentsJson = """{"command":"cat .env"}"""
+                ArgumentsJson = JsonSerializer.Serialize(new
+                {
+                    command = CrossPlatformTestSupport.GetReadFileShellCommand(".env")
+                })
             });
 
             Assert.Equal("completed", allowedShellRead.Status);
@@ -553,15 +565,29 @@ public sealed class NativeToolHostTests
             Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
             Directory.CreateDirectory(systemRoot);
 
-            var scriptPath = Path.Combine(root, "deny-pretool.ps1");
-            File.WriteAllText(
-                scriptPath,
-                """
-                [Console]::Error.Write('Tool execution denied by PreToolUse hook')
-                exit 2
-                """);
-
-            var command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            string command;
+            if (OperatingSystem.IsWindows())
+            {
+                var scriptPath = Path.Combine(root, "deny-pretool.ps1");
+                File.WriteAllText(
+                    scriptPath,
+                    """
+                    [Console]::Error.Write('Tool execution denied by PreToolUse hook')
+                    exit 2
+                    """);
+                command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            }
+            else
+            {
+                command = CrossPlatformTestSupport.CreateHookCommand(
+                    root,
+                    "deny-pretool",
+                    string.Empty,
+                    """
+                    printf '%s' 'Tool execution denied by PreToolUse hook' >&2
+                    exit 2
+                    """);
+            }
             File.WriteAllText(
                 Path.Combine(homeRoot, ".qwen", "settings.json"),
                 $$"""

@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace QwenCode.App.Models;
 
 public sealed class ChannelRuntimeConfiguration
@@ -39,4 +42,8 @@ public sealed class ChannelRuntimeConfiguration
     public bool RequireMentionByDefault { get; init; } = true;
 
     public IReadOnlyList<ChannelGroupRuntimeConfiguration> Groups { get; init; } = [];
+
+    [JsonExtensionData]
+    public IDictionary<string, JsonElement> AdditionalSettings { get; init; } =
+        new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
 }

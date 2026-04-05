@@ -19,9 +19,9 @@ public sealed class McpConnectionManagerTests
             Directory.CreateDirectory(systemRoot);
             Directory.CreateDirectory(toolRoot);
 
-            var scriptPath = Path.Combine(toolRoot, "fake-mcp.ps1");
-            await File.WriteAllTextAsync(
-                scriptPath,
+            var scriptPath = CrossPlatformTestSupport.CreateExecutableScript(
+                toolRoot,
+                "fake-mcp",
                 """
                 while (($line = [Console]::In.ReadLine()) -ne $null) {
                     if ([string]::IsNullOrWhiteSpace($line)) {
@@ -73,8 +73,28 @@ public sealed class McpConnectionManagerTests
 
                     [Console]::Out.WriteLine($response)
                 }
+                """,
                 """
-            );
+                while IFS= read -r line; do
+                  [ -z "$line" ] && continue
+                  id="$(printf '%s' "$line" | sed -n 's/.*"id":\("[^"]*"\|[0-9][0-9]*\).*/\1/p')"
+                  [ -z "$id" ] && continue
+
+                  case "$line" in
+                    *'"method":"initialize"'*)
+                      result='{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"fake-stdio-mcp","version":"1.0.0"}}'
+                      ;;
+                    *'"method":"tools/list"'*)
+                      result='{"tools":[{"name":"demo","description":"Demo tool","inputSchema":{"type":"object"}}]}'
+                      ;;
+                    *)
+                      result='{}'
+                      ;;
+                  esac
+
+                  printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$id" "$result"
+                done
+                """);
 
             var paths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
             var environment = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
@@ -89,15 +109,10 @@ public sealed class McpConnectionManagerTests
                 Transport = "stdio",
                 CommandOrUrl = OperatingSystem.IsWindows()
                     ? Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe")
-                    : "pwsh",
-                Arguments =
-                [
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    scriptPath
-                ]
+                    : scriptPath,
+                Arguments = OperatingSystem.IsWindows()
+                    ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath]
+                    : []
             });
 
             var manager = new McpConnectionManagerService(

@@ -233,8 +233,13 @@ public sealed class ChannelRuntimeServiceTests
                 router,
                 [new TelegramChannelAdapter(new HttpClient(handler))],
                 environmentPaths);
+            var pluginRuntime = new ChannelPluginRuntimeService(
+                new ChannelPluginRegistryService(extensionCatalog),
+                registry,
+                new FakeSessionHost());
             var runtime = new ChannelRuntimeService(
                 registry,
+                pluginRuntime,
                 [new TelegramChannelAdapter(new HttpClient(handler))],
                 router,
                 environmentPaths,
@@ -295,7 +300,11 @@ public sealed class ChannelRuntimeServiceTests
             var handler = new RecordingHttpMessageHandler();
             var adapters = new IChannelAdapter[] { new TelegramChannelAdapter(new HttpClient(handler)) };
             var deliveryService = new ChannelDeliveryService(new FakeSessionHost(), registry, router, adapters, environmentPaths);
-            var runtime = new ChannelRuntimeService(registry, adapters, router, environmentPaths, deliveryService, new FakeSessionHost());
+            var pluginRuntime = new ChannelPluginRuntimeService(
+                new ChannelPluginRegistryService(extensionCatalog),
+                registry,
+                new FakeSessionHost());
+            var runtime = new ChannelRuntimeService(registry, pluginRuntime, adapters, router, environmentPaths, deliveryService, new FakeSessionHost());
 
             _ = await runtime.StartAsync(workspace);
 
@@ -390,8 +399,13 @@ public sealed class ChannelRuntimeServiceTests
             var adapter = new TrackingTelegramAdapter();
             var router = new ChannelSessionRouterService(environmentPaths);
             var deliveryService = new ChannelDeliveryService(new FakeSessionHost(), registry, router, [adapter], environmentPaths);
+            var pluginRuntime = new ChannelPluginRuntimeService(
+                new ChannelPluginRegistryService(extensionCatalog),
+                registry,
+                new FakeSessionHost());
             var runtime = new ChannelRuntimeService(
                 registry,
+                pluginRuntime,
                 [adapter],
                 router,
                 environmentPaths,
@@ -432,9 +446,14 @@ public sealed class ChannelRuntimeServiceTests
             router,
             adapters,
             environmentPaths);
+        var pluginRuntime = new ChannelPluginRuntimeService(
+            new ChannelPluginRegistryService(extensionCatalog),
+            registry,
+            sessionHost);
 
         return new ChannelRuntimeService(
             registry,
+            pluginRuntime,
             adapters,
             router,
             environmentPaths,

@@ -18,23 +18,37 @@ public sealed class UserPromptHookServiceTests
             Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
             Directory.CreateDirectory(systemRoot);
 
-            var scriptPath = Path.Combine(root, "modify-hook.ps1");
-            File.WriteAllText(
-                scriptPath,
-                """
-                $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
-                $result = @{
-                  decision = 'allow'
-                  systemMessage = 'Hook system note'
-                  hookSpecificOutput = @{
-                    modifiedPrompt = "$($payload.prompt) [hooked]"
-                    additionalContext = 'Use qwen hook context'
-                  }
-                }
-                [Console]::Out.Write(($result | ConvertTo-Json -Compress -Depth 6))
-                """);
-
-            var command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            string command;
+            if (OperatingSystem.IsWindows())
+            {
+                var scriptPath = Path.Combine(root, "modify-hook.ps1");
+                File.WriteAllText(
+                    scriptPath,
+                    """
+                    $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
+                    $result = @{
+                      decision = 'allow'
+                      systemMessage = 'Hook system note'
+                      hookSpecificOutput = @{
+                        modifiedPrompt = "$($payload.prompt) [hooked]"
+                        additionalContext = 'Use qwen hook context'
+                      }
+                    }
+                    [Console]::Out.Write(($result | ConvertTo-Json -Compress -Depth 6))
+                    """);
+                command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            }
+            else
+            {
+                command = CrossPlatformTestSupport.CreateHookCommand(
+                    root,
+                    "modify-hook",
+                    string.Empty,
+                    """
+                    payload="$(cat)"
+                    printf '%s' '{"decision":"allow","systemMessage":"Hook system note","hookSpecificOutput":{"modifiedPrompt":"Build the missing runtime layer. [hooked]","additionalContext":"Use qwen hook context"}}'
+                    """);
+            }
             File.WriteAllText(
                 Path.Combine(homeRoot, ".qwen", "settings.json"),
                 $$"""
@@ -105,15 +119,29 @@ public sealed class UserPromptHookServiceTests
             Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
             Directory.CreateDirectory(systemRoot);
 
-            var scriptPath = Path.Combine(root, "block-hook.ps1");
-            File.WriteAllText(
-                scriptPath,
-                """
-                [Console]::Error.Write('Blocked by project hook')
-                exit 2
-                """);
-
-            var command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            string command;
+            if (OperatingSystem.IsWindows())
+            {
+                var scriptPath = Path.Combine(root, "block-hook.ps1");
+                File.WriteAllText(
+                    scriptPath,
+                    """
+                    [Console]::Error.Write('Blocked by project hook')
+                    exit 2
+                    """);
+                command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            }
+            else
+            {
+                command = CrossPlatformTestSupport.CreateHookCommand(
+                    root,
+                    "block-hook",
+                    string.Empty,
+                    """
+                    printf '%s' 'Blocked by project hook' >&2
+                    exit 2
+                    """);
+            }
             File.WriteAllText(
                 Path.Combine(homeRoot, ".qwen", "settings.json"),
                 """

@@ -114,7 +114,8 @@ public sealed class ApprovalPolicyTests
                     Kind = "execute",
                     ProjectRoot = projectRoot,
                     WorkingDirectory = projectRoot,
-                    Command = "more docs\\guide.md"
+                    Command = CrossPlatformTestSupport.GetReadFileShellCommand(
+                        OperatingSystem.IsWindows() ? @"docs\guide.md" : "docs/guide.md")
                 },
                 profile);
 
@@ -125,7 +126,9 @@ public sealed class ApprovalPolicyTests
                     Kind = "execute",
                     ProjectRoot = projectRoot,
                     WorkingDirectory = projectRoot,
-                    Command = "echo hello > src/output.txt"
+                    Command = CrossPlatformTestSupport.GetWriteFileShellCommand(
+                        OperatingSystem.IsWindows() ? @"src\output.txt" : "src/output.txt",
+                        "hello")
                 },
                 profile);
 
@@ -136,7 +139,7 @@ public sealed class ApprovalPolicyTests
                     Kind = "execute",
                     ProjectRoot = projectRoot,
                     WorkingDirectory = projectRoot,
-                    Command = "cat .env"
+                    Command = CrossPlatformTestSupport.GetReadFileShellCommand(".env")
                 },
                 profile);
 

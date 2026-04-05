@@ -270,8 +270,13 @@ public sealed class RuntimeParityHarnessTests
                 router,
                 adapters,
                 environmentPaths);
+            var pluginRuntime = new ChannelPluginRuntimeService(
+                new ChannelPluginRegistryService(extensionCatalog),
+                registry,
+                host);
             var runtime = new ChannelRuntimeService(
                 registry,
+                pluginRuntime,
                 adapters,
                 router,
                 environmentPaths,
@@ -394,13 +399,151 @@ public sealed class RuntimeParityHarnessTests
             };
             var host = new RecordingParitySessionHost();
             var deliveryService = new ChannelDeliveryService(host, registry, router, adapters, environmentPaths);
-            var runtime = new ChannelRuntimeService(registry, adapters, router, environmentPaths, deliveryService, host);
+            var pluginRuntime = new ChannelPluginRuntimeService(
+                new ChannelPluginRegistryService(extensionCatalog),
+                registry,
+                host);
+            var runtime = new ChannelRuntimeService(registry, pluginRuntime, adapters, router, environmentPaths, deliveryService, host);
 
             _ = await runtime.StartAsync(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
 
             Assert.Single(handler.RequestBodies);
             using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(outboxRoot, "ops.jsonl")));
             Assert.Equal("delivered", document.RootElement.GetProperty("deliveryStatus").GetString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ChannelsHarness_PluginRuntime_LoadsExtensionPluginAndBridgesPromptFlow()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-parity-channel-plugin-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var extensionRoot = Path.Combine(homeRoot, ".qwen", "extensions", "plugin-example");
+            Directory.CreateDirectory(extensionRoot);
+            File.WriteAllText(
+                Path.Combine(extensionRoot, "qwen-extension.json"),
+                """
+                {
+                  "name": "plugin-example",
+                  "version": "1.0.0",
+                  "channels": {
+                    "plugin-example": {
+                      "entry": "entry.mjs",
+                      "displayName": "Plugin Example"
+                    }
+                  }
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(extensionRoot, "entry.mjs"),
+                """
+                export const plugin = {
+                  channelType: 'plugin-example',
+                  displayName: 'Plugin Example',
+                  requiredConfigFields: ['serverWsUrl'],
+                  createChannel(name, config, bridge) {
+                    const sessions = new Map();
+                    return {
+                      async connect() {},
+                      async disconnect() {},
+                      async handleInbound(envelope) {
+                        const key = `${envelope.senderId}:${envelope.chatId}`;
+                        let sessionId = sessions.get(key);
+                        if (!sessionId) {
+                          sessionId = await bridge.newSession(config.workingDirectory || process.cwd());
+                          sessions.set(key, sessionId);
+                        }
+
+                        const response = await bridge.prompt(sessionId, `[plugin-harness] ${envelope.text}`, {});
+                        await this.sendMessage(envelope.chatId, response);
+                      },
+                      async sendMessage(_chatId, _text) {}
+                    };
+                  }
+                };
+                """);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "channels": {
+                    "plugin-ops": {
+                      "type": "plugin-example",
+                      "serverWsUrl": "ws://localhost:9201",
+                      "senderPolicy": "open",
+                      "sessionScope": "user",
+                      "cwd": "."
+                    }
+                  }
+                }
+                """);
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
+            var compatibilityService = new QwenCompatibilityService(environmentPaths);
+            var settingsResolver = new DesktopSettingsResolver(compatibilityService, runtimeProfileService);
+            var extensionCatalog = new ExtensionCatalogService(runtimeProfileService, environmentPaths);
+            var registry = new ChannelRegistryService(environmentPaths, settingsResolver, extensionCatalog);
+            var host = new RecordingParitySessionHost();
+            var router = new ChannelSessionRouterService(environmentPaths);
+            var adapters = new IChannelAdapter[]
+            {
+                new TelegramChannelAdapter(new HttpClient()),
+                new WeixinChannelAdapter(new HttpClient(), environmentPaths),
+                new DingtalkChannelAdapter(new HttpClient())
+            };
+            var deliveryService = new ChannelDeliveryService(host, registry, router, adapters, environmentPaths);
+            var pluginRuntime = new ChannelPluginRuntimeService(
+                new ChannelPluginRegistryService(extensionCatalog),
+                registry,
+                host);
+            var runtime = new ChannelRuntimeService(
+                registry,
+                pluginRuntime,
+                adapters,
+                router,
+                environmentPaths,
+                deliveryService,
+                host);
+
+            try
+            {
+                var result = await runtime.HandleInboundAsync(
+                    new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                    "plugin-ops",
+                    JsonDocument.Parse(
+                        """
+                        {
+                          "senderId":"user-1",
+                          "senderName":"Alice",
+                          "chatId":"chat-1",
+                          "text":"What is 2+2?"
+                        }
+                        """).RootElement);
+
+                Assert.Equal("dispatched", result.Status);
+                Assert.Equal("ok", result.AssistantSummary);
+                Assert.Contains("[plugin-harness] What is 2+2?", host.LastPrompt, StringComparison.Ordinal);
+            }
+            finally
+            {
+                await runtime.StopAsync();
+            }
         }
         finally
         {

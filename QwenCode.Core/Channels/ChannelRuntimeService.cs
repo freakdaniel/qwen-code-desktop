@@ -8,6 +8,7 @@ namespace QwenCode.App.Channels;
 
 public sealed class ChannelRuntimeService(
     IChannelRegistryService channelRegistry,
+    IChannelPluginRuntimeService channelPluginRuntime,
     IEnumerable<IChannelAdapter> channelAdapters,
     IChannelSessionRouter sessionRouter,
     IDesktopEnvironmentPaths environmentPaths,
@@ -45,6 +46,7 @@ public sealed class ChannelRuntimeService(
             JsonSerializer.Serialize(info, new JsonSerializerOptions { WriteIndented = true }));
         _ = sessionRouter.ListRoutes();
 
+        await channelPluginRuntime.StartAsync(workspace, snapshot.Channels, cancellationToken);
         await ConnectConfiguredAdaptersAsync(workspace, snapshot, cancellationToken);
         StartBackgroundDrainLoop(workspace);
         return await ReplayAndReturnSnapshotAsync(workspace, cancellationToken);
@@ -62,6 +64,7 @@ public sealed class ChannelRuntimeService(
     {
         cancellationToken.ThrowIfCancellationRequested();
         await StopBackgroundDrainLoopAsync();
+        await channelPluginRuntime.StopAsync(cancellationToken);
         await DisconnectConfiguredAdaptersAsync(cancellationToken);
         var path = Path.Combine(GetChannelsRoot(), "service.pid");
         if (File.Exists(path))
@@ -80,6 +83,11 @@ public sealed class ChannelRuntimeService(
         foreach (var channel in snapshot.Channels)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (channelPluginRuntime.IsPluginChannel(workspace, channel.Type))
+            {
+                continue;
+            }
+
             if (!adapters.TryGetValue(channel.Type, out var adapter))
             {
                 continue;
@@ -114,6 +122,11 @@ public sealed class ChannelRuntimeService(
         foreach (var channel in snapshot.Channels)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (channelPluginRuntime.IsPluginChannel(workspace, channel.Type))
+            {
+                continue;
+            }
+
             if (!adapters.TryGetValue(channel.Type, out var adapter))
             {
                 continue;
@@ -199,6 +212,11 @@ public sealed class ChannelRuntimeService(
     {
         var channel = channelRegistry.GetChannel(workspace, channelName);
         var configuration = channelRegistry.GetRuntimeConfiguration(workspace, channelName);
+        if (channelPluginRuntime.IsPluginChannel(workspace, channel.Type))
+        {
+            return await channelPluginRuntime.HandleInboundAsync(workspace, channel, configuration, payload, cancellationToken);
+        }
+
         if (!adapters.TryGetValue(channel.Type, out var adapter))
         {
             throw new InvalidOperationException($"Channel type '{channel.Type}' is not supported by the native runtime.");

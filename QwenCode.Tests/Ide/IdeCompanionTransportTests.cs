@@ -14,10 +14,11 @@ public sealed class IdeCompanionTransportTests
     {
         var handler = new FakeHttpMessageHandler();
         var transport = new IdeCompanionTransport(new HttpClient(handler));
+        var workspacePath = Path.Combine(Path.GetTempPath(), "qwen-ide-transport-workspace");
 
         var connected = await transport.ConnectAsync(new IdeTransportConnectionInfo
         {
-            WorkspacePath = "D:\\workspace",
+            WorkspacePath = workspacePath,
             Port = "4111",
             AuthToken = "secret-token"
         });
@@ -36,9 +37,10 @@ public sealed class IdeCompanionTransportTests
     {
         var handler = new FakeHttpMessageHandler();
         var transport = new IdeCompanionTransport(new HttpClient(handler));
+        var workspacePath = Path.Combine(Path.GetTempPath(), "qwen-ide-transport-workspace");
         await transport.ConnectAsync(new IdeTransportConnectionInfo
         {
-            WorkspacePath = "D:\\workspace",
+            WorkspacePath = workspacePath,
             Port = "4111"
         });
 
@@ -46,7 +48,7 @@ public sealed class IdeCompanionTransportTests
             "closeDiff",
             new JsonObject
             {
-                ["filePath"] = "D:\\workspace\\test.cs"
+                ["filePath"] = Path.Combine(workspacePath, "test.cs")
             });
 
         Assert.False(result.IsError);

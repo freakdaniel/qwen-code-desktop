@@ -18,15 +18,29 @@ public sealed class SessionHostHookTests
             Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
             Directory.CreateDirectory(systemRoot);
 
-            var scriptPath = Path.Combine(root, "deny-hook.ps1");
-            File.WriteAllText(
-                scriptPath,
-                """
-                [Console]::Error.Write('Blocked by desktop policy hook')
-                exit 2
-                """);
-
-            var command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            string command;
+            if (OperatingSystem.IsWindows())
+            {
+                var scriptPath = Path.Combine(root, "deny-hook.ps1");
+                File.WriteAllText(
+                    scriptPath,
+                    """
+                    [Console]::Error.Write('Blocked by desktop policy hook')
+                    exit 2
+                    """);
+                command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            }
+            else
+            {
+                command = CrossPlatformTestSupport.CreateHookCommand(
+                    root,
+                    "deny-hook",
+                    string.Empty,
+                    """
+                    printf '%s' 'Blocked by desktop policy hook' >&2
+                    exit 2
+                    """);
+            }
             File.WriteAllText(
                 Path.Combine(homeRoot, ".qwen", "settings.json"),
                 $$"""

@@ -20,16 +20,34 @@ public sealed class SubagentCoordinatorTests
             Directory.CreateDirectory(systemRoot);
 
             var hookLogPath = Path.Combine(root, "subagent-hooks.log");
-            var scriptPath = Path.Combine(root, "subagent-hook.ps1");
-            File.WriteAllText(
-                scriptPath,
-                $$"""
-                $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
-                Add-Content -Path '{{hookLogPath}}' -Value "$($payload.hook_event_name)|$($payload.agent_name)"
-                [Console]::Out.Write('{"decision":"allow"}')
-                """);
-
-            var command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            string command;
+            if (OperatingSystem.IsWindows())
+            {
+                var scriptPath = Path.Combine(root, "subagent-hook.ps1");
+                File.WriteAllText(
+                    scriptPath,
+                    $$"""
+                    $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
+                    Add-Content -Path '{{hookLogPath}}' -Value "$($payload.hook_event_name)|$($payload.agent_name)"
+                    [Console]::Out.Write('{"decision":"allow"}')
+                    """);
+                command = $"& '{scriptPath.Replace("\\", "\\\\", StringComparison.Ordinal)}'";
+            }
+            else
+            {
+                var escapedHookLogPath = hookLogPath.Replace("'", "'\\''", StringComparison.Ordinal);
+                command = CrossPlatformTestSupport.CreateHookCommand(
+                    root,
+                    "subagent-hook",
+                    string.Empty,
+                    $$"""
+                    payload="$(cat)"
+                    event_name="$(printf '%s' "$payload" | sed -n 's/.*"hook_event_name":"\([^"]*\)".*/\1/p')"
+                    agent_name="$(printf '%s' "$payload" | sed -n 's/.*"agent_name":"\([^"]*\)".*/\1/p')"
+                    printf '%s|%s\n' "$event_name" "$agent_name" >> '{{escapedHookLogPath}}'
+                    printf '%s' '{"decision":"allow"}'
+                    """);
+            }
             File.WriteAllText(
                 Path.Combine(homeRoot, ".qwen", "settings.json"),
                 $$"""

@@ -104,7 +104,11 @@ public sealed class ChannelRegistryService(
                 BlockStreamingChunk = item.BlockStreamingChunk,
                 BlockStreamingCoalesce = item.BlockStreamingCoalesce,
                 RequireMentionByDefault = item.RequireMentionByDefault,
-                Groups = item.Groups
+                Groups = item.Groups,
+                AdditionalSettings = item.AdditionalSettings.ToDictionary(
+                    static entry => entry.Key,
+                    static entry => entry.Value.Clone(),
+                    StringComparer.OrdinalIgnoreCase)
             })
             .FirstOrDefault()
             ?? throw new InvalidOperationException($"Channel \"{name}\" was not found in merged qwen settings.");
@@ -519,6 +523,12 @@ public sealed class ChannelRegistryService(
             var type = GetString("type");
             var cwd = GetString("cwd");
             var groups = ReadGroups();
+            var additionalSettings = Properties
+                .Where(static item => !KnownProperties.Contains(item.Key))
+                .ToDictionary(
+                    static item => item.Key,
+                    static item => item.Value.Clone(),
+                    StringComparer.OrdinalIgnoreCase);
             return new ConfiguredChannel(
                 Name,
                 Type: type,
@@ -540,8 +550,31 @@ public sealed class ChannelRegistryService(
                 BlockStreamingChunk: ReadBlockStreamingChunk(),
                 BlockStreamingCoalesce: ReadBlockStreamingCoalesce(),
                 RequireMentionByDefault: groups.TryGetValue("*", out var defaults) ? defaults.RequireMention : true,
-                Groups: groups.Values.OrderBy(static item => item.ChatId, StringComparer.OrdinalIgnoreCase).ToArray());
+                Groups: groups.Values.OrderBy(static item => item.ChatId, StringComparer.OrdinalIgnoreCase).ToArray(),
+                AdditionalSettings: additionalSettings);
         }
+
+        private static readonly HashSet<string> KnownProperties = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "type",
+            "description",
+            "senderPolicy",
+            "sessionScope",
+            "cwd",
+            "approvalMode",
+            "model",
+            "token",
+            "clientId",
+            "clientSecret",
+            "baseUrl",
+            "instructions",
+            "groupPolicy",
+            "dispatchMode",
+            "blockStreaming",
+            "blockStreamingChunk",
+            "blockStreamingCoalesce",
+            "groups"
+        };
 
         private string GetString(string key, string fallback = "")
         {
@@ -663,7 +696,8 @@ public sealed class ChannelRegistryService(
         ChannelBlockStreamingChunkConfiguration BlockStreamingChunk,
         ChannelBlockStreamingCoalesceConfiguration BlockStreamingCoalesce,
         bool RequireMentionByDefault,
-        IReadOnlyList<ChannelGroupRuntimeConfiguration> Groups);
+        IReadOnlyList<ChannelGroupRuntimeConfiguration> Groups,
+        IReadOnlyDictionary<string, JsonElement> AdditionalSettings);
 
     private sealed class ChannelServiceInfo
     {

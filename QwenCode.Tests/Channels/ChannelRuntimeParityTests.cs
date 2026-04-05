@@ -233,9 +233,14 @@ public sealed class ChannelRuntimeParityTests
             router,
             adapters,
             environmentPaths);
+        var pluginRuntime = new ChannelPluginRuntimeService(
+            new ChannelPluginRegistryService(extensionCatalog),
+            registry,
+            sessionHost);
 
         return (workspaceRoot, new ChannelRuntimeService(
             registry,
+            pluginRuntime,
             adapters,
             router,
             environmentPaths,
@@ -268,9 +273,14 @@ public sealed class ChannelRuntimeParityTests
             router,
             adapters,
             environmentPaths);
+        var pluginRuntime = new ChannelPluginRuntimeService(
+            new ChannelPluginRegistryService(extensionCatalog),
+            registry,
+            sessionHost);
 
         return new ChannelRuntimeService(
             registry,
+            pluginRuntime,
             adapters,
             router,
             environmentPaths,

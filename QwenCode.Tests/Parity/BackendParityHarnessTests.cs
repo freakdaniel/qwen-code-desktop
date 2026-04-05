@@ -11,7 +11,13 @@ public sealed class BackendParityHarnessTests
     [Fact]
     public void UpstreamIntegrationFixtures_AreAvailableForParityHarness()
     {
-        var root = @"D:\Projects\qwen-code-main\integration-tests";
+        var upstreamRoot = CrossPlatformTestSupport.ResolveUpstreamRepoRoot();
+        if (string.IsNullOrWhiteSpace(upstreamRoot))
+        {
+            return;
+        }
+
+        var root = Path.Combine(upstreamRoot, "integration-tests");
 
         Assert.True(Directory.Exists(root));
         Assert.True(File.Exists(Path.Combine(root, "cli", "settings-migration.test.ts")));
