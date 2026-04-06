@@ -86,7 +86,7 @@ export function MessageList({
   return (
     <ScrollArea
       className="flex-1 min-h-0"
-      onScrollCapture={(e) => {
+      onScrollCapture={(e: React.SyntheticEvent) => {
         const el = e.currentTarget.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement
         if (!el) return
         const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 32

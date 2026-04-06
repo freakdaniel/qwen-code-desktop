@@ -4,8 +4,9 @@ import { resources } from './resources'
 
 void i18n.use(initReactI18next).init({
   resources,
-  lng: 'ru',
+  lng: 'en', // Default to English
   fallbackLng: 'en',
+  supportedLngs: ['en', 'ru', 'zh-CN', 'ja', 'ko', 'pt-BR'], // Supported languages
   interpolation: {
     escapeValue: false,
   },

@@ -1,3 +1,5 @@
+using System.IO;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using QwenCode.App.Agents;
 using QwenCode.App.Auth;
@@ -73,7 +75,7 @@ public sealed class BootstrapProjectionService(
             CompatibilityGoals = DesktopProjectionCatalog.CompatibilityGoals,
             CapabilityLanes = DesktopProjectionCatalog.CapabilityLanes,
             AdoptionPatterns = DesktopProjectionCatalog.AdoptionPatterns,
-            RecentSessions = transcriptStore.ListSessions(workspace),
+            RecentSessions = ListAllSessions(runtime, 48),
             ActiveTurns = activeTurnRegistry.ListActiveTurns(),
             ActiveArenaSessions = arenaSessionRegistry.ListActiveSessions(),
             RecoverableTurns = interruptedTurnStore.ListRecoverableTurns(runtime.ChatsDirectory),
@@ -88,6 +90,132 @@ public sealed class BootstrapProjectionService(
             QwenAuth = authFlowService.GetStatus(workspace),
             QwenMcp = CreateMcpSnapshot(mcpConnectionManager.ListServersWithStatus(workspace))
         };
+    }
+
+    private IReadOnlyList<SessionPreview> ListAllSessions(QwenRuntimeProfile runtime, int limit)
+    {
+        var globalQwenDirectory = runtime.GlobalQwenDirectory;
+        var projectsDirectory = Path.Combine(globalQwenDirectory, "projects");
+
+        if (!Directory.Exists(projectsDirectory))
+        {
+            return transcriptStore.ListSessions(workspacePathResolver.Resolve(_options.Workspace), limit);
+        }
+
+        var allSessions = new List<SessionPreview>();
+
+        foreach (var projectDir in Directory.EnumerateDirectories(projectsDirectory))
+        {
+            var chatsDir = Path.Combine(projectDir, "chats");
+            if (!Directory.Exists(chatsDir)) continue;
+
+            var sessions = Directory.EnumerateFiles(chatsDir, "*.jsonl")
+                .Select(path => new FileInfo(path))
+                .Where(file => file.Exists)
+                .OrderByDescending(file => file.LastWriteTimeUtc)
+                .Select(file => TryReadSessionPreview(file, globalQwenDirectory))
+                .OfType<SessionPreview>();
+
+            allSessions.AddRange(sessions);
+        }
+
+        return allSessions
+            .OrderByDescending(s => DateTime.Parse(s.LastActivity))
+            .Take(limit)
+            .ToArray();
+    }
+
+    private static SessionPreview? TryReadSessionPreview(FileInfo file, string globalQwenDirectory)
+    {
+        try
+        {
+            using var stream = file.OpenRead();
+            using var reader = new StreamReader(stream);
+
+            string? sessionId = null;
+            string? workingDirectory = null;
+            string? gitBranch = null;
+            string? firstUserPrompt = null;
+
+            string? line;
+            var scannedLines = 0;
+
+            while ((line = reader.ReadLine()) is not null)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                scannedLines++;
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+
+                sessionId ??= GetProp(root, "sessionId");
+                workingDirectory ??= GetProp(root, "cwd");
+                gitBranch ??= GetProp(root, "gitBranch");
+
+                if (firstUserPrompt is null &&
+                    GetProp(root, "type") == "user" &&
+                    ExtractPrompt(root) is { Length: > 0 } prompt)
+                {
+                    firstUserPrompt = prompt;
+                }
+
+                if (scannedLines >= 200 && firstUserPrompt is not null) break;
+            }
+
+            var effectiveSessionId = string.IsNullOrWhiteSpace(sessionId)
+                ? Path.GetFileNameWithoutExtension(file.Name)
+                : sessionId!;
+            var title = string.IsNullOrWhiteSpace(firstUserPrompt)
+                ? $"Session {effectiveSessionId[..Math.Min(8, effectiveSessionId.Length)]}"
+                : firstUserPrompt!;
+
+            return new SessionPreview
+            {
+                SessionId = effectiveSessionId,
+                Title = title,
+                LastActivity = file.LastWriteTimeUtc.ToString("O"),
+                StartedAt = file.CreationTimeUtc.ToString("O"),
+                LastUpdatedAt = file.LastWriteTimeUtc.ToString("O"),
+                Category = string.IsNullOrWhiteSpace(gitBranch) ? "default" : gitBranch!,
+                Mode = DesktopMode.Code,
+                Status = "resume-ready",
+                WorkingDirectory = workingDirectory ?? globalQwenDirectory,
+                GitBranch = gitBranch ?? string.Empty,
+                MessageCount = 0,
+                TranscriptPath = file.FullName,
+                MetadataPath = string.Empty,
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? GetProp(JsonElement root, string name)
+    {
+        if (root.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String)
+            return prop.GetString();
+        return null;
+    }
+
+    private static string? ExtractPrompt(JsonElement root)
+    {
+        if (!root.TryGetProperty("message", out var msg) ||
+            !msg.TryGetProperty("parts", out var parts) ||
+            parts.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var part in parts.EnumerateArray())
+        {
+            if (part.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String)
+            {
+                var t = text.GetString();
+                if (!string.IsNullOrWhiteSpace(t))
+                    return t.Length > 140 ? $"{t[..140]}..." : t;
+            }
+        }
+        return null;
     }
 
     private static McpSnapshot CreateMcpSnapshot(IReadOnlyList<McpServerDefinition> servers) =>

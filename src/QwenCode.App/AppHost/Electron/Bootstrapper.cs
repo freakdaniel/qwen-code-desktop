@@ -52,12 +52,12 @@ public static class Bootstrapper
 
         if (!File.Exists(indexPath))
         {
-            throw new FileNotFoundException("Renderer entrypoint was not found.", indexPath);
+            throw new FileNotFoundException("Renderer entrypoint was not found", indexPath);
         }
 
         if (!File.Exists(preloadPath))
         {
-            throw new FileNotFoundException("Electron preload script was not found.", preloadPath);
+            throw new FileNotFoundException("Electron preload script was not found", preloadPath);
         }
 
         _indexUri = new Uri(indexPath).AbsoluteUri;
@@ -96,7 +96,7 @@ public static class Bootstrapper
         if (attempt > MaxStartupRecoveryAttempts)
         {
             _logger?.LogError(
-                "Main window closed unexpectedly during startup more than {MaxAttempts} times. Aborting recovery.",
+                "Main window closed unexpectedly during startup more than {MaxAttempts} times. Aborting recovery",
                 MaxStartupRecoveryAttempts);
             _shutdownRequested = true;
             ElectronApi.App.Quit();
@@ -110,7 +110,7 @@ public static class Bootstrapper
     {
         if (_browserWindowOptions is null || string.IsNullOrWhiteSpace(_indexUri))
         {
-            throw new InvalidOperationException("Main window bootstrap state has not been initialized.");
+            throw new InvalidOperationException("Main window bootstrap state has not been initialized");
         }
 
         await WindowSync.WaitAsync();
@@ -122,7 +122,7 @@ public static class Bootstrapper
                 {
                     if (!await _mainWindow.IsDestroyedAsync())
                     {
-                        _logger?.LogInformation("Main window already exists; reusing current instance for {Reason}.", reason);
+                        _logger?.LogInformation("Main window already exists; reusing current instance for {Reason}", reason);
                         _mainWindow.Show();
                         _mainWindow.Focus();
                         return;
@@ -130,7 +130,7 @@ public static class Bootstrapper
                 }
                 catch (Exception exception)
                 {
-                    _logger?.LogWarning(exception, "Failed while checking existing main window state before {Reason}.", reason);
+                    _logger?.LogWarning(exception, "Failed while checking existing main window state before {Reason}", reason);
                 }
 
                 _mainWindow = null;
@@ -147,7 +147,7 @@ public static class Bootstrapper
             }
 
             RegisterWindowDiagnostics(mainWindow);
-            _logger?.LogInformation("Main window created for {IndexUri} ({Reason}).", _indexUri, reason);
+            _logger?.LogInformation("Main window created for {IndexUri} ({Reason})", _indexUri, reason);
         }
         finally
         {
@@ -161,26 +161,26 @@ public static class Bootstrapper
 
         mainWindow.OnReadyToShow += () =>
         {
-            _logger?.LogInformation("Main window #{WindowId} is ready to show.", windowId);
+            _logger?.LogInformation("Main window #{WindowId} is ready to show", windowId);
             mainWindow.Show();
         };
 
         mainWindow.OnShow += () =>
         {
-            _logger?.LogInformation("Main window #{WindowId} became visible.", windowId);
+            _logger?.LogInformation("Main window #{WindowId} became visible", windowId);
             Interlocked.Exchange(ref _startupRecoveryAttempts, 0);
         };
 
         mainWindow.OnClose += () =>
         {
-            _logger?.LogWarning("Main window #{WindowId} received a close event.", windowId);
+            _logger?.LogWarning("Main window #{WindowId} received a close event", windowId);
         };
 
         mainWindow.OnClosed += () =>
         {
             var lifetime = DateTimeOffset.UtcNow - _mainWindowCreatedAtUtc;
-            _logger?.LogWarning(
-                "Main window #{WindowId} closed after {LifetimeMs} ms. Shutdown requested: {ShutdownRequested}.",
+            _logger?.LogInformation(
+                "Main window #{WindowId} closed after {LifetimeMs} ms. Shutdown requested: {ShutdownRequested}",
                 windowId,
                 lifetime.TotalMilliseconds,
                 _shutdownRequested);
@@ -196,19 +196,20 @@ public static class Bootstrapper
             if (!_shutdownRequested)
             {
                 _shutdownRequested = true;
-                _logger?.LogInformation("Main window #{WindowId} closed outside startup recovery window; quitting application.", windowId);
-                ElectronApi.App.Quit();
+                _logger?.LogInformation("Main window #{WindowId} closed; quitting application", windowId);
+                // Force quit immediately to avoid hanging processes
+                Environment.Exit(0);
             }
         };
 
         mainWindow.OnUnresponsive += () =>
         {
-            _logger?.LogWarning("Main window #{WindowId} became unresponsive.", windowId);
+            _logger?.LogWarning("Main window #{WindowId} became unresponsive", windowId);
         };
 
         mainWindow.OnResponsive += () =>
         {
-            _logger?.LogInformation("Main window #{WindowId} became responsive again.", windowId);
+            _logger?.LogInformation("Main window #{WindowId} became responsive again", windowId);
         };
     }
 
@@ -233,7 +234,7 @@ public static class Bootstrapper
             {
                 _logger?.LogWarning(
                     exception,
-                    "Electron bridge is not ready for window creation yet. Retrying attempt {Attempt} of {MaxAttempts} for {Reason}.",
+                    "Electron bridge is not ready for window creation yet. Retrying attempt {Attempt} of {MaxAttempts} for {Reason}",
                     attempt,
                     MaxBridgeReadyAttempts,
                     reason);

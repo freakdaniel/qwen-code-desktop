@@ -97,11 +97,11 @@ internal static class Program
 
     private static void RegisterShutdownHandlers(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger)
     {
-        Console.CancelKeyPress += (_, eventArgs) =>
+        Console.CancelKeyPress += async (_, eventArgs) =>
         {
             logger.LogWarning("Console cancel requested. Shutting down Electron host");
             eventArgs.Cancel = true;
-            RequestShutdown(runtimeController, logger, "console-cancel");
+            await RequestShutdownAsync(runtimeController, logger, "console-cancel");
         };
 
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
@@ -124,7 +124,34 @@ internal static class Program
             return;
         }
 
+        // Use sync version for ProcessExit since async handlers don't work here
         RequestShutdown(runtimeController, logger, "process-exit");
+    }
+
+    private static async Task RequestShutdownAsync(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
+    {
+        if (Interlocked.Exchange(ref _shutdownInitiated, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            logger.LogInformation("Stopping Electron.NET runtime due to {Reason}", reason);
+            await runtimeController.Stop().ConfigureAwait(false);
+            Interlocked.Exchange(ref _runtimeStopped, 1);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Graceful Electron.NET runtime stop failed during {Reason}. Falling back to process cleanup",
+                reason);
+        }
+        finally
+        {
+            ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, reason);
+        }
     }
 
     private static void RequestShutdown(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)

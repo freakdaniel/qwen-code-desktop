@@ -33,7 +33,7 @@ export function ProjectGroup({
   const [open, setOpen] = useState(true)
 
   return (
-    <Collapsible open={open} onOpenChange={(nextOpen) => setOpen(nextOpen)}>
+    <Collapsible open={open} onOpenChange={(nextOpen: boolean) => setOpen(nextOpen)}>
       <CollapsibleTrigger
         className="flex w-full items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-[--app-muted] hover:text-[--app-text] transition-colors"
       >

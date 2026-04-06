@@ -3,6 +3,7 @@ import type {
   AppBootstrapPayload,
   ExtensionSettingsSnapshot,
   ExtensionSnapshot,
+  InstallExtensionRequest,
 } from '@/types/desktop'
 
 interface UseExtensionsOptions {
@@ -28,7 +29,16 @@ export function useExtensions({ setBootstrap }: UseExtensionsOptions) {
     if (!window.qwenDesktop || isInstallingExtension) return
     setIsInstallingExtension(true)
     try {
-      const snapshot = await window.qwenDesktop.installExtension(request)
+      const fullRequest: InstallExtensionRequest = {
+        sourcePath: request.sourcePath,
+        installMode: request.installMode,
+        sourceType: 'local',
+        ref: '',
+        autoUpdate: false,
+        allowPreRelease: false,
+        registryUrl: '',
+      }
+      const snapshot = await window.qwenDesktop.installExtension(fullRequest)
       applySnapshot(snapshot)
     } finally {
       setIsInstallingExtension(false)
