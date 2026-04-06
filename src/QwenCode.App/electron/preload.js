@@ -88,4 +88,15 @@ contextBridge.exposeInMainWorld('qwenDesktop', {
       ipcRenderer.removeListener(channel, handler);
     };
   },
+
+  // Window management
+  minimizeWindow: () => {
+    ipcRenderer.send('qwen-desktop:window:minimize');
+  },
+  maximizeWindow: () => {
+    ipcRenderer.send('qwen-desktop:window:maximize');
+  },
+  closeWindow: () => {
+    ipcRenderer.send('qwen-desktop:window:close');
+  },
 });

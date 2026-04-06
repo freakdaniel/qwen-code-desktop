@@ -1,6 +1,7 @@
 using QwenCode.App.Ipc.Attributes;
 using QwenCode.App.Desktop;
 using QwenCode.App.Models;
+using ElectronApi = ElectronNET.API.Electron;
 
 namespace QwenCode.App.Ipc;
 
@@ -424,5 +425,32 @@ public sealed class DesktopIpcService(
     public void SubscribeArenaEvents(Action<ArenaSessionEvent> emit)
     {
         desktopProjectionService.ArenaEvent += (_, arenaEvent) => emit(arenaEvent);
+    }
+
+    /// <summary>
+    /// Registers window management IPC handlers
+    /// </summary>
+    public new void RegisterAll()
+    {
+        base.RegisterAll();
+
+        // Window management IPC handlers
+        ElectronApi.IpcMain.On("qwen-desktop:window:minimize", _ =>
+        {
+            var window = ElectronApi.WindowManager.BrowserWindows.LastOrDefault();
+            window?.Minimize();
+        });
+
+        ElectronApi.IpcMain.On("qwen-desktop:window:maximize", _ =>
+        {
+            var window = ElectronApi.WindowManager.BrowserWindows.LastOrDefault();
+            window?.Maximize();
+        });
+
+        ElectronApi.IpcMain.On("qwen-desktop:window:close", _ =>
+        {
+            var window = ElectronApi.WindowManager.BrowserWindows.LastOrDefault();
+            window?.Close();
+        });
     }
 }

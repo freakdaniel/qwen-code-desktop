@@ -1,14 +1,12 @@
 import {
   Box,
   VStack,
-  IconButton,
-  Input,
   Text,
   Button,
   HStack,
 } from '@chakra-ui/react';
 import { motion } from 'framer-motion';
-import { Plus, Search, Settings, LayoutDashboard, ChevronRight, FolderOpen, Folder } from 'lucide-react';
+import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SessionPreview } from '@/types/desktop';
@@ -16,30 +14,30 @@ import type { SessionPreview } from '@/types/desktop';
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  onToggle: () => void;
   sessions: SessionPreview[];
   activeTurnSessions: Record<string, true>;
   onNewChat?: () => void;
   onSelectSession?: (sessionId: string) => void;
   onOpenSettings?: () => void;
+  onOpenSearch?: () => void;
 }
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslation>['t']): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
   const diffMs = now - then;
-  if (diffMs < 0) return 'сейчас';
-  if (diffMs < 60_000) return 'сейчас';
-  if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}м`;
-  if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}ч`;
-  if (diffMs < 604_800_000) return `${Math.floor(diffMs / 86_400_000)}д`;
-  return `${Math.floor(diffMs / 604_800_000)}н`;
+  if (diffMs < 0) return t('sidebar.now');
+  if (diffMs < 60_000) return t('sidebar.now');
+  if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}${t('sidebar.minutesAgo')}`;
+  if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}${t('sidebar.hoursAgo')}`;
+  if (diffMs < 604_800_000) return `${Math.floor(diffMs / 86_400_000)}${t('sidebar.daysAgo')}`;
+  return `${Math.floor(diffMs / 604_800_000)}${t('sidebar.weeksAgo')}`;
 }
 
-function getProjectName(workingDir: string): string {
-  if (!workingDir) return 'Другие';
+function getProjectName(workingDir: string, t: ReturnType<typeof useTranslation>['t']): string {
+  if (!workingDir) return t('sidebar.otherProjects');
   const parts = workingDir.replace(/\\/g, '/').split('/').filter(Boolean);
-  return parts[parts.length - 1] || 'Другие';
+  return parts[parts.length - 1] || t('sidebar.otherProjects');
 }
 
 interface ProjectGroup {
@@ -49,27 +47,21 @@ interface ProjectGroup {
 
 export default function Sidebar({
   isOpen,
-  onToggle,
   sessions,
   activeTurnSessions,
   onNewChat = () => console.log('New chat'),
   onSelectSession = (id: string) => console.log(`Selected conversation ${id}`),
-  onOpenSettings = () => console.log('Settings clicked')
+  onOpenSettings = () => console.log('Settings clicked'),
+  onOpenSearch = () => console.log('Search opened')
 }: SidebarProps) {
 
-  const [searchTerm, setSearchTerm] = useState('');
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const { t } = useTranslation();
 
-  const filteredConversations = useMemo(() => {
-    const filtered = sessions.filter(conv =>
-      conv.title.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
-    // Group by project
+  const groupedConversations = useMemo(() => {
     const groups: Record<string, SessionPreview[]> = {};
-    for (const conv of filtered) {
-      const project = getProjectName(conv.workingDirectory);
+    for (const conv of sessions) {
+      const project = getProjectName(conv.workingDirectory, t);
       if (!groups[project]) groups[project] = [];
       groups[project].push(conv);
     }
@@ -84,10 +76,13 @@ export default function Sidebar({
       .map(([name, sess]) => ({ name, sessions: sess }));
 
     return result;
-  }, [sessions, searchTerm]);
+  }, [sessions]);
 
   const toggleGroup = (name: string) => {
-    setOpenGroups(prev => ({ ...prev, [name]: !prev[name] }));
+    setOpenGroups(prev => ({
+      ...prev,
+      [name]: !(prev[name] !== false),
+    }));
   };
 
   return (
@@ -98,8 +93,8 @@ export default function Sidebar({
       style={{
         position: 'absolute',
         left: 0,
-        top: 0,
-        height: '100vh',
+        top: '36px',
+        height: 'calc(100vh - 36px)',
         width: '260px',
         zIndex: 10,
         overflow: 'hidden',
@@ -113,36 +108,8 @@ export default function Sidebar({
         borderRight="1px solid"
         borderColor="gray.700"
       >
-        {/* Header: Logo + toggle */}
-        <Box px={3} pt={3} pb={2}>
-          <HStack justify="space-between" align="center">
-            <HStack spacing={2}>
-              <Box
-                w="28px"
-                h="28px"
-                borderRadius="md"
-                bg="brand.500"
-                display="flex"
-                alignItems="center"
-                justifyContent="center"
-              >
-                <Text fontSize="xs" fontWeight="bold" color="white" lineHeight="1">Q</Text>
-              </Box>
-              <Text fontWeight="bold" fontSize="sm" color="white" letterSpacing="wide">QWEN</Text>
-            </HStack>
-            <IconButton
-              aria-label="Toggle sidebar"
-              icon={<LayoutDashboard size={15} />}
-              size="xs"
-              variant="ghost"
-              colorScheme="gray"
-              onClick={onToggle}
-            />
-          </HStack>
-        </Box>
-
         {/* Combined New Chat + Search block */}
-        <Box px={3} py={2}>
+        <Box px={3} pt={3} pb={2}>
           <Box
             borderRadius="xl"
             overflow="hidden"
@@ -151,47 +118,43 @@ export default function Sidebar({
           >
             <Button
               leftIcon={<Plus size={15} />}
-              colorScheme="brand"
+              bg="brand.500"
+              color="white"
               variant="solid"
               size="sm"
               width="100%"
               h="36px"
               borderRadius="0"
               onClick={onNewChat}
+              transition="background-color 0.2s ease"
               _hover={{ bg: 'brand.600' }}
+              _active={{ bg: 'brand.800' }}
             >
               {t('sidebar.newChat')}
             </Button>
 
             <Box h="1px" bg="gray.600" />
 
-            {/* Search — button-like with icon next to text like Plus button */}
-            <Box position="relative">
-              <Input
-                placeholder="Search"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                bg="gray.700"
-                borderColor="transparent"
-                color="white"
-                borderRadius="0"
-                h="36px"
-                fontSize="sm"
-                pl="36px"
-                _placeholder={{ color: 'gray.400' }}
-                _focus={{ borderColor: 'brand.500', boxShadow: 'none' }}
-                _hover={{ bg: 'gray.600' }}
-              />
-              <Box
-                position="absolute"
-                left="12px"
-                top="50%"
-                transform="translateY(-50%)"
-                pointerEvents="none"
-                color="gray.400"
-              >
-                <Search size={14} />
-              </Box>
+            {/* Search — opens modal */}
+            <Box
+              role="button"
+              tabIndex={0}
+              h="36px"
+              px={3}
+              display="flex"
+              alignItems="center"
+              justifyContent="center"
+              bg="gray.700"
+              cursor="pointer"
+              transition="background-color 0.2s ease"
+              _hover={{ bg: '#3a3a42' }}
+              onClick={onOpenSearch}
+              onKeyDown={(e) => { if (e.key === 'Enter') onOpenSearch(); }}
+            >
+              <HStack spacing={2}>
+                <Search size={14} color="#9494a2" />
+                <Text fontSize="sm" color="gray.400">Search</Text>
+              </HStack>
             </Box>
           </Box>
         </Box>
@@ -216,7 +179,7 @@ export default function Sidebar({
           }}
         >
           <VStack spacing={1} align="stretch">
-            {filteredConversations.map((group) => {
+            {groupedConversations.map((group) => {
               const isGroupOpen = openGroups[group.name] !== false;
               return (
                 <Box key={group.name}>
@@ -287,7 +250,7 @@ export default function Sidebar({
                               ml={2}
                               flexShrink={0}
                             >
-                              {formatRelativeTime(conv.lastActivity)}
+                              {formatRelativeTime(conv.lastActivity, t)}
                             </Text>
                           </Button>
                         );

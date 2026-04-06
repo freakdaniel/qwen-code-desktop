@@ -7,3 +7,4 @@ wwwroot/
 research/
 .tmp/
 .[cC]*/
+.[qQ]*/

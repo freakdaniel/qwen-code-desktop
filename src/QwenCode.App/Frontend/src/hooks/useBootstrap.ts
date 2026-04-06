@@ -88,7 +88,7 @@ export function useBootstrap(): BootstrapState {
 
     const hydrate = async () => {
       if (!window.qwenDesktop) {
-        await i18n.changeLanguage(fallbackBootstrap.currentLocale)
+        // Use already-detected language from i18n init, not fallbackBootstrap
         return
       }
 

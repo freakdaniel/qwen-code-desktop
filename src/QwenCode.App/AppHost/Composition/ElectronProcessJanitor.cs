@@ -44,11 +44,58 @@ internal static class ElectronProcessJanitor
             return;
         }
 
-        foreach (var process in Process.GetProcessesByName("electron"))
+        Process[] processes;
+        try
+        {
+            processes = Process.GetProcessesByName("electron");
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Unable to enumerate Electron processes");
+            return;
+        }
+
+        foreach (var process in processes)
         {
             try
             {
-                var processPath = process.MainModule?.FileName;
+                // Skip if process is already exiting to avoid Win32Exception (299)
+                // when accessing MainModule of a dying process
+                if (process.HasExited)
+                {
+                    continue;
+                }
+
+                // Add small delay to let process stabilize if it's in shutdown transition
+                try
+                {
+                    process.WaitForExit(100);
+                }
+                catch
+                {
+                    // Process might exit during wait, which is fine
+                }
+
+                if (process.HasExited)
+                {
+                    continue;
+                }
+
+                string? processPath = null;
+                try
+                {
+                    processPath = process.MainModule?.FileName;
+                }
+                catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 299 || ex.NativeErrorCode == 5)
+                {
+                    // 299 = "Only part of a ReadProcessMemory or WriteProcessMemory request was completed"
+                    // 5 = "Access denied" (process is exiting)
+                    logger.LogDebug(
+                        "Cannot inspect Electron process {ProcessId} - it is likely shutting down",
+                        process.Id);
+                    continue;
+                }
+
                 if (!string.Equals(processPath, expectedElectronPath, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -60,10 +107,19 @@ internal static class ElectronProcessJanitor
                     processPath,
                     reason);
 
-                process.Kill(entireProcessTree: true);
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    // Process already exiting, which is fine
+                    logger.LogDebug("Electron process {ProcessId} already exiting", process.Id);
+                }
+
                 process.WaitForExit(5000);
             }
-            catch (Exception exception)
+            catch (Exception exception) when (exception is not System.ComponentModel.Win32Exception)
             {
                 logger.LogWarning(
                     exception,

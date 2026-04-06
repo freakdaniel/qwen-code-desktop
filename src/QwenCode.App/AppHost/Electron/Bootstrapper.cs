@@ -74,7 +74,7 @@ public static class Bootstrapper
             Height = 920,
             MinWidth = 1180,
             MinHeight = 760,
-            Frame = true,
+            Frame = false,
             Show = false,
             Center = true,
             Title = productName,
