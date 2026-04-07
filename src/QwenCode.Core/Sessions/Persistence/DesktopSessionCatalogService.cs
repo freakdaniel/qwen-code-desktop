@@ -86,7 +86,7 @@ public sealed class DesktopSessionCatalogService(
             {
                 using var document = JsonDocument.Parse(line);
                 var root = document.RootElement;
-                entries.Add(ParseEntry(root));
+                entries.AddRange(ParseEntries(root));
             }
             catch
             {
@@ -407,7 +407,7 @@ public sealed class DesktopSessionCatalogService(
         var approvalState = TryGetString(root, "approvalState") ?? string.Empty;
         var body = type switch
         {
-            "user" or "assistant" => TryExtractPrompt(root) ?? string.Empty,
+            "user" or "assistant" => TryExtractFullText(root) ?? string.Empty,
             "command" => FirstNonEmpty(
                 TryGetString(root, "output"),
                 TryGetString(root, "resolvedPrompt"),
@@ -421,6 +421,8 @@ public sealed class DesktopSessionCatalogService(
                 TryGetString(root, "status")),
             _ => string.Empty
         };
+
+        var thinkingBody = type == "assistant" ? TryExtractThinkingText(root) ?? string.Empty : string.Empty;
 
         return new DesktopSessionEntry
         {
@@ -439,6 +441,7 @@ public sealed class DesktopSessionCatalogService(
                 _ => type
             },
             Body = body,
+            ThinkingBody = thinkingBody,
             Status = status,
             ToolName = toolName,
             ApprovalState = approvalState,
@@ -454,6 +457,53 @@ public sealed class DesktopSessionCatalogService(
         };
     }
 
+    /// <summary>
+    /// Parses a JSONL root element into one or more entries.
+    /// For assistant entries with embedded function calls, also emits synthetic tool entries
+    /// </summary>
+    private static IEnumerable<DesktopSessionEntry> ParseEntries(JsonElement root)
+    {
+        var main = ParseEntry(root);
+        yield return main;
+
+        // Emit synthetic tool entries for each functionCall embedded in an assistant message
+        if (main.Type != "assistant") yield break;
+        if (!TryGetProperty(root, "message", out var message) || message.ValueKind != JsonValueKind.Object) yield break;
+        if (!TryGetProperty(message, "parts", out var parts) || parts.ValueKind != JsonValueKind.Array) yield break;
+
+        var i = 0;
+        foreach (var part in parts.EnumerateArray())
+        {
+            if (part.ValueKind != JsonValueKind.Object) continue;
+            if (!TryGetProperty(part, "functionCall", out var fc) || fc.ValueKind != JsonValueKind.Object) continue;
+
+            var callId = TryGetString(fc, "id") ?? $"{main.Id}-fc-{i}";
+            var callName = TryGetString(fc, "name") ?? "tool";
+            var callArgs = string.Empty;
+            if (TryGetProperty(fc, "args", out var argsElement))
+            {
+                callArgs = argsElement.ValueKind == JsonValueKind.Object || argsElement.ValueKind == JsonValueKind.Array
+                    ? argsElement.ToString()
+                    : TryGetString(fc, "args") ?? string.Empty;
+            }
+
+            yield return new DesktopSessionEntry
+            {
+                Id = callId,
+                Type = "tool",
+                Timestamp = main.Timestamp,
+                WorkingDirectory = main.WorkingDirectory,
+                GitBranch = main.GitBranch,
+                Title = callName,
+                ToolName = callName,
+                Body = string.Empty,
+                Status = "completed",
+                Arguments = callArgs,
+            };
+            i++;
+        }
+    }
+
     private static DesktopSessionEntry SanitizeEntryForDesktopProjection(DesktopSessionEntry entry) =>
         new()
         {
@@ -464,6 +514,7 @@ public sealed class DesktopSessionCatalogService(
             GitBranch = entry.GitBranch,
             Title = entry.Title,
             Body = Truncate(entry.Body, MaximumBodyLength),
+            ThinkingBody = Truncate(entry.ThinkingBody, MaximumBodyLength),
             Status = entry.Status,
             ToolName = entry.ToolName,
             ApprovalState = entry.ApprovalState,
@@ -500,6 +551,149 @@ public sealed class DesktopSessionCatalogService(
                     return text.Length > 140 ? $"{text[..140]}..." : text;
                 }
             }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts the full message text from a JSONL entry without truncation.
+    /// Skips thought/reasoning parts and returns only the actual response text
+    /// </summary>
+    private static string? TryExtractFullText(JsonElement root)
+    {
+        if (!TryGetProperty(root, "message", out var message) ||
+            message.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        // Google/Qwen format: message.parts[].text  (skip parts with "thought": true)
+        if (TryGetProperty(message, "parts", out var parts) &&
+            parts.ValueKind == JsonValueKind.Array)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var part in parts.EnumerateArray())
+            {
+                if (part.ValueKind != JsonValueKind.Object) continue;
+
+                // Skip thought/reasoning parts
+                var isThought = TryGetProperty(part, "thought", out var thoughtFlag) &&
+                    thoughtFlag.ValueKind == JsonValueKind.True;
+                if (isThought) continue;
+
+                if (TryGetProperty(part, "text", out var textValue) &&
+                    textValue.ValueKind == JsonValueKind.String)
+                {
+                    var text = textValue.GetString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        if (sb.Length > 0) sb.Append('\n');
+                        sb.Append(text);
+                    }
+                }
+            }
+            if (sb.Length > 0) return sb.ToString();
+        }
+
+        // Anthropic/Claude format: message.content (string)
+        if (TryGetProperty(message, "content", out var content))
+        {
+            if (content.ValueKind == JsonValueKind.String)
+            {
+                var text = content.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    return text;
+                }
+            }
+            // Anthropic/Claude format: message.content (array of blocks, skip "thinking" type)
+            else if (content.ValueKind == JsonValueKind.Array)
+            {
+                var sb2 = new System.Text.StringBuilder();
+                foreach (var block in content.EnumerateArray())
+                {
+                    if (block.ValueKind != JsonValueKind.Object) continue;
+                    if (!TryGetProperty(block, "type", out var blockType)) continue;
+                    var blockTypeName = blockType.GetString();
+                    if (blockTypeName != "text") continue; // skip "thinking" blocks
+                    if (!TryGetProperty(block, "text", out var blockText) ||
+                        blockText.ValueKind != JsonValueKind.String) continue;
+
+                    var text = blockText.GetString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        if (sb2.Length > 0) sb2.Append('\n');
+                        sb2.Append(text);
+                    }
+                }
+                if (sb2.Length > 0) return sb2.ToString();
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts only the thinking/reasoning text from an assistant entry
+    /// </summary>
+    private static string? TryExtractThinkingText(JsonElement root)
+    {
+        if (!TryGetProperty(root, "message", out var message) ||
+            message.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        // Google/Qwen format: parts with "thought": true
+        if (TryGetProperty(message, "parts", out var parts) &&
+            parts.ValueKind == JsonValueKind.Array)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var part in parts.EnumerateArray())
+            {
+                if (part.ValueKind != JsonValueKind.Object) continue;
+
+                var isThought = TryGetProperty(part, "thought", out var thoughtFlag) &&
+                    thoughtFlag.ValueKind == JsonValueKind.True;
+                if (!isThought) continue;
+
+                if (TryGetProperty(part, "text", out var textValue) &&
+                    textValue.ValueKind == JsonValueKind.String)
+                {
+                    var text = textValue.GetString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        if (sb.Length > 0) sb.Append('\n');
+                        sb.Append(text);
+                    }
+                }
+            }
+            if (sb.Length > 0) return sb.ToString();
+        }
+
+        // Anthropic/Claude format: content blocks with "type": "thinking"
+        if (TryGetProperty(message, "content", out var content) &&
+            content.ValueKind == JsonValueKind.Array)
+        {
+            var sb2 = new System.Text.StringBuilder();
+            foreach (var block in content.EnumerateArray())
+            {
+                if (block.ValueKind != JsonValueKind.Object) continue;
+                if (!TryGetProperty(block, "type", out var blockType)) continue;
+                if (blockType.GetString() != "thinking") continue;
+                if (!TryGetProperty(block, "thinking", out var thinkingText) &&
+                    !TryGetProperty(block, "text", out thinkingText)) continue;
+                if (thinkingText.ValueKind != JsonValueKind.String) continue;
+
+                var text = thinkingText.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    if (sb2.Length > 0) sb2.Append('\n');
+                    sb2.Append(text);
+                }
+            }
+            if (sb2.Length > 0) return sb2.ToString();
         }
 
         return null;
@@ -628,7 +822,7 @@ public sealed class DesktopSessionCatalogService(
         var status = TryGetString(root, "status") ?? string.Empty;
         var content = type switch
         {
-            "user" or "assistant" => TryExtractPrompt(root) ?? string.Empty,
+            "user" or "assistant" => TryExtractFullText(root) ?? string.Empty,
             "command" => FirstNonEmpty(
                 TryGetString(root, "resolvedPrompt"),
                 TryGetString(root, "output"),

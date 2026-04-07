@@ -22,6 +22,7 @@ interface ProjectGroup {
 
 export default function MainLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [selectedSessionId, setSelectedSessionId] = useState('');
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const { t } = useTranslation();
@@ -55,7 +56,7 @@ export default function MainLayout() {
 
   const groupedAndFiltered = useMemo(() => {
     const filtered = sessions.filter(conv =>
-      conv.title.toLowerCase().includes(searchTerm.toLowerCase())
+      (conv.title ?? '').toLowerCase().includes(searchTerm.toLowerCase())
     );
     const groups: Record<string, SessionPreview[]> = {};
     for (const conv of filtered) {
@@ -74,9 +75,13 @@ export default function MainLayout() {
   }, [sessions, searchTerm]);
 
   const handleSelectSession = (sessionId: string) => {
+    setSelectedSessionId(sessionId);
     setSearchModalOpen(false);
     setSearchTerm('');
-    console.log(`Selected conversation ${sessionId}`);
+  };
+
+  const handleNewChat = () => {
+    setSelectedSessionId('');
   };
 
   return (
@@ -92,6 +97,8 @@ export default function MainLayout() {
         onClose={() => setIsSidebarOpen(false)}
         sessions={sessions}
         activeTurnSessions={activeTurnSessions}
+        onSelectSession={handleSelectSession}
+        onNewChat={handleNewChat}
         onOpenSearch={openSearch}
         onOpenSkills={() => console.log('Skills & Integrations')}
       />
@@ -107,6 +114,7 @@ export default function MainLayout() {
         <ChatArea
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={() => setIsSidebarOpen(true)}
+          selectedSessionId={selectedSessionId}
         />
       </Box>
 
@@ -222,7 +230,7 @@ export default function MainLayout() {
                                 color="gray.200"
                               >
                                 <Text overflow="hidden" textOverflow="ellipsis" flex={1} textAlign="left">
-                                  {conv.title}
+                                  {conv.title ?? ''}
                                 </Text>
                               </Button>
                             ))}

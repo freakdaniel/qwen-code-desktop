@@ -66,4 +66,9 @@ public sealed class DesktopSessionEvent
     /// Gets or sets the agent name
     /// </summary>
     public string AgentName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the title
+    /// </summary>
+    public string Title { get; init; } = string.Empty;
 }

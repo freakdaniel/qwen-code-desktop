@@ -86,6 +86,11 @@ public sealed class DesktopSessionEntry
     public string ResolvedAt { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the thinking body (reasoning content before the response, from thought parts)
+    /// </summary>
+    public string ThinkingBody { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the changed files
     /// </summary>
     public IReadOnlyList<string> ChangedFiles { get; init; } = [];

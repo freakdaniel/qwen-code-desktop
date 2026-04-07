@@ -5,31 +5,34 @@ import { ArrowRight, Loader2 } from 'lucide-react';
 import qwenLogo from '../../assets/qwen-logo.svg';
 import { useTranslation } from 'react-i18next';
 
-interface AuthScreenProps {
-  onComplete: () => void;
-}
-
-export default function AuthScreen({ onComplete }: AuthScreenProps) {
+export default function AuthScreen() {
   const { t } = useTranslation();
   const [showApiKey, setShowApiKey] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const toast = useToast();
 
-  const handleOAuthLogin = useCallback(() => {
-    if (isLoading) return;
+  const handleOAuthLogin = useCallback(async () => {
+    if (isLoading || !window.qwenDesktop) return;
     setIsLoading(true);
-    console.log('Initiating Qwen OAuth...');
-    setTimeout(() => {
-      localStorage.setItem('qwen-auth-token', 'mock-qwen-token');
+    try {
+      await window.qwenDesktop.startQwenOAuthDeviceFlow({ scope: '' });
+    } catch (err) {
+      toast({
+        title: 'OAuth Error',
+        description: String(err),
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
       setIsLoading(false);
-      onComplete();
-    }, 1500);
-  }, [isLoading, onComplete]);
+    }
+  }, [isLoading, toast]);
 
-  const handleApiKeySubmit = useCallback((e: React.FormEvent) => {
+  const handleApiKeySubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isLoading) return;
+    if (isLoading || !window.qwenDesktop) return;
     if (!apiKey.trim()) {
       toast({
         title: 'API Key Required',
@@ -40,21 +43,28 @@ export default function AuthScreen({ onComplete }: AuthScreenProps) {
       });
       return;
     }
-
     setIsLoading(true);
-    localStorage.setItem('openai-api-key', apiKey);
-    toast({
-      title: 'Authentication Successful',
-      description: 'API key saved successfully',
-      status: 'success',
-      duration: 3000,
-      isClosable: true,
-    });
-    setTimeout(() => {
+    try {
+      await window.qwenDesktop.configureOpenAiCompatibleAuth({
+        scope: '',
+        authType: 'api-key',
+        model: '',
+        baseUrl: '',
+        apiKey: apiKey.trim(),
+        apiKeyEnvironmentVariable: '',
+      });
+    } catch (err) {
+      toast({
+        title: 'Authentication Failed',
+        description: String(err),
+        status: 'error',
+        duration: 4000,
+        isClosable: true,
+      });
+    } finally {
       setIsLoading(false);
-      onComplete();
-    }, 1500);
-  }, [apiKey, isLoading, onComplete, toast]);
+    }
+  }, [apiKey, isLoading, toast]);
 
   const toggleToApiKey = useCallback(() => {
     if (isLoading) return;

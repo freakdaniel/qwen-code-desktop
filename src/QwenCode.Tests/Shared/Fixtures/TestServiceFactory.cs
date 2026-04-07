@@ -7,6 +7,7 @@ using QwenCode.App.Infrastructure;
 using QwenCode.App.Prompts;
 using QwenCode.App.Config;
 using QwenCode.App.Telemetry;
+using QwenCode.Tests.Shared.Fakes;
 
 namespace QwenCode.Tests.Shared.Fixtures;
 
@@ -113,7 +114,10 @@ internal static class TestServiceFactory
                 transcriptStore,
                 activeTurnRegistry,
                 arenaSessionRegistry,
-                interruptedTurnStore),
+                interruptedTurnStore,
+                chatRecordingService,
+                new FakeSessionTitleGenerationService(),
+                new LocaleStateService(shellOptions)),
             new ArenaProjectionService(arenaSessionRegistry),
             new AuthProjectionService(
                 shellOptions,

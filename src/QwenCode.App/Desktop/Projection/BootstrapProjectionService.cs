@@ -13,6 +13,7 @@ using QwenCode.App.Sessions;
 using QwenCode.App.Tools;
 using QwenCode.App.Mcp;
 using QwenCode.App.Extensions;
+using QwenCode.App.Desktop.Projection;
 
 namespace QwenCode.App.Desktop;
 
@@ -34,6 +35,9 @@ namespace QwenCode.App.Desktop;
 /// <param name="activeTurnRegistry">The active turn registry</param>
 /// <param name="arenaSessionRegistry">The arena session registry</param>
 /// <param name="interruptedTurnStore">The interrupted turn store</param>
+/// <param name="chatRecordingService">The chat recording service</param>
+/// <param name="sessionTitleGenerationService">The session title generation service</param>
+/// <param name="localeStateService">The locale state service</param>
 public sealed class BootstrapProjectionService(
     IOptions<DesktopShellOptions> options,
     IWorkspacePathResolver workspacePathResolver,
@@ -49,9 +53,15 @@ public sealed class BootstrapProjectionService(
     ITranscriptStore transcriptStore,
     IActiveTurnRegistry activeTurnRegistry,
     IArenaSessionRegistry arenaSessionRegistry,
-    IInterruptedTurnStore interruptedTurnStore) : IDesktopBootstrapProjectionService
+    IInterruptedTurnStore interruptedTurnStore,
+    IChatRecordingService chatRecordingService,
+    ISessionTitleGenerationService sessionTitleGenerationService,
+    ILocaleStateService localeStateService) : IDesktopBootstrapProjectionService
 {
     private readonly DesktopShellOptions _options = options.Value;
+    private readonly IChatRecordingService _chatRecordingService = chatRecordingService;
+    private readonly ISessionTitleGenerationService _sessionTitleGenerationService = sessionTitleGenerationService;
+    private readonly ILocaleStateService _localeStateService = localeStateService;
 
     /// <summary>
     /// Creates bootstrap
@@ -113,7 +123,7 @@ public sealed class BootstrapProjectionService(
                 .Select(path => new FileInfo(path))
                 .Where(file => file.Exists)
                 .OrderByDescending(file => file.LastWriteTimeUtc)
-                .Select(file => TryReadSessionPreview(file, globalQwenDirectory))
+                .Select(file => TryReadSessionPreview(file, globalQwenDirectory, _chatRecordingService, _sessionTitleGenerationService, _localeStateService))
                 .OfType<SessionPreview>();
 
             allSessions.AddRange(sessions);
@@ -125,7 +135,12 @@ public sealed class BootstrapProjectionService(
             .ToArray();
     }
 
-    private static SessionPreview? TryReadSessionPreview(FileInfo file, string globalQwenDirectory)
+    private static SessionPreview? TryReadSessionPreview(
+        FileInfo file,
+        string globalQwenDirectory,
+        IChatRecordingService chatRecordingService,
+        ISessionTitleGenerationService sessionTitleGenerationService,
+        ILocaleStateService localeStateService)
     {
         try
         {
@@ -165,9 +180,19 @@ public sealed class BootstrapProjectionService(
             var effectiveSessionId = string.IsNullOrWhiteSpace(sessionId)
                 ? Path.GetFileNameWithoutExtension(file.Name)
                 : sessionId!;
-            var title = string.IsNullOrWhiteSpace(firstUserPrompt)
-                ? $"Session {effectiveSessionId[..Math.Min(8, effectiveSessionId.Length)]}"
-                : firstUserPrompt!;
+
+            var cachedMeta = chatRecordingService.TryReadMetadata(file.FullName);
+            string? title = !string.IsNullOrWhiteSpace(cachedMeta?.Title) ? cachedMeta.Title : null;
+
+            if (title is null && !string.IsNullOrWhiteSpace(firstUserPrompt))
+            {
+                sessionTitleGenerationService.EnqueueTitleGeneration(
+                    sessionId:        effectiveSessionId,
+                    firstMessageText: firstUserPrompt,
+                    transcriptPath:   file.FullName,
+                    workingDirectory: workingDirectory ?? globalQwenDirectory,
+                    locale:           localeStateService.CurrentLocale);
+            }
 
             return new SessionPreview
             {

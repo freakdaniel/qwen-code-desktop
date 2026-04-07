@@ -323,6 +323,7 @@ export interface DesktopSessionEntry {
   gitBranch: string;
   title: string;
   body: string;
+  thinkingBody: string;
   status: string;
   toolName: string;
   approvalState: string;
@@ -350,9 +351,10 @@ export interface DesktopSessionEvent {
   contentDelta: string;
   contentSnapshot: string;
   agentName: string;
+  title: string;
 }
 
-export type DesktopSessionEventKind = 'turnStarted' | 'commandCompleted' | 'toolApprovalRequired' | 'userInputRequired' | 'toolCompleted' | 'toolBlocked' | 'toolFailed' | 'toolApproved' | 'userInputReceived' | 'assistantPreparingContext' | 'assistantGenerating' | 'assistantStreaming' | 'assistantCompleted' | 'turnInterrupted' | 'turnReattached' | 'turnCancelled' | 'turnCompleted';
+export type DesktopSessionEventKind = 'turnStarted' | 'commandCompleted' | 'toolApprovalRequired' | 'userInputRequired' | 'toolCompleted' | 'toolBlocked' | 'toolFailed' | 'toolApproved' | 'userInputReceived' | 'assistantPreparingContext' | 'assistantGenerating' | 'assistantStreaming' | 'assistantCompleted' | 'turnInterrupted' | 'turnReattached' | 'turnCancelled' | 'turnCompleted' | 'sessionTitleUpdated';
 
 export interface DesktopSessionTurnResult {
   session: SessionPreview;
@@ -846,7 +848,7 @@ export interface RuntimeTelemetrySettings {
 
 export interface SessionPreview {
   sessionId: string;
-  title: string;
+  title: string | null;
   lastActivity: string;
   startedAt: string;
   lastUpdatedAt: string;

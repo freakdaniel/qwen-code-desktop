@@ -15,7 +15,7 @@ public sealed class SessionPreview
     /// <summary>
     /// Gets or sets the title
     /// </summary>
-    public required string Title { get; init; }
+    public string? Title { get; init; }
 
     /// <summary>
     /// Gets or sets the last activity

@@ -4,6 +4,7 @@ import {
   Text,
   Button,
   HStack,
+  Skeleton,
 } from '@chakra-ui/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle } from 'lucide-react';
@@ -140,8 +141,46 @@ export default function Sidebar({
         borderRight="1px solid"
         borderColor="gray.700"
       >
-        {/* Combined New Chat + Search block */}
+        {/* Top: Settings & Skills */}
         <Box px={3} pt={3} pb={2}>
+          <VStack spacing={1} align="stretch">
+            <Button
+              leftIcon={<Puzzle size={15} />}
+              variant="ghost"
+              colorScheme="gray"
+              size="sm"
+              width="100%"
+              justifyContent="flex-start"
+              fontWeight="regular"
+              borderRadius="md"
+              h="36px"
+              onClick={onOpenSkills}
+              color="gray.400"
+              _hover={{ bg: 'gray.700', color: 'gray.200' }}
+            >
+              {t('top.skills')}
+            </Button>
+            <Button
+              leftIcon={<Settings size={15} />}
+              variant="ghost"
+              colorScheme="gray"
+              size="sm"
+              width="100%"
+              justifyContent="flex-start"
+              fontWeight="regular"
+              borderRadius="md"
+              h="36px"
+              onClick={onOpenSettings}
+              color="gray.400"
+              _hover={{ bg: 'gray.700', color: 'gray.200' }}
+            >
+              {t('top.settings')}
+            </Button>
+          </VStack>
+        </Box>
+
+        {/* Combined New Chat + Search block */}
+        <Box px={3} py={2}>
           <Box
             borderRadius="xl"
             overflow="hidden"
@@ -284,17 +323,28 @@ export default function Sidebar({
                                   whiteSpace="nowrap"
                                   fontSize="sm"
                                 >
-                                  <Text
-                                    color="gray.200"
-                                    flex={1}
-                                    minW={0}
-                                    overflow="hidden"
-                                    textOverflow="ellipsis"
-                                    textAlign="left"
-                                    noOfLines={1}
-                                  >
-                                    {conv.title}
-                                  </Text>
+                                  {conv.title === null ? (
+                                    <Skeleton
+                                      h="14px"
+                                      w="120px"
+                                      borderRadius="sm"
+                                      startColor="gray.700"
+                                      endColor="gray.600"
+                                      flexShrink={0}
+                                    />
+                                  ) : (
+                                    <Text
+                                      color="gray.200"
+                                      flex={1}
+                                      minW={0}
+                                      overflow="hidden"
+                                      textOverflow="ellipsis"
+                                      textAlign="left"
+                                      noOfLines={1}
+                                    >
+                                      {conv.title}
+                                    </Text>
+                                  )}
                                   <Text
                                     fontSize="xs"
                                     color="gray.500"
@@ -317,41 +367,6 @@ export default function Sidebar({
           </VStack>
         </Box>
 
-        {/* Footer: Skills & Settings */}
-        <Box px={3} py={2}>
-          <VStack spacing={1} align="stretch">
-            <Button
-              leftIcon={<Puzzle size={15} />}
-              variant="ghost"
-              colorScheme="gray"
-              size="sm"
-              width="100%"
-              justifyContent="flex-start"
-              borderRadius="md"
-              h="36px"
-              onClick={onOpenSkills}
-              color="gray.300"
-              _hover={{ bg: 'gray.700' }}
-            >
-              {t('top.skills')}
-            </Button>
-            <Button
-              leftIcon={<Settings size={15} />}
-              variant="ghost"
-              colorScheme="gray"
-              size="sm"
-              width="100%"
-              justifyContent="flex-start"
-              borderRadius="md"
-              h="36px"
-              onClick={onOpenSettings}
-              color="gray.300"
-              _hover={{ bg: 'gray.700' }}
-            >
-              {t('top.settings')}
-            </Button>
-          </VStack>
-        </Box>
       </VStack>
     </motion.div>
   );

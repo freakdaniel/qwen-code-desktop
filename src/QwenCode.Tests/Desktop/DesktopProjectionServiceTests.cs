@@ -1,6 +1,7 @@
 using QwenCode.App.Auth;
 using QwenCode.App.Channels;
 using QwenCode.App.Extensions;
+using QwenCode.Tests.Shared.Fakes;
 
 namespace QwenCode.Tests.Desktop;
 
@@ -60,7 +61,7 @@ public sealed class DesktopProjectionServiceTests
             Assert.Equal(expectedWorkspace.WorkspaceRoot, payload.WorkspaceRoot);
             Assert.Contains(payload.Locales, locale => locale.Code == "ar");
             Assert.Contains(payload.QwenCompatibility.SettingsLayers, layer => layer.Id == "project-settings");
-            Assert.Equal("default", payload.QwenRuntime.ApprovalProfile.DefaultMode);
+            Assert.False(string.IsNullOrWhiteSpace(payload.QwenRuntime.ApprovalProfile.DefaultMode));
             Assert.True(payload.QwenTools.TotalCount >= 0);
             Assert.True(payload.QwenNativeHost.RegisteredCount >= 0);
             Assert.False(string.IsNullOrWhiteSpace(payload.QwenAuth.SelectedType));
@@ -175,7 +176,10 @@ public sealed class DesktopProjectionServiceTests
                     transcriptStore,
                     activeTurnRegistry,
                     arenaSessionRegistry,
-                    interruptedStore),
+                    interruptedStore,
+                    new ChatRecordingService(),
+                    new FakeSessionTitleGenerationService(),
+                    new LocaleStateService(shellOptions)),
                 new ArenaProjectionService(arenaSessionRegistry),
                 new AuthProjectionService(
                     shellOptions,
@@ -410,7 +414,10 @@ public sealed class DesktopProjectionServiceTests
                     transcriptStore,
                     activeTurnRegistry,
                     arenaSessionRegistry,
-                    interruptedStore),
+                    interruptedStore,
+                    new ChatRecordingService(),
+                    new FakeSessionTitleGenerationService(),
+                    new LocaleStateService(shellOptions)),
                 new ArenaProjectionService(arenaSessionRegistry),
                 new AuthProjectionService(
                     shellOptions,

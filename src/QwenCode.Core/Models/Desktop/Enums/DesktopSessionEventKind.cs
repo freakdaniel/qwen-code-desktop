@@ -72,5 +72,9 @@ public enum DesktopSessionEventKind
     /// <summary>
     /// Represents the Turn Completed option
     /// </summary>
-    TurnCompleted
+    TurnCompleted,
+    /// <summary>
+    /// Represents the Session Title Updated option
+    /// </summary>
+    SessionTitleUpdated
 }

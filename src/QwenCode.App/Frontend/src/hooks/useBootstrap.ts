@@ -17,6 +17,7 @@ export interface BootstrapState {
   activeTurnSessions: Record<string, true>
   streamingSnapshots: Record<string, string>
   reattachedSessionId: string
+  isReady: boolean
   setBootstrap: React.Dispatch<React.SetStateAction<AppBootstrapPayload>>
   setAuthSnapshot: React.Dispatch<React.SetStateAction<AuthStatusSnapshot>>
   setMcpSnapshot: React.Dispatch<React.SetStateAction<McpSnapshot>>
@@ -33,6 +34,7 @@ export function useBootstrap(): BootstrapState {
   const [streamingSnapshots, setStreamingSnapshots] = useState<Record<string, string>>({})
   const [reattachedSessionId, setReattachedSessionId] = useState('')
   const [latestSessionEvent, setLatestSessionEvent] = useState<DesktopSessionEvent | null>(null)
+  const [isReady, setIsReady] = useState(false)
   const didHydrateRef = useRef(false)
   const selectedSessionIdRef = useRef('')
 
@@ -77,6 +79,7 @@ export function useBootstrap(): BootstrapState {
       status: activeTurn.status,
       contentDelta: '',
       contentSnapshot: activeTurn.contentSnapshot,
+      title: '',
     })
   }
 
@@ -88,6 +91,7 @@ export function useBootstrap(): BootstrapState {
     const hydrate = async () => {
       if (!window.qwenDesktop) {
         // Language already detected during i18n init
+        setIsReady(true)
         return
       }
 
@@ -113,6 +117,18 @@ export function useBootstrap(): BootstrapState {
 
       disposers.push(
         window.qwenDesktop.subscribeSessionEvents((event) => {
+          if (event.kind === 'sessionTitleUpdated' && event.title) {
+            setBootstrap((current) => ({
+              ...current,
+              recentSessions: current.recentSessions.map((s) =>
+                s.sessionId === event.sessionId
+                  ? { ...s, title: event.title }
+                  : s
+              ),
+            }))
+            return
+          }
+
           setLatestSessionEvent(event)
 
           setActiveTurnSessions((current) => {
@@ -151,6 +167,8 @@ export function useBootstrap(): BootstrapState {
           })
         }),
       )
+
+      setIsReady(true)
     }
 
     void hydrate()
@@ -189,6 +207,7 @@ export function useBootstrap(): BootstrapState {
     activeTurnSessions,
     streamingSnapshots,
     reattachedSessionId,
+    isReady,
     latestSessionEvent,
     setBootstrap,
     setAuthSnapshot,

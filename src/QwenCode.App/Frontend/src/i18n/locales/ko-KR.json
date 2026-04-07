@@ -33,7 +33,7 @@
     "sessionsAvailable": "세션 사용 가능",
     "promptPlaceholder": "처리할 작업을 설명하세요...",
     "demoResponse": "요청을 받았습니다: \"{{prompt}}\". 이것은 데모 응답입니다.",
-    "disclaimer": "Qwen은 AI이며 실수를 할 수 있습니다. 중요한 변경, 명령 및 답변을 확인하세요.",
+    "disclaimer": "Qwen은 AI이며 실수를 할 수 있습니다. 중요한 변경, 명령 및 답변을 확인하세요",
     "contextUsed": "{{used}} / {{total}} 토큰 사용됨",
     "contextCompression": "제한 초과 시 Qwen이 자동으로 컨텍스트를 압축합니다"
   },
