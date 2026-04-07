@@ -1,0 +1,79 @@
+{
+  "app": { "workspace": "Рабочая область", "initializing": "Инициализация..." },
+  "modes": {
+    "title": "Режим кода",
+    "code": "Код",
+    "askPermissions": "Спрашивать",
+    "askPermissionsDesc": "Всегда спрашивать перед изменениями",
+    "autoAcceptEdits": "Авто-правка",
+    "autoAcceptEditsDesc": "Автоматически принимать все правки",
+    "planMode": "Планирование",
+    "planModeDesc": "Создать план перед изменениями",
+    "bypassPermissions": "Без ограничений",
+    "bypassPermissionsDesc": "Принимать все разрешения"
+  },
+  "status": { "connected": "IPC подключён", "local": "Локальный режим" },
+  "top": { "settings": "Настройки" },
+  "sidebar": {
+    "newChat": "Новый чат",
+    "search": "Поиск",
+    "searchPlaceholder": "Фильтровать сессии...",
+    "recent": "Недавние разговоры",
+    "otherProjects": "Другие",
+    "noSessionsFound": "Сессии не найдены",
+    "startTypingSearch": "Начните вводить текст...",
+    "now": "сейчас",
+    "minutesAgo": "м",
+    "hoursAgo": "ч",
+    "daysAgo": "д",
+    "weeksAgo": "н"
+  },
+  "chat": {
+    "newChat": "Новый чат",
+    "welcomeTitle": "Что будем создавать?",
+    "sessionsAvailable": "сессий доступно",
+    "promptPlaceholder": "Опишите задачу, над которой хотите работать...",
+    "demoResponse": "Получил ваш запрос: \"{{prompt}}\". Это демонстрационный ответ.",
+    "disclaimer": "Qwen это ИИ, и он может допускать ошибки. Проверяй важные изменения, команды и ответы.",
+    "contextUsed": "Использовано {{used}} / {{total}} токенов",
+    "contextCompression": "Qwen автоматически сожмёт контекст при переполнении лимита"
+  },
+  "titlebar": {
+    "appName": "Qwen Code",
+    "minimize": "Свернуть",
+    "maximize": "Развернуть",
+    "close": "Закрыть",
+    "toggleSidebar": "Показать/скрыть панель"
+  },
+  "search": {
+    "placeholder": "Фильтровать сессии по названию...",
+    "close": "Закрыть поиск",
+    "noResults": "Сессии не найдены",
+    "startTyping": "Начните вводить текст..."
+  },
+  "auth": {
+    "welcomeTitle": "Добро пожаловать в Qwen Code",
+    "welcomeSubtitle": "Подключайте AI-агентов для создания проектов и решения задач",
+    "signInWithQwen": "Войти через Qwen",
+    "connecting": "Подключение...",
+    "apiKeyPlaceholder": "Введите ваш API ключ",
+    "orUseApiKeyPrefix": "Или",
+    "useApiKey": "использовать OpenAI API Key",
+    "orUseQwenAccountPrefix": "Или",
+    "useQwenAccount": "использовать аккаунт Qwen"
+  },
+  "hero": {
+    "kicker": "Архитектура Qwen-first для рабочего стола",
+    "chatTitle": "Оболочка для работы с кодом над средой выполнения qwen.",
+    "chatSubtitle": "Сохраняем совместимость с qwen, делая навигацию по сессиям, контексту и истории естественной для рабочего стола.",
+    "codeTitle": "Рабочее место для кодирования, созданное на основе ядра qwen с эргономикой уровня Claude.",
+    "codeSubtitle": "Используйте Claude как эталон UX и оркестрации инструментов, а не как источник управления выполнением."
+  },
+  "composer": {
+    "currentMode": "Текущая поверхность",
+    "chatPlaceholder": "Опишите реализацию, перенос или задачу сессии, которую вы хотите решить.",
+    "codePlaceholder": "Запросите интеграцию среды выполнения, работу IPC, реализацию рендерера или улучшение совместимости qwen.",
+    "chatAction": "Начать сессию кодирования",
+    "codeAction": "Открыть рабочий процесс кодирования"
+  }
+}

@@ -277,7 +277,7 @@ export default function ChatArea({}: ChatAreaProps) {
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                     >
                       {MODE_ICONS[mode]}
-                      <span style={{ fontSize: '12px' }}>{currentModeOption.label}</span>
+                      <span style={{ fontSize: '12px' }}>{t(currentModeOption.labelKey)}</span>
                     </motion.span>
                   </AnimatePresence>
                 </Button>
@@ -320,7 +320,7 @@ export default function ChatArea({}: ChatAreaProps) {
                                 px={3}
                                 onClick={() => { setMode(m.value); setModeDropdownOpen(false); }}
                                 bg="transparent"
-                                _hover={{ bg: 'gray.900' }}
+                                _hover={{ bg: 'gray.900', borderRadius: 'xl' }}
                                 color="white"
                                 gap={3}
                               >
@@ -335,8 +335,8 @@ export default function ChatArea({}: ChatAreaProps) {
                                   )}
                                 </Box>
                                 <VStack align="start" spacing={0.5} flex={1}>
-                                  <Text fontSize="sm" fontWeight="medium" textAlign="left" whiteSpace="nowrap">{m.label}</Text>
-                                  <Text fontSize="xs" color="gray.500" whiteSpace="normal" textAlign="left">{m.description}</Text>
+                                  <Text fontSize="sm" fontWeight="medium" textAlign="left" whiteSpace="nowrap">{t(m.labelKey)}</Text>
+                                  <Text fontSize="xs" color="gray.500" whiteSpace="normal" textAlign="left">{t(m.descriptionKey)}</Text>
                                 </VStack>
                               </Button>
                             );

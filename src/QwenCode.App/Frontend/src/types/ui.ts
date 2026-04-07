@@ -6,13 +6,13 @@ export type AgentMode = 'default' | 'plan' | 'auto-edit' | 'yolo'
 
 export interface AgentModeOption {
   value: AgentMode
-  label: string
-  description: string
+  labelKey: string
+  descriptionKey: string
 }
 
 export const AGENT_MODES: AgentModeOption[] = [
-  { value: 'default', label: 'Ask permissions', description: 'Always ask before making changes' },
-  { value: 'auto-edit', label: 'Auto accept edits', description: 'Automatically accept all file edits' },
-  { value: 'plan', label: 'Plan mode', description: 'Create a plan before making changes' },
-  { value: 'yolo', label: 'Bypass permissions', description: 'Accepts all permissions' },
+  { value: 'default', labelKey: 'modes.askPermissions', descriptionKey: 'modes.askPermissionsDesc' },
+  { value: 'auto-edit', labelKey: 'modes.autoAcceptEdits', descriptionKey: 'modes.autoAcceptEditsDesc' },
+  { value: 'plan', labelKey: 'modes.planMode', descriptionKey: 'modes.planModeDesc' },
+  { value: 'yolo', labelKey: 'modes.bypassPermissions', descriptionKey: 'modes.bypassPermissionsDesc' },
 ]

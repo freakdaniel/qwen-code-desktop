@@ -1,0 +1,78 @@
+{
+  "app": {
+    "workspace": "Espaço de trabalho",
+    "initializing": "Inicializando..."
+  },
+  "modes": {
+    "title": "Modo código",
+    "code": "Código"
+  },
+  "status": {
+    "connected": "IPC conectado",
+    "local": "Modo local"
+  },
+  "top": {
+    "settings": "Configurações"
+  },
+  "sidebar": {
+    "newChat": "Novo Chat",
+    "searchPlaceholder": "Pesquisar",
+    "recent": "Conversas recentes",
+    "otherProjects": "Outros",
+    "noSessionsFound": "Nenhuma sessão encontrada",
+    "startTypingSearch": "Digite para pesquisar...",
+    "now": "agora",
+    "minutesAgo": "min",
+    "hoursAgo": "h",
+    "daysAgo": "d",
+    "weeksAgo": "sem"
+  },
+  "chat": {
+    "newChat": "Novo chat",
+    "welcomeTitle": "O que vamos criar?",
+    "sessionsAvailable": "sessões disponíveis",
+    "promptPlaceholder": "Descreva a tarefa que deseja trabalhar...",
+    "demoResponse": "Recebi sua solicitação: \"{{prompt}}\". Esta é uma resposta de demonstração.",
+    "disclaimer": "Qwen é IA e pode cometer erros. Verifique mudanças, comandos e respostas importantes.",
+    "contextUsed": "Usados {{used}} / {{total}} tokens",
+    "contextCompression": "Qwen comprimirá automaticamente o contexto ao exceder o limite"
+  },
+  "titlebar": {
+    "appName": "Qwen Code",
+    "minimize": "Minimizar",
+    "maximize": "Maximizar",
+    "close": "Fechar",
+    "toggleSidebar": "Alternar barra lateral"
+  },
+  "search": {
+    "placeholder": "Filtrar sessões por nome...",
+    "close": "Fechar pesquisa",
+    "noResults": "Nenhuma sessão encontrada",
+    "startTyping": "Digite para pesquisar..."
+  },
+  "auth": {
+    "welcomeTitle": "Bem-vindo ao Qwen Code",
+    "welcomeSubtitle": "Conecte agentes de IA para criar projetos e resolver tarefas",
+    "signInWithQwen": "Entrar com Qwen",
+    "connecting": "Conectando...",
+    "apiKeyPlaceholder": "Digite sua chave API",
+    "orUseApiKeyPrefix": "Ou",
+    "useApiKey": "usar OpenAI API Key",
+    "orUseQwenAccountPrefix": "Ou",
+    "useQwenAccount": "usar conta Qwen"
+  },
+  "hero": {
+    "kicker": "Arquitetura de desktop Qwen-first",
+    "chatTitle": "Uma interface de código sobre o runtime qwen.",
+    "chatSubtitle": "Mantém a compatibilidade com o qwen intacta, fazendo com que a navegação por sessões, contexto e histórico pareça nativa na área de trabalho.",
+    "codeTitle": "Uma cabine de codificação moldada pelo núcleo qwen e pela ergonomia nível Claude.",
+    "codeSubtitle": "Use Claude como referência de UX para orquestração de ferramentas, não como autoridade de runtime."
+  },
+  "composer": {
+    "currentMode": "Superfície atual",
+    "chatPlaceholder": "Descreva a implementação, migração ou tarefa de sessão que você deseja resolver.",
+    "codePlaceholder": "Peça integração de runtime, trabalho IPC, implementação de renderizador ou endurecimento de compatibilidade com qwen.",
+    "chatAction": "Iniciar sessão de código",
+    "codeAction": "Abrir fluxo de trabalho de código"
+  }
+}

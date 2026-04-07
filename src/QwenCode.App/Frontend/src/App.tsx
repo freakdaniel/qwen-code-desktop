@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { VStack, Heading, Text, Center } from '@chakra-ui/react';
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import qwenLogo from './assets/qwen-logo.svg';
 import AuthScreen from './components/screens/AuthScreen';
 import MainLayout from './components/layout/MainLayout';
 
 function App() {
+  const { t } = useTranslation();
   const [appState, setAppState] = useState<'loading' | 'auth' | 'main'>('loading');
 
   // Simulate loading and dependency check
@@ -33,7 +35,7 @@ function App() {
           />
           <VStack spacing={1}>
             <Heading size="md" color="white">Qwen Code</Heading>
-            <Text color="gray.400" fontSize="sm">Initializing...</Text>
+            <Text color="gray.400" fontSize="sm">{t('app.initializing', 'Initializing...')}</Text>
           </VStack>
         </VStack>
       </Center>

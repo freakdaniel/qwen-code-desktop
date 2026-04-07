@@ -11,7 +11,7 @@ namespace QwenCode.App.Desktop;
 public sealed class LocaleStateService(IOptions<DesktopShellOptions> options) : ILocaleStateService
 {
     private readonly object _syncRoot = new();
-    private string _currentLocale = DesktopProjectionCatalog.NormalizeLocale(options.Value.DefaultLocale);
+    private string _currentLocale = DesktopProjectionCatalog.DetectDefaultLocale(options.Value.DefaultLocale);
 
     /// <summary>
     /// Gets the current locale

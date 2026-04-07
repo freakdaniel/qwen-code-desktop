@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, Check, Paperclip } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { ContextRing } from '@/components/chat/ContextRing'
 import {
   DropdownMenu,
@@ -57,6 +58,7 @@ export function ChatInput({
   onModeChange,
   onSubmit,
 }: ChatInputProps) {
+  const { t } = useTranslation()
   const [prompt, setPrompt] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const contextBarText = getContextBarText(latestSessionEvent)
@@ -122,7 +124,7 @@ export function ChatInput({
                   <span className="rounded-full bg-[--app-elevated] px-1.5 py-0.5 font-mono text-[10px]">
                     {'</>'}
                   </span>
-                  {currentModeOption.label}
+                  {t(currentModeOption.labelKey)}
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="opacity-50">
                     <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
                   </svg>
@@ -141,8 +143,8 @@ export function ChatInput({
                         {mode === m.value && <Check size={13} className="text-orange-400" />}
                       </div>
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-medium">{m.label}</span>
-                        <span className="text-xs text-[--app-muted]">{m.description}</span>
+                        <span className="text-sm font-medium">{t(m.labelKey)}</span>
+                        <span className="text-xs text-[--app-muted]">{t(m.descriptionKey)}</span>
                       </div>
                     </DropdownMenuItem>
                   ))}

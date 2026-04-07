@@ -1,0 +1,78 @@
+{
+  "app": {
+    "workspace": "ワークスペース",
+    "initializing": "初期化中..."
+  },
+  "modes": {
+    "title": "コードモード",
+    "code": "コード"
+  },
+  "status": {
+    "connected": "IPC接続済み",
+    "local": "ローカルモード"
+  },
+  "top": {
+    "settings": "設定"
+  },
+  "sidebar": {
+    "newChat": "新しいチャット",
+    "searchPlaceholder": "検索",
+    "recent": "最近の会話",
+    "otherProjects": "その他",
+    "noSessionsFound": "セッションが見つかりません",
+    "startTypingSearch": "入力して検索...",
+    "now": "今",
+    "minutesAgo": "分",
+    "hoursAgo": "時間",
+    "daysAgo": "日",
+    "weeksAgo": "週"
+  },
+  "chat": {
+    "newChat": "新しいチャット",
+    "welcomeTitle": "何を作りましょうか？",
+    "sessionsAvailable": "セッションが利用可能",
+    "promptPlaceholder": "処理したいタスクを説明してください...",
+    "demoResponse": "リクエストを受け付けました：「{{prompt}}」。これはデモの返信です。",
+    "disclaimer": "QwenはAIであり、間違いをする場合があります。重要な変更、コマンド、回答を確認してください。",
+    "contextUsed": "{{used}} / {{total}} トークン使用済み",
+    "contextCompression": "制限超過時、Qwenは自動的にコンテキストを圧縮します"
+  },
+  "titlebar": {
+    "appName": "Qwen Code",
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "close": "閉じる",
+    "toggleSidebar": "サイドバー切替"
+  },
+  "search": {
+    "placeholder": "名前でセッションをフィルタリング...",
+    "close": "検索を閉じる",
+    "noResults": "セッションが見つかりません",
+    "startTyping": "入力して検索..."
+  },
+  "auth": {
+    "welcomeTitle": "Qwen Code へようこそ",
+    "welcomeSubtitle": "AIエージェントを接続してプロジェクトの作成とタスクの解決",
+    "signInWithQwen": "Qwenでログイン",
+    "connecting": "接続中...",
+    "apiKeyPlaceholder": "APIキーを入力",
+    "orUseApiKeyPrefix": "または",
+    "useApiKey": "OpenAI API Keyを使用",
+    "orUseQwenAccountPrefix": "または",
+    "useQwenAccount": "Qwenアカウントを使用"
+  },
+  "hero": {
+    "kicker": "Qwenファーストのデスクトップアーキテクチャ",
+    "chatTitle": "qwenランタイム上でのコード優先シェル。",
+    "chatSubtitle": "qwen互換性を維持しながら、セッション、コンテキスト、履歴ナビゲーションをデスクトップに自然に感じさせます。",
+    "codeTitle": "qwenコアに基づき、Claude級の人間工学を備えたコーディング操縦室。",
+    "codeSubtitle": "Claudeはツール編成のUXリファレンスとして使用し、ランタイム権限としては使用しません。"
+  },
+  "composer": {
+    "currentMode": "現在のサーフェス",
+    "chatPlaceholder": "実装、移行、またはセッションタスクについて説明してください。",
+    "codePlaceholder": "ランタイム統合、IPC作業、レンダラー実装、またはqwen互換性強化を要求します。",
+    "chatAction": "コードセッションを開始",
+    "codeAction": "コードワークフローを開く"
+  }
+}

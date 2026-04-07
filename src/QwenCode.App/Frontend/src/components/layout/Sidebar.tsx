@@ -153,7 +153,7 @@ export default function Sidebar({
             >
               <HStack spacing={2}>
                 <Search size={14} color="#9494a2" />
-                <Text fontSize="sm" color="gray.400">Search</Text>
+                <Text fontSize="sm" color="gray.400">{t('sidebar.search')}</Text>
               </HStack>
             </Box>
           </Box>

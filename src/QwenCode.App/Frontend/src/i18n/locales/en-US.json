@@ -1,0 +1,79 @@
+{
+  "app": { "workspace": "Desktop shell", "initializing": "Initializing..." },
+  "modes": {
+    "title": "Code mode",
+    "code": "Code",
+    "askPermissions": "Ask permissions",
+    "askPermissionsDesc": "Always ask before making changes",
+    "autoAcceptEdits": "Auto accept edits",
+    "autoAcceptEditsDesc": "Automatically accept all file edits",
+    "planMode": "Plan mode",
+    "planModeDesc": "Create a plan before making changes",
+    "bypassPermissions": "Bypass permissions",
+    "bypassPermissionsDesc": "Accepts all permissions"
+  },
+  "status": { "connected": "IPC attached", "local": "Local preview" },
+  "top": { "settings": "Settings" },
+  "sidebar": {
+    "newChat": "New Chat",
+    "search": "Search",
+    "searchPlaceholder": "Filter sessions by name...",
+    "recent": "Recent conversations",
+    "otherProjects": "Others",
+    "noSessionsFound": "No sessions found",
+    "startTypingSearch": "Start typing to search...",
+    "now": "now",
+    "minutesAgo": "m",
+    "hoursAgo": "h",
+    "daysAgo": "d",
+    "weeksAgo": "w"
+  },
+  "chat": {
+    "newChat": "New chat",
+    "welcomeTitle": "What shall we create?",
+    "sessionsAvailable": "sessions available",
+    "promptPlaceholder": "Describe the task you want to work on...",
+    "demoResponse": "Received your request: \"{{prompt}}\". This is a demo response.",
+    "disclaimer": "Qwen is AI and may make mistakes. Verify important changes, commands, and answers.",
+    "contextUsed": "Used {{used}} / {{total}} tokens",
+    "contextCompression": "Qwen will automatically compress context when limit is exceeded"
+  },
+  "titlebar": {
+    "appName": "Qwen Code",
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "close": "Close",
+    "toggleSidebar": "Toggle sidebar"
+  },
+  "search": {
+    "placeholder": "Filter sessions by name...",
+    "close": "Close search",
+    "noResults": "No sessions found",
+    "startTyping": "Start typing to search..."
+  },
+  "auth": {
+    "welcomeTitle": "Welcome to Qwen Code",
+    "welcomeSubtitle": "Connect with AI agents to create projects and solve tasks",
+    "signInWithQwen": "Sign in with Qwen",
+    "connecting": "Connecting...",
+    "apiKeyPlaceholder": "Enter your API key",
+    "orUseApiKeyPrefix": "Or",
+    "useApiKey": "use OpenAI API Key",
+    "orUseQwenAccountPrefix": "Or",
+    "useQwenAccount": "use Qwen Account"
+  },
+  "hero": {
+    "kicker": "Qwen-first desktop architecture",
+    "chatTitle": "A code-first shell over the qwen runtime.",
+    "chatSubtitle": "Keep qwen compatibility intact while making sessions, context, and history navigation feel native on desktop.",
+    "codeTitle": "A coding cockpit shaped by qwen core and Claude-grade ergonomics.",
+    "codeSubtitle": "Use Claude as the UX reference for tool orchestration, not as the runtime authority."
+  },
+  "composer": {
+    "currentMode": "Current surface",
+    "chatPlaceholder": "Describe the implementation, migration, or session task you want to tackle.",
+    "codePlaceholder": "Ask for runtime integration, IPC work, renderer implementation, or qwen compatibility hardening.",
+    "chatAction": "Start code session",
+    "codeAction": "Open code workflow"
+  }
+}

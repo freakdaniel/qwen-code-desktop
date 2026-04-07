@@ -1,0 +1,78 @@
+{
+  "app": {
+    "workspace": "工作区",
+    "initializing": "初始化中..."
+  },
+  "modes": {
+    "title": "代码模式",
+    "code": "代码"
+  },
+  "status": {
+    "connected": "IPC 已连接",
+    "local": "本地模式"
+  },
+  "top": {
+    "settings": "设置"
+  },
+  "sidebar": {
+    "newChat": "新聊天",
+    "searchPlaceholder": "搜索",
+    "recent": "最近对话",
+    "otherProjects": "其他",
+    "noSessionsFound": "未找到会话",
+    "startTypingSearch": "开始输入以搜索...",
+    "now": "现在",
+    "minutesAgo": "分钟",
+    "hoursAgo": "小时",
+    "daysAgo": "天",
+    "weeksAgo": "周"
+  },
+  "chat": {
+    "newChat": "新聊天",
+    "welcomeTitle": "我们要创建什么？",
+    "sessionsAvailable": "个会话可用",
+    "promptPlaceholder": "描述您要处理的任务...",
+    "demoResponse": "收到您的请求：\"{{prompt}}\"。这是一个演示回复。",
+    "disclaimer": "Qwen是AI，可能会犯错。请验证重要的更改、命令和回答。",
+    "contextUsed": "已使用 {{used}} / {{total}} 令牌",
+    "contextCompression": "超出限制时Qwen将自动压缩上下文"
+  },
+  "titlebar": {
+    "appName": "Qwen Code",
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "close": "关闭",
+    "toggleSidebar": "切换侧栏"
+  },
+  "search": {
+    "placeholder": "按名称筛选会话...",
+    "close": "关闭搜索",
+    "noResults": "未找到会话",
+    "startTyping": "开始输入以搜索..."
+  },
+  "auth": {
+    "welcomeTitle": "欢迎使用 Qwen Code",
+    "welcomeSubtitle": "连接 AI 智能体来创建项目和解决任务",
+    "signInWithQwen": "使用 Qwen 登录",
+    "connecting": "连接中...",
+    "apiKeyPlaceholder": "输入您的 API 密钥",
+    "orUseApiKeyPrefix": "或",
+    "useApiKey": "使用 OpenAI API Key",
+    "orUseQwenAccountPrefix": "或",
+    "useQwenAccount": "使用 Qwen 账户"
+  },
+  "hero": {
+    "kicker": "Qwen优先的桌面架构",
+    "chatTitle": "基于qwen运行时的代码优先外壳。",
+    "chatSubtitle": "在保持qwen兼容性的同时，让会话、上下文和历史导航在桌面上感觉更自然。",
+    "codeTitle": "以qwen核心为基础，具有Claude级别人体工程学的设计编码驾驶舱。",
+    "codeSubtitle": "使用Claude作为工具编排的UX参考，而不是运行时权威。"
+  },
+  "composer": {
+    "currentMode": "当前表面",
+    "chatPlaceholder": "描述您想要处理的实现、迁移或会话任务。",
+    "codePlaceholder": "请求运行时集成、IPC工作、渲染器实现或qwen兼容性强化。",
+    "chatAction": "开始代码会话",
+    "codeAction": "打开代码工作流"
+  }
+}

@@ -1,6 +1,6 @@
 // Frontend/src/hooks/useBootstrap.ts
 import { startTransition, useEffect, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { changeLanguage } from '@/i18n'
 import { fallbackBootstrap } from '@/appData'
 import type {
   ActiveTurnState,
@@ -26,7 +26,6 @@ export interface BootstrapState {
 }
 
 export function useBootstrap(): BootstrapState {
-  const { i18n } = useTranslation()
   const [bootstrap, setBootstrap] = useState<AppBootstrapPayload>(fallbackBootstrap)
   const [authSnapshot, setAuthSnapshot] = useState<AuthStatusSnapshot>(fallbackBootstrap.qwenAuth)
   const [mcpSnapshot, setMcpSnapshot] = useState<McpSnapshot>(fallbackBootstrap.qwenMcp)
@@ -88,7 +87,7 @@ export function useBootstrap(): BootstrapState {
 
     const hydrate = async () => {
       if (!window.qwenDesktop) {
-        // Use already-detected language from i18n init, not fallbackBootstrap
+        // Language already detected during i18n init
         return
       }
 
@@ -97,12 +96,12 @@ export function useBootstrap(): BootstrapState {
       setAuthSnapshot(payload.qwenAuth)
       setMcpSnapshot(payload.qwenMcp)
       syncActiveTurns(payload.activeTurns)
-      await i18n.changeLanguage(payload.currentLocale)
+      await changeLanguage(payload.currentLocale)
 
       disposers.push(
         window.qwenDesktop.subscribeStateChanged((event) => {
           setBootstrap((c) => ({ ...c, currentLocale: event.currentLocale }))
-          startTransition(() => { void i18n.changeLanguage(event.currentLocale) })
+          startTransition(() => { void changeLanguage(event.currentLocale) })
         }),
       )
 
@@ -156,7 +155,7 @@ export function useBootstrap(): BootstrapState {
 
     void hydrate()
     return () => disposers.forEach((d) => d())
-  }, [i18n])
+  }, [])
 
   useEffect(() => {
     if (!window.qwenDesktop) return
@@ -180,8 +179,8 @@ export function useBootstrap(): BootstrapState {
   }, [])
 
   useEffect(() => {
-    document.documentElement.dir = i18n.language === 'ar' ? 'rtl' : 'ltr'
-  }, [i18n.language])
+    document.documentElement.dir = (bootstrap?.currentLocale === 'ar') ? 'rtl' : 'ltr'
+  }, [bootstrap?.currentLocale])
 
   return {
     bootstrap,

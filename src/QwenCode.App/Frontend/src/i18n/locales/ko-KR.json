@@ -1,0 +1,78 @@
+{
+  "app": {
+    "workspace": "작업공간",
+    "initializing": "초기화 중..."
+  },
+  "modes": {
+    "title": "코드 모드",
+    "code": "코드"
+  },
+  "status": {
+    "connected": "IPC 연결됨",
+    "local": "로컬 모드"
+  },
+  "top": {
+    "settings": "설정"
+  },
+  "sidebar": {
+    "newChat": "새 채팅",
+    "searchPlaceholder": "검색",
+    "recent": "최근 대화",
+    "otherProjects": "기타",
+    "noSessionsFound": "세션을 찾을 수 없음",
+    "startTypingSearch": "입력하여 검색...",
+    "now": "지금",
+    "minutesAgo": "분",
+    "hoursAgo": "시간",
+    "daysAgo": "일",
+    "weeksAgo": "주"
+  },
+  "chat": {
+    "newChat": "새 채팅",
+    "welcomeTitle": "무엇을 만들까요?",
+    "sessionsAvailable": "세션 사용 가능",
+    "promptPlaceholder": "처리할 작업을 설명하세요...",
+    "demoResponse": "요청을 받았습니다: \"{{prompt}}\". 이것은 데모 응답입니다.",
+    "disclaimer": "Qwen은 AI이며 실수를 할 수 있습니다. 중요한 변경, 명령 및 답변을 확인하세요.",
+    "contextUsed": "{{used}} / {{total}} 토큰 사용됨",
+    "contextCompression": "제한 초과 시 Qwen이 자동으로 컨텍스트를 압축합니다"
+  },
+  "titlebar": {
+    "appName": "Qwen Code",
+    "minimize": "최소화",
+    "maximize": "최대화",
+    "close": "닫기",
+    "toggleSidebar": "사이드바 전환"
+  },
+  "search": {
+    "placeholder": "이름으로 세션 필터링...",
+    "close": "검색 닫기",
+    "noResults": "세션을 찾을 수 없음",
+    "startTyping": "입력하여 검색..."
+  },
+  "auth": {
+    "welcomeTitle": "Qwen Code에 오신 것을 환영합니다",
+    "welcomeSubtitle": "AI 에이전트를 연결하여 프로젝트 생성 및 작업 해결",
+    "signInWithQwen": "Qwen으로 로그인",
+    "connecting": "연결 중...",
+    "apiKeyPlaceholder": "API 키를 입력하세요",
+    "orUseApiKeyPrefix": "또는",
+    "useApiKey": "OpenAI API Key 사용",
+    "orUseQwenAccountPrefix": "또는",
+    "useQwenAccount": "Qwen 계정 사용"
+  },
+  "hero": {
+    "kicker": "Qwen 우선 데스크톱 아키텍처",
+    "chatTitle": "qwen 런타임 위의 코드 중심 쉘.",
+    "chatSubtitle": "qwen 호환성을 유지하면서 세션, 컨텍스트 및 기록 탐색을 데스크톱에 자연스럽게 느끼게 합니다.",
+    "codeTitle": "qwen 코어를 기반으로 한 Claude 수준의 인간 공학 설계 코딩 조종석.",
+    "codeSubtitle": "Claude를 런타임 권한이 아닌 도구 오케스트레이션의 UX 기준으로 사용합니다."
+  },
+  "composer": {
+    "currentMode": "현재 표면",
+    "chatPlaceholder": "처리하려는 구현, 마이그레이션 또는 세션 작업을 설명하세요.",
+    "codePlaceholder": "런타임 통합, IPC 작업, 렌더러 구현 또는 qwen 호환성 강화를 요청하세요.",
+    "chatAction": "코드 세션 시작",
+    "codeAction": "코드 워크플로우 열기"
+  }
+}
