@@ -93,6 +93,7 @@ export default function MainLayout() {
         sessions={sessions}
         activeTurnSessions={activeTurnSessions}
         onOpenSearch={openSearch}
+        onOpenSkills={() => console.log('Skills & Integrations')}
       />
 
       {/* Main content area - under title bar */}

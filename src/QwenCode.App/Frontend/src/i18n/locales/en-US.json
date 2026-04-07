@@ -13,7 +13,7 @@
     "bypassPermissionsDesc": "Accepts all permissions"
   },
   "status": { "connected": "IPC attached", "local": "Local preview" },
-  "top": { "settings": "Settings" },
+  "top": { "settings": "Settings", "skills": "Skills & Integrations" },
   "sidebar": {
     "newChat": "New Chat",
     "search": "Search",

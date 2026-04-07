@@ -5,8 +5,8 @@ import {
   Button,
   HStack,
 } from '@chakra-ui/react';
-import { motion } from 'framer-motion';
-import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SessionPreview } from '@/types/desktop';
@@ -20,6 +20,7 @@ interface SidebarProps {
   onSelectSession?: (sessionId: string) => void;
   onOpenSettings?: () => void;
   onOpenSearch?: () => void;
+  onOpenSkills?: () => void;
 }
 
 function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslation>['t']): string {
@@ -45,6 +46,37 @@ interface ProjectGroup {
   sessions: SessionPreview[];
 }
 
+// Animation variants for group sessions list
+const sessionsListVariants = {
+  hidden: {
+    opacity: 0,
+    height: 0,
+    transition: {
+      height: { duration: 0.2, ease: 'easeInOut' },
+      opacity: { duration: 0.15, ease: 'easeInOut' },
+    },
+  },
+  visible: {
+    opacity: 1,
+    height: 'auto',
+    transition: {
+      height: { duration: 0.25, ease: 'easeInOut' },
+      opacity: { duration: 0.2, ease: 'easeInOut', delay: 0.05 },
+    },
+  },
+};
+
+// Stagger animation for individual session items
+const sessionItemVariants = {
+  hidden: { opacity: 0, x: -8 },
+  visible: (i: number) => ({
+    opacity: 1,
+    x: 0,
+    transition: { opacity: { duration: 0.15 }, x: { duration: 0.2 }, delay: i * 0.03 },
+  }),
+  exit: { opacity: 0, x: -4, transition: { duration: 0.1 } },
+};
+
 export default function Sidebar({
   isOpen,
   sessions,
@@ -52,7 +84,8 @@ export default function Sidebar({
   onNewChat = () => console.log('New chat'),
   onSelectSession = (id: string) => console.log(`Selected conversation ${id}`),
   onOpenSettings = () => console.log('Settings clicked'),
-  onOpenSearch = () => console.log('Search opened')
+  onOpenSearch = () => console.log('Search opened'),
+  onOpenSkills = () => console.log('Skills clicked'),
 }: SidebarProps) {
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -68,7 +101,6 @@ export default function Sidebar({
 
     const result: ProjectGroup[] = Object.entries(groups)
       .sort((a, b) => {
-        // Sort by most recent session
         const aLatest = Math.max(...a[1].map(s => new Date(s.lastActivity).getTime()));
         const bLatest = Math.max(...b[1].map(s => new Date(s.lastActivity).getTime()));
         return bLatest - aLatest;
@@ -76,7 +108,7 @@ export default function Sidebar({
       .map(([name, sess]) => ({ name, sessions: sess }));
 
     return result;
-  }, [sessions]);
+  }, [sessions, t]);
 
   const toggleGroup = (name: string) => {
     setOpenGroups(prev => ({
@@ -199,7 +231,7 @@ export default function Sidebar({
                       <ChevronRight
                         size={12}
                         style={{
-                          transition: 'transform 0.15s',
+                          transition: 'transform 0.2s ease',
                           transform: isGroupOpen ? 'rotate(90deg)' : 'none',
                         }}
                       />
@@ -213,73 +245,112 @@ export default function Sidebar({
                     {group.name}
                   </Button>
 
-                  {/* Group sessions */}
-                  {isGroupOpen && (
-                    <VStack spacing={0} align="stretch" pl={2}>
-                      {group.sessions.map((conv) => {
-                        const isActive = conv.sessionId in activeTurnSessions;
-                        return (
-                          <Button
-                            key={conv.sessionId}
-                            variant="ghost"
-                            colorScheme="gray"
-                            onClick={() => onSelectSession(conv.sessionId)}
-                            h="32px"
-                            px={2}
-                            py={0}
-                            justifyContent="space-between"
-                            textAlign="left"
-                            bg={isActive ? 'gray.700' : 'transparent'}
-                            _hover={{ bg: 'gray.700' }}
-                            borderRadius="md"
-                            whiteSpace="nowrap"
-                            fontSize="sm"
-                          >
-                            <Text
-                              color="gray.200"
-                              flex={1}
-                              overflow="hidden"
-                              textOverflow="ellipsis"
-                              textAlign="left"
-                            >
-                              {conv.title}
-                            </Text>
-                            <Text
-                              fontSize="xs"
-                              color="gray.500"
-                              ml={2}
-                              flexShrink={0}
-                            >
-                              {formatRelativeTime(conv.lastActivity, t)}
-                            </Text>
-                          </Button>
-                        );
-                      })}
-                    </VStack>
-                  )}
+                  {/* Group sessions — animated */}
+                  <AnimatePresence initial={false}>
+                    {isGroupOpen && (
+                      <motion.div
+                        variants={sessionsListVariants}
+                        initial="hidden"
+                        animate="visible"
+                        exit="hidden"
+                        style={{ overflow: 'hidden', width: '100%' }}
+                      >
+                        <VStack spacing={0} align="stretch" pl={2}>
+                          {group.sessions.map((conv, idx) => {
+                            const isActive = conv.sessionId in activeTurnSessions;
+                            return (
+                              <motion.div
+                                key={conv.sessionId}
+                                variants={sessionItemVariants}
+                                initial="hidden"
+                                animate="visible"
+                                exit="exit"
+                                custom={idx}
+                                style={{ width: '100%' }}
+                              >
+                                <Button
+                                  variant="ghost"
+                                  colorScheme="gray"
+                                  onClick={() => onSelectSession(conv.sessionId)}
+                                  h="32px"
+                                  px={2}
+                                  py={0}
+                                  justifyContent="space-between"
+                                  w="full"
+                                  minW={0}
+                                  bg={isActive ? 'gray.700' : 'transparent'}
+                                  _hover={{ bg: 'gray.700' }}
+                                  borderRadius="md"
+                                  whiteSpace="nowrap"
+                                  fontSize="sm"
+                                >
+                                  <Text
+                                    color="gray.200"
+                                    flex={1}
+                                    minW={0}
+                                    overflow="hidden"
+                                    textOverflow="ellipsis"
+                                    textAlign="left"
+                                    noOfLines={1}
+                                  >
+                                    {conv.title}
+                                  </Text>
+                                  <Text
+                                    fontSize="xs"
+                                    color="gray.500"
+                                    ml={2}
+                                    flexShrink={0}
+                                  >
+                                    {formatRelativeTime(conv.lastActivity, t)}
+                                  </Text>
+                                </Button>
+                              </motion.div>
+                            );
+                          })}
+                        </VStack>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </Box>
               );
             })}
           </VStack>
         </Box>
 
-        {/* Footer: Settings */}
+        {/* Footer: Skills & Settings */}
         <Box px={3} py={2}>
-          <Button
-            leftIcon={<Settings size={15} />}
-            variant="ghost"
-            colorScheme="gray"
-            size="sm"
-            width="100%"
-            justifyContent="flex-start"
-            borderRadius="md"
-            h="36px"
-            onClick={onOpenSettings}
-            color="gray.300"
-            _hover={{ bg: 'gray.700' }}
-          >
-            {t('top.settings')}
-          </Button>
+          <VStack spacing={1} align="stretch">
+            <Button
+              leftIcon={<Puzzle size={15} />}
+              variant="ghost"
+              colorScheme="gray"
+              size="sm"
+              width="100%"
+              justifyContent="flex-start"
+              borderRadius="md"
+              h="36px"
+              onClick={onOpenSkills}
+              color="gray.300"
+              _hover={{ bg: 'gray.700' }}
+            >
+              {t('top.skills')}
+            </Button>
+            <Button
+              leftIcon={<Settings size={15} />}
+              variant="ghost"
+              colorScheme="gray"
+              size="sm"
+              width="100%"
+              justifyContent="flex-start"
+              borderRadius="md"
+              h="36px"
+              onClick={onOpenSettings}
+              color="gray.300"
+              _hover={{ bg: 'gray.700' }}
+            >
+              {t('top.settings')}
+            </Button>
+          </VStack>
         </Box>
       </VStack>
     </motion.div>

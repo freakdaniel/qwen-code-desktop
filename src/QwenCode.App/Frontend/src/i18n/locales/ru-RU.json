@@ -13,7 +13,7 @@
     "bypassPermissionsDesc": "Принимать все разрешения"
   },
   "status": { "connected": "IPC подключён", "local": "Локальный режим" },
-  "top": { "settings": "Настройки" },
+  "top": { "settings": "Настройки", "skills": "Навыки и интеграции" },
   "sidebar": {
     "newChat": "Новый чат",
     "search": "Поиск",
