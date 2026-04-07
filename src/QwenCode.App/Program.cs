@@ -119,7 +119,6 @@ internal static class Program
 
         if (Volatile.Read(ref _runtimeStopped) != 0)
         {
-            logger.LogInformation("Process exit observed after Electron.NET runtime already stopped. Skipping duplicate stop");
             ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, "process-exit");
             return;
         }
