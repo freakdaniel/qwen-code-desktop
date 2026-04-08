@@ -307,6 +307,153 @@ function estimateSessionTokens(detail: DesktopSessionDetail | null): number {
   return Math.ceil(totalCharacters / 4);
 }
 
+function createStreamingAssistantEntry(
+  sessionId: string,
+  workingDirectory: string,
+  gitBranch: string,
+  content: string,
+  timestamp: string,
+): DesktopSessionEntry {
+  return {
+    id: `streaming-${sessionId}`,
+    type: 'assistant',
+    timestamp,
+    workingDirectory,
+    gitBranch,
+    title: '',
+    body: content,
+    thinkingBody: '',
+    status: 'streaming',
+    toolName: '',
+    approvalState: '',
+    exitCode: null,
+    arguments: '',
+    scope: '',
+    sourcePath: '',
+    resolutionStatus: '',
+    resolvedAt: '',
+    changedFiles: [],
+    questions: [],
+    answers: [],
+  };
+}
+
+function createUserEntry(
+  entryId: string,
+  workingDirectory: string,
+  gitBranch: string,
+  content: string,
+  timestamp: string,
+): DesktopSessionEntry {
+  return {
+    id: entryId,
+    type: 'user',
+    timestamp,
+    workingDirectory,
+    gitBranch,
+    title: '',
+    body: content,
+    thinkingBody: '',
+    status: 'completed',
+    toolName: '',
+    approvalState: '',
+    exitCode: null,
+    arguments: '',
+    scope: '',
+    sourcePath: '',
+    resolutionStatus: '',
+    resolvedAt: '',
+    changedFiles: [],
+    questions: [],
+    answers: [],
+  };
+}
+
+function createOptimisticSessionPreview(
+  sessionId: string,
+  workingDirectory: string,
+  title: string,
+  timestamp: string,
+  gitBranch: string,
+): SessionPreview {
+  return {
+    sessionId,
+    title,
+    lastActivity: timestamp,
+    startedAt: timestamp,
+    lastUpdatedAt: timestamp,
+    category: 'recent',
+    mode: 'code',
+    status: 'active',
+    workingDirectory,
+    gitBranch,
+    messageCount: 1,
+    transcriptPath: '',
+    metadataPath: '',
+  };
+}
+
+function createOptimisticSessionDetail(
+  session: SessionPreview,
+  userEntry: DesktopSessionEntry,
+): DesktopSessionDetail {
+  return {
+    session,
+    transcriptPath: session.transcriptPath,
+    entryCount: 1,
+    windowOffset: 0,
+    windowSize: 1,
+    hasOlderEntries: false,
+    hasNewerEntries: false,
+    summary: {
+      userCount: 1,
+      assistantCount: 0,
+      commandCount: 0,
+      toolCount: 0,
+      pendingApprovalCount: 0,
+      pendingQuestionCount: 0,
+      completedToolCount: 0,
+      failedToolCount: 0,
+      lastTimestamp: userEntry.timestamp,
+    },
+    entries: [userEntry],
+  };
+}
+
+function upsertOptimisticUserEntry(
+  detail: DesktopSessionDetail,
+  userEntry: DesktopSessionEntry,
+): DesktopSessionDetail {
+  const lastEntry = detail.entries[detail.entries.length - 1];
+  if (
+    lastEntry?.type === 'user' &&
+    lastEntry.body === userEntry.body &&
+    lastEntry.timestamp === userEntry.timestamp
+  ) {
+    return detail;
+  }
+
+  const entries = [...detail.entries, userEntry];
+  return {
+    ...detail,
+    session: {
+      ...detail.session,
+      lastActivity: userEntry.timestamp,
+      lastUpdatedAt: userEntry.timestamp,
+      messageCount: Math.max(detail.session.messageCount + 1, entries.length),
+      status: 'active',
+    },
+    entryCount: detail.entryCount + 1,
+    windowSize: detail.windowSize + 1,
+    summary: {
+      ...detail.summary,
+      userCount: detail.summary.userCount + 1,
+      lastTimestamp: userEntry.timestamp,
+    },
+    entries,
+  };
+}
+
 function formatThinkingDuration(locale: string, durationMs: number): string {
   if (durationMs < 1_000) {
     return locale.startsWith('ru')
@@ -368,6 +515,36 @@ function getTodoStatusLabel(locale: string, status: string): string {
   return locale.startsWith('ru') ? 'Ожидает' : 'Pending';
 }
 
+function ProcessingDots({ color = '#8f90a6', size = 6 }: { color?: string; size?: number }) {
+  return (
+    <HStack spacing={1} align="center">
+      {[0, 1, 2].map((index) => (
+        <motion.span
+          key={index}
+          animate={{
+            opacity: [0.35, 1, 0.35],
+            scale: [0.92, 1.14, 0.92],
+            y: [0, -1.5, 0],
+          }}
+          transition={{
+            duration: 0.9,
+            repeat: Number.POSITIVE_INFINITY,
+            ease: 'easeInOut',
+            delay: index * 0.12,
+          }}
+          style={{
+            display: 'block',
+            width: `${size}px`,
+            height: `${size}px`,
+            borderRadius: '999px',
+            background: color,
+          }}
+        />
+      ))}
+    </HStack>
+  );
+}
+
 // Tool-specific argument summary for display
 function getToolArgSummary(entry: DesktopSessionEntry): string {
   if (!entry.arguments) return '';
@@ -421,7 +598,16 @@ function getToolArgSummary(entry: DesktopSessionEntry): string {
 
 export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAreaProps) {
   const { t } = useTranslation();
-  const { bootstrap, sessionCache, loadSessionDetail, setBootstrap } = useBootstrap();
+  const {
+    bootstrap,
+    sessionCache,
+    loadSessionDetail,
+    setBootstrap,
+    setSessionCache,
+    activeTurnSessions,
+    streamingSnapshots,
+    latestSessionEvent,
+  } = useBootstrap();
   const sessions = bootstrap?.recentSessions ?? [];
   const locale = bootstrap?.currentLocale ?? 'en';
   const selectedSession = sessions.find(s => s.sessionId === selectedSessionId);
@@ -432,7 +618,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
   const [mode, setMode] = useState<AgentMode>('default');
   const [prompt, setPrompt] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingTurnSessionIds, setPendingTurnSessionIds] = useState<Record<string, true>>({});
   const [usedTokens, setUsedTokens] = useState(0);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const [showContextTooltip, setShowContextTooltip] = useState(false);
@@ -467,6 +653,12 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
   const totalTokens = selectedModel?.contextWindowSize ?? 131_072;
   const currentModeOption = AGENT_MODES.find((m) => m.value === mode) ?? AGENT_MODES[0];
+  const hasSession = !!selectedSessionId;
+  const streamingSnapshot = selectedSessionId ? streamingSnapshots[selectedSessionId] ?? '' : '';
+  const isSessionStreaming = !!selectedSessionId && !!activeTurnSessions[selectedSessionId];
+  const isPendingSelectedSession = !!selectedSessionId && !!pendingTurnSessionIds[selectedSessionId];
+  const isComposerBusy = isPendingSelectedSession || isSessionStreaming;
+  const isAwaitingAssistantText = hasSession && isComposerBusy && !streamingSnapshot.trim();
 
   const projectOptions = useMemo(() => {
     const projectMap = new Map<string, ProjectOption>();
@@ -558,10 +750,74 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     }
   }, []);
 
+  const displaySessionDetail = useMemo(() => {
+    if (!sessionDetail || !selectedSessionId || !isSessionStreaming || !streamingSnapshot.trim()) {
+      return sessionDetail;
+    }
+
+    const lastNonSystemEntry = [...sessionDetail.entries]
+      .reverse()
+      .find((entry) => entry.type !== 'system' && entry.type !== 'tool_result');
+    if (lastNonSystemEntry?.type === 'assistant' && (lastNonSystemEntry.body ?? '') === streamingSnapshot) {
+      return sessionDetail;
+    }
+
+    const timestamp = latestSessionEvent?.sessionId === selectedSessionId
+      ? latestSessionEvent.timestampUtc
+      : new Date().toISOString();
+    const syntheticEntry = createStreamingAssistantEntry(
+      selectedSessionId,
+      selectedSession?.workingDirectory ?? sessionDetail.session.workingDirectory,
+      selectedSession?.gitBranch ?? sessionDetail.session.gitBranch,
+      streamingSnapshot,
+      timestamp,
+    );
+
+    return {
+      ...sessionDetail,
+      entryCount: sessionDetail.entryCount + 1,
+      windowSize: sessionDetail.windowSize + 1,
+      summary: {
+        ...sessionDetail.summary,
+        assistantCount: sessionDetail.summary.assistantCount + 1,
+        lastTimestamp: timestamp,
+      },
+      entries: [...sessionDetail.entries, syntheticEntry],
+    };
+  }, [
+    isSessionStreaming,
+    latestSessionEvent,
+    selectedSession?.gitBranch,
+    selectedSession?.workingDirectory,
+    selectedSessionId,
+    sessionDetail,
+    streamingSnapshot,
+  ]);
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [sessionDetail?.entries]);
+  }, [displaySessionDetail?.entries.length, isAwaitingAssistantText, streamingSnapshot]);
+
+  useEffect(() => {
+    setUsedTokens(estimateSessionTokens(displaySessionDetail));
+  }, [displaySessionDetail]);
+
+  useEffect(() => {
+    if (!selectedSessionId || !activeTurnSessions[selectedSessionId]) {
+      return;
+    }
+
+    setPendingTurnSessionIds((current) => {
+      if (!(selectedSessionId in current)) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[selectedSessionId];
+      return next;
+    });
+  }, [activeTurnSessions, selectedSessionId]);
 
   useEffect(() => {
     if (!projectPickerOpen) return;
@@ -666,6 +922,8 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
   const handleSubmit = useCallback(async () => {
     const trimmedPrompt = prompt.trim();
+    const targetSessionId = selectedSessionId || window.crypto?.randomUUID?.() || `session-${Date.now()}`;
+    const requestTimestamp = new Date().toISOString();
     const workingDirectory = selectedSession?.workingDirectory
       ?? (selectedProjectMode === 'no-project'
         ? joinDesktopPath(
@@ -674,47 +932,92 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
         )
         : selectedProjectWorkingDirectory);
 
-    if (!trimmedPrompt || isSubmitting || !workingDirectory || !window.qwenDesktop) {
+    if (!trimmedPrompt || !workingDirectory || !window.qwenDesktop) {
       return;
     }
 
-    setIsSubmitting(true);
+    const gitBranch = selectedSession?.gitBranch ?? '';
+    const userEntry = createUserEntry(
+      window.crypto?.randomUUID?.() ?? `user-${Date.now()}`,
+      workingDirectory,
+      gitBranch,
+      trimmedPrompt,
+      requestTimestamp,
+    );
+    const optimisticPreview = createOptimisticSessionPreview(
+      targetSessionId,
+      workingDirectory,
+      trimmedPrompt,
+      requestTimestamp,
+      gitBranch,
+    );
 
-    try {
-      const result = await window.qwenDesktop.startSessionTurn({
-        sessionId: selectedSessionId ?? '',
+    setPrompt('');
+    setProjectPickerOpen(false);
+    setProjectPickerQuery('');
+    setPendingTurnSessionIds((current) => ({ ...current, [targetSessionId]: true }));
+    setBootstrap((current) => ({
+      ...current,
+      recentSessions: [optimisticPreview, ...current.recentSessions.filter((session) => session.sessionId !== targetSessionId)]
+        .sort((left, right) => Date.parse(right.lastActivity) - Date.parse(left.lastActivity)),
+    }));
+    setSessionCache((current) => {
+      const existingDetail = current[targetSessionId];
+      const nextDetail = existingDetail
+        ? upsertOptimisticUserEntry(existingDetail, userEntry)
+        : createOptimisticSessionDetail(optimisticPreview, userEntry);
+      return {
+        ...current,
+        [targetSessionId]: nextDetail,
+      };
+    });
+    onSelectSession?.(targetSessionId);
+
+    void window.qwenDesktop.startSessionTurn({
+        sessionId: targetSessionId,
         prompt: trimmedPrompt,
         workingDirectory,
         toolName: '',
         toolArgumentsJson: '{}',
         approveToolExecution: false,
-      });
+      })
+      .then(async (result) => {
+        if (!result?.session?.sessionId) {
+          throw new Error('Desktop session turn did not return a valid session.');
+        }
 
-      setPrompt('');
-      setProjectPickerOpen(false);
-      setProjectPickerQuery('');
-      setBootstrap((current) => ({
-        ...current,
-        recentSessions: [result.session, ...current.recentSessions.filter((session) => session.sessionId !== result.session.sessionId)]
-          .sort((left, right) => Date.parse(right.lastActivity) - Date.parse(left.lastActivity)),
-      }));
-      onSelectSession?.(result.session.sessionId);
-      await loadSessionDetail(result.session.sessionId, { force: true, limit: 200 });
-    } catch (error) {
-      console.error('Failed to submit prompt:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
+        setBootstrap((current) => ({
+          ...current,
+          recentSessions: [result.session, ...current.recentSessions.filter((session) => session.sessionId !== result.session.sessionId)]
+            .sort((left, right) => Date.parse(right.lastActivity) - Date.parse(left.lastActivity)),
+        }));
+        await loadSessionDetail(result.session.sessionId, { force: true, limit: 200 });
+      })
+      .catch((error) => {
+        console.error('Failed to submit prompt:', error);
+      })
+      .finally(() => {
+        setPendingTurnSessionIds((current) => {
+          if (!(targetSessionId in current)) {
+            return current;
+          }
+
+          const next = { ...current };
+          delete next[targetSessionId];
+          return next;
+        });
+      });
   }, [
-    isSubmitting,
     loadSessionDetail,
     onSelectSession,
     prompt,
     selectedProjectMode,
     selectedProjectWorkingDirectory,
+    selectedSession?.gitBranch,
     selectedSession?.workingDirectory,
     selectedSessionId,
     setBootstrap,
+    setSessionCache,
     bootstrap?.qwenRuntime?.runtimeBaseDirectory,
     bootstrap?.workspaceRoot,
   ]);
@@ -733,7 +1036,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
   // Group entries into display blocks
   const groupedEntries = useMemo(() => {
-    if (!sessionDetail?.entries) return [];
+    if (!displaySessionDetail?.entries) return [];
 
     type Block =
       | { type: 'user'; entries: DesktopSessionEntry[] }
@@ -744,7 +1047,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     const blocks: Block[] = [];
     let currentBlock: Block | null = null;
 
-    for (const entry of sessionDetail.entries) {
+    for (const entry of displaySessionDetail.entries) {
       if (entry.type === 'system' || entry.type === 'tool_result') continue;
 
       const isUser = entry.type === 'user';
@@ -764,7 +1067,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
     if (currentBlock) blocks.push(currentBlock);
     return blocks;
-  }, [sessionDetail?.entries]);
+  }, [displaySessionDetail?.entries]);
 
   // Indices of assistant blocks that are "final" in each AI turn
   // (last assistant block before the next user block, or at end of conversation)
@@ -795,8 +1098,6 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     });
   }, []);
 
-  const hasSession = !!selectedSessionId;
-
   return (
     // FIX 1: h="100%" instead of h="100vh" — fills parent container exactly
     <VStack h="100%" spacing={0} bg="gray.900" align="stretch" overflow="hidden">
@@ -825,7 +1126,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                 <Text fontSize="sm" color="gray.500">Loading…</Text>
               </VStack>
             </Center>
-          ) : sessionDetail && sessionDetail.entries.length > 0 ? (
+          ) : displaySessionDetail && displaySessionDetail.entries.length > 0 ? (
             /* FIX 4: px={4} outer padding to match input container width */
             <Box px={4}>
               <Box mx="auto" maxW={CHAT_MAX_WIDTH}>
@@ -873,13 +1174,11 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                         const info = getToolInfo(entry.toolName || entry.title || '');
                         const ToolIcon = info.Icon;
                         const label = t(info.labelKey);
-                        const isShell = info.labelKey === 'tools.shell';
                         const todoSummary = parseTodoSummary(entry.arguments);
                         const summary = getToolArgSummary(entry);
                         const isCollapsed = collapsedBlocks[blockKey] !== false;
-                        const hasShellDetail = isShell && !!entry.arguments;
                         const hasTodoDetail = !!todoSummary;
-                        const canExpand = hasShellDetail || hasTodoDetail;
+                        const canExpand = hasTodoDetail;
                         const files = entry.changedFiles ?? [];
 
                         return (
@@ -902,27 +1201,20 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                               <Box color="gray.500" flexShrink={0}><ToolIcon size={12} /></Box>
                               <Text fontSize="xs" color="gray.400" fontWeight="medium" flexShrink={0}>{label}</Text>
                               {summary && (
-                                <Text fontSize="xs" color="gray.600" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex={1} minW={0}>
-                                  · {summary}
-                                </Text>
+                                <HStack spacing={2} flex={1} minW={0}>
+                                  <Box boxSize="5px" borderRadius="full" bg="gray.600" flexShrink={0} />
+                                  <Text fontSize="xs" color="gray.600" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>
+                                    {summary}
+                                  </Text>
+                                </HStack>
                               )}
                             </HStack>
-                            {/* Shell detail expand */}
                             <AnimatePresence initial={false}>
                               {canExpand && !isCollapsed && (
                                 <motion.div key="sh" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} style={{ overflow: 'hidden' }}>
                                   <Box ml={7} mt={0.5} mb={1} px={2} py={1.5} bg="gray.900" borderRadius="lg">
-                                    {hasShellDetail && (
-                                      <VStack spacing={1} align="stretch" fontFamily="mono">
-                                        {formatShellArgumentLines(entry.arguments).map((line, index) => (
-                                          <Text key={`${entry.id}-shell-${index}`} fontSize="xs" color="gray.300" whiteSpace="pre-wrap" wordBreak="break-word">
-                                            {line}
-                                          </Text>
-                                        ))}
-                                      </VStack>
-                                    )}
                                     {hasTodoDetail && todoSummary && (
-                                      <VStack spacing={1.5} align="stretch" mt={hasShellDetail ? 2 : 0}>
+                                      <VStack spacing={1.5} align="stretch">
                                         <Text fontSize="xs" color="gray.400">
                                           {locale.startsWith('ru')
                                             ? `Выполнено ${todoSummary.completedCount} из ${todoSummary.totalCount}`
@@ -948,9 +1240,6 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                           );
                                         })}
                                       </VStack>
-                                    )}
-                                    {entry.exitCode != null && (
-                                      <Text fontSize="10px" color={entry.exitCode === 0 ? 'green.500' : 'red.500'} mt={0.5}>exit {entry.exitCode}</Text>
                                     )}
                                   </Box>
                                 </motion.div>
@@ -1045,27 +1334,15 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                           <Box color="gray.500" flexShrink={0}><ToolIcon size={12} /></Box>
                                           <Text fontSize="xs" color="gray.300" fontWeight="medium" flexShrink={0}>{label}</Text>
                                           {summary && (
-                                            <Text fontSize="xs" color="gray.600" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" flex={1} minW={0}>
-                                              · {summary}
-                                            </Text>
+                                            <HStack spacing={2} flex={1} minW={0}>
+                                              <Box boxSize="5px" borderRadius="full" bg="gray.600" flexShrink={0} />
+                                              <Text fontSize="xs" color="gray.600" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>
+                                                {summary}
+                                              </Text>
+                                            </HStack>
                                           )}
                                         </HStack>
-                                        {/* Shell command inline */}
-                                        {isShell && entry.arguments && (
-                                          <Box ml={5} mt={0.5} px={2} py={1} bg="gray.900" borderRadius="md" fontFamily="mono">
-                                            <VStack spacing={1} align="stretch">
-                                              {formatShellArgumentLines(entry.arguments).map((line, index) => (
-                                                <Text key={`${entry.id}-shell-line-${index}`} fontSize="xs" color="gray.400" whiteSpace="pre-wrap" wordBreak="break-word">
-                                                  {line}
-                                                </Text>
-                                              ))}
-                                            </VStack>
-                                            {entry.exitCode != null && (
-                                              <Text fontSize="10px" color={entry.exitCode === 0 ? 'green.500' : 'red.500'} mt={0.5}>exit {entry.exitCode}</Text>
-                                            )}
-                                          </Box>
-                                        )}
-                                        {todoSummary && (
+                                        {!isShell && todoSummary && (
                                           <Box ml={5} mt={0.5} px={2} py={1.5} bg="gray.900" borderRadius="md">
                                             <Text fontSize="xs" color="gray.400" mb={1}>
                                               {locale.startsWith('ru')
@@ -1269,6 +1546,38 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                       );
                     });
                   })}
+                  <AnimatePresence initial={false}>
+                    {isAwaitingAssistantText && (
+                      <motion.div
+                        key="assistant-processing"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.18, ease: 'easeOut' }}
+                      >
+                        <Flex justify="flex-start" py={2}>
+                          <Box
+                            maxW="240px"
+                            px={4}
+                            py={3}
+                            borderRadius="20px"
+                            borderTopLeftRadius="4px"
+                            bg="gray.850"
+                            border="1px solid"
+                            borderColor="whiteAlpha.100"
+                            boxShadow="0 18px 40px -28px rgba(0, 0, 0, 0.95)"
+                          >
+                            <VStack align="start" spacing={2}>
+                              <Text fontSize="xs" color="gray.400" fontWeight="medium">
+                                {t('tools.thinking')}
+                              </Text>
+                              <ProcessingDots color="#7c7ff3" size={7} />
+                            </VStack>
+                          </Box>
+                        </Flex>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                   <div ref={messagesEndRef} />
                 </VStack>
               </Box>
@@ -1647,6 +1956,24 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
             {/* Right: donut + send */}
             <HStack gap={2}>
+              <AnimatePresence initial={false}>
+                {isAwaitingAssistantText && (
+                  <motion.div
+                    key="composer-processing-state"
+                    initial={{ opacity: 0, x: 6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 6 }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                  >
+                    <HStack spacing={2} pr={1}>
+                      <ProcessingDots color="#7c7ff3" size={5} />
+                      <Text fontSize="xs" color="gray.400" whiteSpace="nowrap">
+                        {t('tools.thinking')}
+                      </Text>
+                    </HStack>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               {/* Context ring */}
               <Box
                 ref={donutRef}
@@ -1712,8 +2039,8 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                 bg={ACCENT}
                 color="white"
                 _hover={{ bg: ACCENT_HOVER }}
-                isDisabled={!prompt.trim() || isSubmitting || (!selectedSession && !selectedProjectWorkingDirectory)}
-                isLoading={isSubmitting}
+                isDisabled={!prompt.trim() || isComposerBusy || (!selectedSession && !selectedProjectWorkingDirectory)}
+                isLoading={isPendingSelectedSession}
                 onClick={handleSubmit}
                 borderRadius="full"
                 w="36px"

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -80,11 +81,16 @@ public sealed class DashScopeAssistantResponseProvider(
         while (true)
         {
             payload["stream"] = preferStreaming;
+            OpenAiCompatibleProtocol.NormalizePayloadForQwenCompatible(
+                payload,
+                preferStreaming,
+                request.DisableTools);
             using var response = await SendRequestAsync(
                 configuration,
                 payload,
                 request,
                 preferStreaming,
+                eventSink,
                 cancellationToken);
             if (response is null)
             {
@@ -140,48 +146,122 @@ public sealed class DashScopeAssistantResponseProvider(
         JsonObject payload,
         AssistantTurnRequest request,
         bool preferStreaming,
+        Action<AssistantRuntimeEvent>? eventSink,
         CancellationToken cancellationToken)
     {
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, configuration.Endpoint);
-        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", configuration.ApiKey);
-        foreach (var header in configuration.Headers)
+        var payloadJson = JsonSerializer.Serialize(payload);
+        var attempt = 0;
+        var currentDelay = AssistantProviderRetryPolicy.FirstDelay;
+
+        while (true)
         {
-            httpRequest.Headers.TryAddWithoutValidation(header.Key, header.Value);
-        }
+            attempt++;
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, configuration.Endpoint);
+            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", configuration.ApiKey);
+            foreach (var header in configuration.Headers)
+            {
+                httpRequest.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
 
-        httpRequest.Content = new StringContent(
-            JsonSerializer.Serialize(payload),
-            Encoding.UTF8,
-            "application/json");
+            httpRequest.Content = new StringContent(
+                payloadJson,
+                Encoding.UTF8,
+                "application/json");
 
-        var stopwatch = Stopwatch.StartNew();
-        var response = await httpClient.SendAsync(
-            httpRequest,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
-
-        if (telemetryService is not null)
-        {
-            var isStreaming = response.Content.Headers.ContentType?.MediaType?.Contains("event-stream", StringComparison.OrdinalIgnoreCase) == true;
-            await telemetryService.TrackApiRequestAsync(
-                request.RuntimeProfile,
-                request.SessionId,
-                Name,
-                configuration.Model,
-                stopwatch.ElapsedMilliseconds,
-                response.IsSuccessStatusCode ? "success" : "error",
-                (int)response.StatusCode,
-                response.IsSuccessStatusCode ? null : response.ReasonPhrase,
-                preferStreaming || isStreaming,
+            var stopwatch = Stopwatch.StartNew();
+            var response = await httpClient.SendAsync(
+                httpRequest,
+                HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken);
-        }
 
-        if (!response.IsSuccessStatusCode)
-        {
+            if (telemetryService is not null)
+            {
+                var isStreaming = response.Content.Headers.ContentType?.MediaType?.Contains("event-stream", StringComparison.OrdinalIgnoreCase) == true;
+                await telemetryService.TrackApiRequestAsync(
+                    request.RuntimeProfile,
+                    request.SessionId,
+                    Name,
+                    configuration.Model,
+                    stopwatch.ElapsedMilliseconds,
+                    response.IsSuccessStatusCode ? "success" : "error",
+                    (int)response.StatusCode,
+                    response.IsSuccessStatusCode ? null : response.ReasonPhrase,
+                    preferStreaming || isStreaming,
+                    cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                return response;
+            }
+
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var statusCode = (int)response.StatusCode;
+            var shouldRetry = attempt < AssistantProviderRetryPolicy.MaxAttempts &&
+                              AssistantProviderRetryPolicy.ShouldRetry(configuration.AuthType, response.StatusCode, responseBody);
+            var hasRetryAfter = AssistantProviderRetryPolicy.TryGetRetryAfterDelay(response.Headers, out var retryDelay);
+
             response.Dispose();
-            return null;
-        }
 
-        return response;
+            if (!shouldRetry)
+            {
+                TryWriteFailureDiagnostics(configuration, payloadJson, responseBody, statusCode);
+                throw new AssistantProviderRequestException(
+                    Name,
+                    configuration.Endpoint,
+                    statusCode,
+                    responseBody);
+            }
+
+            eventSink?.Invoke(new AssistantRuntimeEvent
+            {
+                Stage = "provider-retry",
+                ProviderName = Name,
+                Status = "retrying",
+                Message = $"Provider returned HTTP {statusCode}. Retrying request (attempt {attempt + 1}/{AssistantProviderRetryPolicy.MaxAttempts})."
+            });
+
+            var delay = hasRetryAfter
+                ? retryDelay
+                : AssistantProviderRetryPolicy.ApplyBackoff(currentDelay);
+            await Task.Delay(delay, cancellationToken);
+            currentDelay = hasRetryAfter
+                ? AssistantProviderRetryPolicy.FirstDelay
+                : AssistantProviderRetryPolicy.GetNextDelay(currentDelay);
+        }
+    }
+
+    private static void TryWriteFailureDiagnostics(
+        ResolvedProviderConfiguration configuration,
+        string payloadJson,
+        string responseBody,
+        int statusCode)
+    {
+        try
+        {
+            var diagnosticPath = Path.Combine(Path.GetTempPath(), "qwen-desktop-last-provider-error.json");
+            var diagnostic = new JsonObject
+            {
+                ["provider"] = "qwen-compatible",
+                ["timestampUtc"] = DateTime.UtcNow.ToString("O"),
+                ["endpoint"] = configuration.Endpoint,
+                ["model"] = configuration.Model,
+                ["statusCode"] = statusCode,
+                ["headers"] = new JsonObject(configuration.Headers.Select(pair => KeyValuePair.Create<string, JsonNode?>(pair.Key, pair.Value))),
+                ["requestBody"] = JsonNode.Parse(payloadJson),
+                ["responseBody"] = string.IsNullOrWhiteSpace(responseBody)
+                    ? JsonValue.Create(string.Empty)
+                    : JsonNode.Parse(responseBody) ?? JsonValue.Create(responseBody)
+            };
+
+            File.WriteAllText(
+                diagnosticPath,
+                diagnostic.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+                Encoding.UTF8);
+        }
+        catch
+        {
+            // Diagnostics are best-effort only and must not hide the real provider failure.
+        }
     }
 }

@@ -109,6 +109,46 @@ public sealed class SessionHostTurnTests
     }
 
     [Fact]
+    public async Task DesktopSessionHostService_StartTurnAsync_AllowsExistingExternalProjectDirectory()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-external-project-session-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var externalProjectRoot = Path.Combine(root, "external-project");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(externalProjectRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService);
+
+            var result = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Work in the selected external project directory.",
+                    WorkingDirectory = externalProjectRoot
+                });
+
+            Assert.True(result.CreatedNewSession);
+            Assert.Equal(externalProjectRoot, result.Session.WorkingDirectory);
+            Assert.True(File.Exists(result.Session.TranscriptPath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DesktopSessionHostService_StartTurnAsync_ResolvesSlashCommandIntoTranscript()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-command-session-{Guid.NewGuid():N}");

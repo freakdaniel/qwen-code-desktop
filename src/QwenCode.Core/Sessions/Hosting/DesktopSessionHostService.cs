@@ -1599,12 +1599,22 @@ public sealed class DesktopSessionHostService(
                 ? Path.GetFullPath(requestedWorkingDirectory)
                 : Path.GetFullPath(Path.Combine(workspaceRoot, requestedWorkingDirectory));
 
-        if (!IsPathWithinRoot(resolved, workspaceRoot) && !IsPathWithinRoot(resolved, runtimeTempRoot))
+        if (IsPathWithinRoot(resolved, workspaceRoot) || IsPathWithinRoot(resolved, runtimeTempRoot))
         {
-            throw new InvalidOperationException("Session working directory must stay inside the workspace root or runtime temp directory.");
+            Directory.CreateDirectory(resolved);
+            return resolved;
         }
 
-        Directory.CreateDirectory(resolved);
+        if (!Path.IsPathRooted(requestedWorkingDirectory))
+        {
+            throw new InvalidOperationException("Relative session working directories must stay inside the workspace root.");
+        }
+
+        if (!Directory.Exists(resolved))
+        {
+            throw new InvalidOperationException("Session working directory must exist when it is outside the workspace root.");
+        }
+
         return resolved;
     }
 

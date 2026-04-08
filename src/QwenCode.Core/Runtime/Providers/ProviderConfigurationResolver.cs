@@ -26,6 +26,9 @@ public sealed class ProviderConfigurationResolver(
     internal const string OpenRouterBaseUrl = "https://openrouter.ai/api/v1";
     internal const string DeepSeekBaseUrl = "https://api.deepseek.com/v1";
     internal const string ModelScopeBaseUrl = "https://api.modelscope.cn/v1";
+    internal const string DefaultQwenOAuthModel = "coder-model";
+    private static readonly HashSet<string> QwenOAuthAllowedModels =
+        [DefaultQwenOAuthModel];
     private readonly IConfigService config = configService ?? new RuntimeConfigService(environmentPaths);
     private readonly IModelConfigResolver? _modelConfigResolver = modelConfigResolver;
 
@@ -42,6 +45,7 @@ public sealed class ProviderConfigurationResolver(
         var snapshot = config.Inspect(new WorkspacePaths { WorkspaceRoot = request.RuntimeProfile.ProjectRoot });
         var mergedSettings = snapshot.MergedSettings;
         var settingsEnvironment = snapshot.Environment;
+        var persistedQwenCredentials = ResolveQwenOAuthCredentials(qwenOAuthCredentialStore, qwenOAuthTokenManager);
 
         var authType = FirstNonEmpty(
             request.AuthTypeOverride,
@@ -51,14 +55,12 @@ public sealed class ProviderConfigurationResolver(
             authType = "openai";
         }
 
-        var configuredModel = FirstNonEmpty(
-            request.ModelOverride,
-            options.Model,
-            Environment.GetEnvironmentVariable("QWENCODE_ASSISTANT_MODEL"),
-            ReadEnvironmentValue(settingsEnvironment, "OPENAI_MODEL", "QWEN_MODEL"),
-            Environment.GetEnvironmentVariable("OPENAI_MODEL"),
-            Environment.GetEnvironmentVariable("QWEN_MODEL"),
-            GetString(mergedSettings, "model", "name"));
+        var configuredModel = ResolveConfiguredModel(
+            authType,
+            request,
+            options,
+            settingsEnvironment,
+            mergedSettings);
 
         var resolvedModelMetadata = _modelConfigResolver?.Resolve(
             new WorkspacePaths { WorkspaceRoot = request.RuntimeProfile.ProjectRoot },
@@ -67,7 +69,11 @@ public sealed class ProviderConfigurationResolver(
         authType = FirstNonEmpty(resolvedModelMetadata?.AuthType, authType);
 
         var modelProvider = FindModelProvider(mergedSettings, authType, configuredModel);
-        var resolvedModel = FirstNonEmpty(configuredModel, resolvedModelMetadata?.Id, modelProvider?.Id, "qwen3-coder-plus");
+        var resolvedModel = FirstNonEmpty(
+            resolvedModelMetadata?.Id,
+            configuredModel,
+            modelProvider?.Id,
+            ResolveDefaultModel(authType));
         modelProvider ??= FindModelProvider(mergedSettings, authType, resolvedModel);
 
         var apiKeyEnvironmentVariable = FirstNonEmpty(
@@ -83,13 +89,13 @@ public sealed class ProviderConfigurationResolver(
             GetString(mergedSettings, "security", "auth", "apiKey"),
             modelProvider?.HasExplicitEnvironmentVariable == true,
             authType,
-            qwenOAuthCredentialStore,
-            qwenOAuthTokenManager);
+            persistedQwenCredentials);
 
         var baseUrl = FirstNonEmpty(
             request.EndpointOverride,
             options.Endpoint,
             Environment.GetEnvironmentVariable("QWENCODE_ASSISTANT_ENDPOINT"),
+            ResolveQwenOAuthBaseUrl(authType, persistedQwenCredentials),
             modelProvider?.BaseUrl,
             resolvedModelMetadata?.BaseUrl,
             ReadEnvironmentValue(settingsEnvironment, "OPENAI_BASE_URL", "QWEN_BASE_URL"),
@@ -172,8 +178,7 @@ public sealed class ProviderConfigurationResolver(
         string settingsApiKey,
         bool explicitEnvironmentVariableRequired,
         string authType,
-        IQwenOAuthCredentialStore? qwenOAuthCredentialStore,
-        IQwenOAuthTokenManager? qwenOAuthTokenManager)
+        QwenOAuthCredentials? persistedQwenCredentials)
     {
         if (!string.IsNullOrWhiteSpace(requestApiKey))
         {
@@ -199,16 +204,7 @@ public sealed class ProviderConfigurationResolver(
         if (string.Equals(authType, "qwen-oauth", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(authType, "qwen_oauth", StringComparison.OrdinalIgnoreCase))
         {
-            var persistedAccessToken = qwenOAuthTokenManager?
-                                           .GetValidCredentialsAsync()
-                                           .GetAwaiter()
-                                           .GetResult()?
-                                           .AccessToken ??
-                                       qwenOAuthCredentialStore?
-                                           .ReadAsync()
-                                           .GetAwaiter()
-                                           .GetResult()?
-                                           .AccessToken;
+            var persistedAccessToken = persistedQwenCredentials?.AccessToken;
             if (!string.IsNullOrWhiteSpace(persistedAccessToken))
             {
                 return persistedAccessToken;
@@ -243,6 +239,46 @@ public sealed class ProviderConfigurationResolver(
             _ => OpenAiCompatibleProtocol.DefaultDashScopeBaseUrl
         };
 
+    private static string ResolveDefaultModel(string authType) =>
+        string.Equals(authType, "qwen-oauth", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(authType, "qwen_oauth", StringComparison.OrdinalIgnoreCase)
+            ? DefaultQwenOAuthModel
+            : "qwen3-coder-plus";
+
+    private static string ResolveConfiguredModel(
+        string authType,
+        AssistantTurnRequest request,
+        NativeAssistantRuntimeOptions options,
+        IReadOnlyDictionary<string, string> settingsEnvironment,
+        JsonObject mergedSettings)
+    {
+        var configuredModel = string.Equals(authType, "qwen-oauth", StringComparison.OrdinalIgnoreCase) ||
+                              string.Equals(authType, "qwen_oauth", StringComparison.OrdinalIgnoreCase)
+            ? FirstNonEmpty(
+                request.ModelOverride,
+                options.Model,
+                Environment.GetEnvironmentVariable("QWENCODE_ASSISTANT_MODEL"),
+                GetString(mergedSettings, "model", "name"))
+            : FirstNonEmpty(
+                request.ModelOverride,
+                options.Model,
+                Environment.GetEnvironmentVariable("QWENCODE_ASSISTANT_MODEL"),
+                ReadEnvironmentValue(settingsEnvironment, "OPENAI_MODEL", "QWEN_MODEL"),
+                Environment.GetEnvironmentVariable("OPENAI_MODEL"),
+                Environment.GetEnvironmentVariable("QWEN_MODEL"),
+                GetString(mergedSettings, "model", "name"));
+
+        if ((string.Equals(authType, "qwen-oauth", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(authType, "qwen_oauth", StringComparison.OrdinalIgnoreCase)) &&
+            !string.IsNullOrWhiteSpace(configuredModel) &&
+            !QwenOAuthAllowedModels.Contains(configuredModel))
+        {
+            return string.Empty;
+        }
+
+        return configuredModel;
+    }
+
     private static string ResolveProviderFlavor(string authType, string baseUrl, string endpoint)
     {
         if (string.Equals(authType, "openrouter", StringComparison.OrdinalIgnoreCase) ||
@@ -273,6 +309,43 @@ public sealed class ProviderConfigurationResolver(
         }
 
         return "openai-compatible";
+    }
+
+    private static QwenOAuthCredentials? ResolveQwenOAuthCredentials(
+        IQwenOAuthCredentialStore? qwenOAuthCredentialStore,
+        IQwenOAuthTokenManager? qwenOAuthTokenManager)
+    {
+        return qwenOAuthTokenManager?
+                   .GetValidCredentialsAsync()
+                   .GetAwaiter()
+                   .GetResult() ??
+               qwenOAuthCredentialStore?
+                   .ReadAsync()
+                   .GetAwaiter()
+                   .GetResult();
+    }
+
+    private static string ResolveQwenOAuthBaseUrl(string authType, QwenOAuthCredentials? persistedQwenCredentials)
+    {
+        if (!string.Equals(authType, "qwen-oauth", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(authType, "qwen_oauth", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(persistedQwenCredentials?.ResourceUrl))
+        {
+            return string.Empty;
+        }
+
+        var resourceUrl = persistedQwenCredentials.ResourceUrl.Trim();
+        var normalizedUrl = resourceUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? resourceUrl
+            : $"https://{resourceUrl}";
+
+        return normalizedUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
+            ? normalizedUrl
+            : $"{normalizedUrl.TrimEnd('/')}/v1";
     }
 
     private static string ReadEnvironmentValue(

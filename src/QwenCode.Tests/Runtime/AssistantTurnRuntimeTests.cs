@@ -313,6 +313,71 @@ public sealed class AssistantTurnRuntimeTests
         }
     }
 
+    [Fact]
+    public async Task AssistantTurnRuntime_ReturnsProviderErrorInsteadOfFallbackPlaceholder()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-provider-error-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var runtime = new AssistantTurnRuntime(
+                new AssistantPromptAssembler(new ProjectSummaryService()),
+                [new ThrowingAssistantResponseProvider(), new FallbackAssistantResponseProvider()],
+                new ToolCallScheduler(
+                    new NonInteractiveToolExecutor(new SequencedToolExecutor()),
+                    new LoopDetectionService()),
+                new LoopDetectionService(),
+                new TokenLimitService(),
+                new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                Options.Create(new NativeAssistantRuntimeOptions
+                {
+                    Provider = "failing-provider",
+                    Model = "coder-model"
+                }));
+
+            var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            var response = await runtime.GenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "provider-error-session",
+                    Prompt = "Say hello.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "provider-error-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                });
+
+            Assert.Equal("failing-provider", response.ProviderName);
+            Assert.Equal("provider-error", response.StopReason);
+            Assert.Contains("HTTP 401", response.Summary, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Turn recorded in the native desktop session host", response.Summary, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class ApprovalGateAssistantResponseProvider : IAssistantResponseProvider
     {
         public int InvocationCount { get; private set; }
@@ -405,6 +470,24 @@ public sealed class AssistantTurnRuntimeTests
                     Model = "multi-tool-provider-model"
                 });
         }
+    }
+
+    private sealed class ThrowingAssistantResponseProvider : IAssistantResponseProvider
+    {
+        public string Name => "failing-provider";
+
+        public Task<AssistantTurnResponse?> TryGenerateAsync(
+            AssistantTurnRequest request,
+            AssistantPromptContext promptContext,
+            IReadOnlyList<AssistantToolCallResult> toolHistory,
+            NativeAssistantRuntimeOptions options,
+            Action<AssistantRuntimeEvent>? eventSink = null,
+            CancellationToken cancellationToken = default) =>
+            throw new AssistantProviderRequestException(
+                Name,
+                "https://portal.qwen.ai/v1/chat/completions",
+                401,
+                "{\"error\":\"invalid_token\"}");
     }
 
     private sealed class SequencedToolExecutor(params NativeToolExecutionResult[] results) : IToolExecutor

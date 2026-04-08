@@ -54,6 +54,12 @@ public sealed class RuntimeConfigService(IDesktopEnvironmentPaths environmentPat
         var mergedSettings = BuildMergedSettings(settingsLayers);
         var environment = ReadEnvironment(mergedSettings.Root);
 
+        var selectedAuthType = FirstNonEmpty(GetString(mergedSettings.Root, "security", "auth", "selectedType"), "openai");
+        var defaultModelName = string.Equals(selectedAuthType, "qwen-oauth", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(selectedAuthType, "qwen_oauth", StringComparison.OrdinalIgnoreCase)
+            ? "coder-model"
+            : "qwen3-coder-plus";
+
         return new RuntimeConfigSnapshot
         {
             ProjectRoot = projectRoot,
@@ -68,9 +74,9 @@ public sealed class RuntimeConfigService(IDesktopEnvironmentPaths environmentPat
             Environment = environment,
             RuntimeOutputDirectory = mergedSettings.RuntimeOutputDirectory,
             RuntimeSource = mergedSettings.RuntimeSource,
-            ModelName = FirstNonEmpty(GetString(mergedSettings.Root, "model", "name"), "qwen3-coder-plus"),
+            ModelName = FirstNonEmpty(GetString(mergedSettings.Root, "model", "name"), defaultModelName),
             EmbeddingModel = FirstNonEmpty(GetString(mergedSettings.Root, "embeddingModel"), "text-embedding-v4"),
-            SelectedAuthType = FirstNonEmpty(GetString(mergedSettings.Root, "security", "auth", "selectedType"), "openai"),
+            SelectedAuthType = selectedAuthType,
             ModelProviders = ParseModelProviders(mergedSettings.Root),
             DefaultApprovalMode = string.IsNullOrWhiteSpace(mergedSettings.DefaultApprovalMode)
                 ? "default"

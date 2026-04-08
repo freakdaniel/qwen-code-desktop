@@ -239,6 +239,75 @@ public sealed class ProviderConfigurationResolverTests
             Assert.Equal("qwen-oauth", resolved.AuthType);
             Assert.Equal("persisted-oauth-token", resolved.ApiKey);
             Assert.Equal("QWEN_OAUTH_ACCESS_TOKEN", resolved.ApiKeyEnvironmentVariable);
+            Assert.Equal("coder-model", resolved.Model);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ProviderConfigurationResolver_Resolve_UsesQwenOAuthResourceUrlAsEndpoint()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-provider-oauth-endpoint-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            await File.WriteAllTextAsync(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "qwen-oauth"
+                    }
+                  },
+                  "model": {
+                    "name": "coder-model"
+                  }
+                }
+                """);
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var store = new FileQwenOAuthCredentialStore(environmentPaths);
+            await store.WriteAsync(
+                new QwenOAuthCredentials
+                {
+                    AccessToken = "persisted-oauth-token",
+                    RefreshToken = "refresh-token",
+                    ResourceUrl = "portal.qwen.ai",
+                    ExpiresAtUtc = DateTimeOffset.UtcNow.AddHours(1)
+                });
+
+            var tokenManager = new QwenOAuthTokenManager(
+                store,
+                environmentPaths,
+                new HttpClient(new RecordingHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)))));
+
+            var runtimeProfile = CreateRuntimeProfile(workspaceRoot, homeRoot);
+            var resolver = new ProviderConfigurationResolver(environmentPaths, store, tokenManager);
+            var resolved = resolver.Resolve(
+                CreateTurnRequest(workspaceRoot, runtimeProfile, "oauth-resource-url"),
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "qwen-compatible"
+                });
+
+            Assert.Equal("https://portal.qwen.ai/v1/chat/completions", resolved.Endpoint);
+            Assert.Equal("persisted-oauth-token", resolved.ApiKey);
+            Assert.Equal("qwen-oauth", resolved.Headers["X-DashScope-AuthType"]);
+            Assert.StartsWith("QwenCode/", resolved.Headers["User-Agent"]);
+            Assert.StartsWith("QwenCode/", resolved.Headers["X-DashScope-UserAgent"]);
+            Assert.Equal("enable", resolved.Headers["X-DashScope-CacheControl"]);
         }
         finally
         {
@@ -366,6 +435,54 @@ public sealed class ProviderConfigurationResolverTests
             var persisted = await store.ReadAsync();
             Assert.NotNull(persisted);
             Assert.Equal("fresh-oauth-token", persisted!.AccessToken);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProviderConfigurationResolver_Resolve_FallsBackToCoderModelForUnsupportedQwenOAuthModel()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-provider-oauth-model-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "qwen-oauth"
+                    }
+                  },
+                  "model": {
+                    "name": "qwen3-coder-plus"
+                  }
+                }
+                """);
+
+            var runtimeProfile = CreateRuntimeProfile(workspaceRoot, homeRoot);
+            var resolver = new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var resolved = resolver.Resolve(
+                CreateTurnRequest(workspaceRoot, runtimeProfile, "oauth-model-fallback"),
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "qwen-compatible"
+                });
+
+            Assert.Equal("qwen-oauth", resolved.AuthType);
+            Assert.Equal("coder-model", resolved.Model);
         }
         finally
         {

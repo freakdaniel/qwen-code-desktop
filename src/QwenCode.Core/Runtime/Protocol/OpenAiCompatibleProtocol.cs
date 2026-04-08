@@ -9,6 +9,25 @@ namespace QwenCode.App.Runtime;
 
 internal static class OpenAiCompatibleProtocol
 {
+    private static readonly string[] SupportedQwenCompatibleTools =
+    [
+        "agent",
+        "skill",
+        "list_directory",
+        "read_file",
+        "grep_search",
+        "glob",
+        "edit",
+        "write_file",
+        "run_shell_command",
+        "save_memory",
+        "todo_write",
+        "ask_user_question",
+        "exit_plan_mode",
+        "web_fetch",
+        "web_search"
+    ];
+
     /// <summary>
     /// Represents the Default Dash Scope Base Url
     /// </summary>
@@ -191,7 +210,8 @@ internal static class OpenAiCompatibleProtocol
         }
 
         return uri.Host.EndsWith("dashscope.aliyuncs.com", StringComparison.OrdinalIgnoreCase) ||
-               uri.Host.EndsWith("dashscope-intl.aliyuncs.com", StringComparison.OrdinalIgnoreCase);
+               uri.Host.EndsWith("dashscope-intl.aliyuncs.com", StringComparison.OrdinalIgnoreCase) ||
+               uri.Host.EndsWith("portal.qwen.ai", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -228,7 +248,15 @@ internal static class OpenAiCompatibleProtocol
         var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ??
                       Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ??
                       "dev";
-        return $"QwenCodeDesktop/{version} ({RuntimeInformation.OSDescription}; {RuntimeInformation.OSArchitecture})";
+        var platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? "win32"
+            : RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+                ? "darwin"
+                : RuntimeInformation.IsOSPlatform(OSPlatform.Linux)
+                    ? "linux"
+                    : "unknown";
+        var architecture = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant();
+        return $"QwenCode/{version} ({platform}; {architecture})";
     }
 
     /// <summary>
@@ -280,6 +308,57 @@ internal static class OpenAiCompatibleProtocol
         if (string.Equals(providerFlavor, "modelscope", StringComparison.OrdinalIgnoreCase) && !streaming)
         {
             payload.Remove("stream_options");
+        }
+    }
+
+    /// <summary>
+    /// Normalizes payload for qwen-compatible requests routed through Qwen OAuth / DashScope endpoints.
+    /// </summary>
+    /// <param name="payload">The payload</param>
+    /// <param name="streaming">The streaming</param>
+    /// <param name="disableTools">Whether tools are disabled for the current request</param>
+    public static void NormalizePayloadForQwenCompatible(
+        JsonObject payload,
+        bool streaming,
+        bool disableTools)
+    {
+        NormalizePayloadForProviderFlavor(payload, "dashscope", streaming);
+
+        // The official Qwen CLI only sends model/messages/tools for chat turns and
+        // lets the backend determine output sizing/default sampling behavior.
+        payload.Remove("max_tokens");
+        payload.Remove("temperature");
+
+        if (payload["tools"] is JsonArray tools)
+        {
+            NormalizeQwenCompatibleTools(tools);
+        }
+
+        if (!disableTools)
+        {
+            payload.Remove("tool_choice");
+        }
+    }
+
+    private static void NormalizeQwenCompatibleTools(JsonArray tools)
+    {
+        var byName = tools
+            .OfType<JsonObject>()
+            .Select(tool => new
+            {
+                Tool = tool,
+                Name = tool["function"]?["name"]?.GetValue<string>()
+            })
+            .Where(item => !string.IsNullOrWhiteSpace(item.Name))
+            .ToDictionary(item => item.Name!, item => item.Tool, StringComparer.OrdinalIgnoreCase);
+
+        tools.Clear();
+        foreach (var toolName in SupportedQwenCompatibleTools)
+        {
+            if (byName.TryGetValue(toolName, out var tool))
+            {
+                tools.Add(tool);
+            }
         }
     }
 

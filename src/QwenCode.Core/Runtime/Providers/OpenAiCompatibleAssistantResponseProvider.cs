@@ -80,6 +80,7 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(
                 payload,
                 request,
                 preferStreaming,
+                eventSink,
                 cancellationToken);
             if (response is null)
             {
@@ -135,47 +136,87 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(
         JsonObject payload,
         AssistantTurnRequest request,
         bool preferStreaming,
+        Action<AssistantRuntimeEvent>? eventSink,
         CancellationToken cancellationToken)
     {
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, configuration.Endpoint);
-        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", configuration.ApiKey);
-        foreach (var header in configuration.Headers)
-        {
-            httpRequest.Headers.TryAddWithoutValidation(header.Key, header.Value);
-        }
+        var payloadJson = JsonSerializer.Serialize(payload);
+        var attempt = 0;
+        var currentDelay = AssistantProviderRetryPolicy.FirstDelay;
 
-        httpRequest.Content = new StringContent(
-            JsonSerializer.Serialize(payload),
-            Encoding.UTF8,
-            "application/json");
-
-        var stopwatch = Stopwatch.StartNew();
-        var response = await httpClient.SendAsync(
-            httpRequest,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
-        if (telemetryService is not null)
+        while (true)
         {
-            var isStreaming = response.Content.Headers.ContentType?.MediaType?.Contains("event-stream", StringComparison.OrdinalIgnoreCase) == true;
-            await telemetryService.TrackApiRequestAsync(
-                request.RuntimeProfile,
-                request.SessionId,
-                Name,
-                configuration.Model,
-                stopwatch.ElapsedMilliseconds,
-                response.IsSuccessStatusCode ? "success" : "error",
-                (int)response.StatusCode,
-                response.IsSuccessStatusCode ? null : response.ReasonPhrase,
-                preferStreaming || isStreaming,
-                cancellationToken: cancellationToken);
-        }
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, configuration.Endpoint);
+            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", configuration.ApiKey);
+            foreach (var header in configuration.Headers)
+            {
+                httpRequest.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
 
-        if (!response.IsSuccessStatusCode)
-        {
+            httpRequest.Content = new StringContent(
+                payloadJson,
+                Encoding.UTF8,
+                "application/json");
+
+            attempt++;
+
+            var stopwatch = Stopwatch.StartNew();
+            var response = await httpClient.SendAsync(
+                httpRequest,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+            if (telemetryService is not null)
+            {
+                var isStreaming = response.Content.Headers.ContentType?.MediaType?.Contains("event-stream", StringComparison.OrdinalIgnoreCase) == true;
+                await telemetryService.TrackApiRequestAsync(
+                    request.RuntimeProfile,
+                    request.SessionId,
+                    Name,
+                    configuration.Model,
+                    stopwatch.ElapsedMilliseconds,
+                    response.IsSuccessStatusCode ? "success" : "error",
+                    (int)response.StatusCode,
+                    response.IsSuccessStatusCode ? null : response.ReasonPhrase,
+                    preferStreaming || isStreaming,
+                    cancellationToken: cancellationToken);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                return response;
+            }
+
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            var statusCode = (int)response.StatusCode;
+            var shouldRetry = attempt < AssistantProviderRetryPolicy.MaxAttempts &&
+                              AssistantProviderRetryPolicy.ShouldRetry(configuration.AuthType, response.StatusCode, responseBody);
+            var hasRetryAfter = AssistantProviderRetryPolicy.TryGetRetryAfterDelay(response.Headers, out var retryDelay);
+
             response.Dispose();
-            return null;
-        }
 
-        return response;
+            if (!shouldRetry)
+            {
+                throw new AssistantProviderRequestException(
+                    Name,
+                    configuration.Endpoint,
+                    statusCode,
+                    responseBody);
+            }
+
+            eventSink?.Invoke(new AssistantRuntimeEvent
+            {
+                Stage = "provider-retry",
+                ProviderName = Name,
+                Status = "retrying",
+                Message = $"Provider returned HTTP {statusCode}. Retrying request (attempt {attempt + 1}/{AssistantProviderRetryPolicy.MaxAttempts})."
+            });
+
+            var delay = hasRetryAfter
+                ? retryDelay
+                : AssistantProviderRetryPolicy.ApplyBackoff(currentDelay);
+            await Task.Delay(delay, cancellationToken);
+            currentDelay = hasRetryAfter
+                ? AssistantProviderRetryPolicy.FirstDelay
+                : AssistantProviderRetryPolicy.GetNextDelay(currentDelay);
+        }
     }
 }

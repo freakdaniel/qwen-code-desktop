@@ -154,9 +154,18 @@ public sealed class DashScopeProviderTests
             Assert.Equal("provider-session", payload["metadata"]?["sessionId"]?.GetValue<string>());
             Assert.Equal("desktop", payload["metadata"]?["channel"]?.GetValue<string>());
             Assert.Equal("high", payload["reasoning_mode"]?.GetValue<string>());
-            Assert.Equal("auto", payload["tool_choice"]?.GetValue<string>());
             Assert.True(payload["stream"]?.GetValue<bool>());
-            Assert.Equal(32768, payload["max_tokens"]?.GetValue<int>());
+            Assert.True(payload["stream_options"]?["include_usage"]?.GetValue<bool>());
+            Assert.Null(payload["tool_choice"]);
+            Assert.Null(payload["max_tokens"]);
+            Assert.Null(payload["temperature"]);
+            var toolNames = payload["tools"]!.AsArray()
+                .Select(item => item?["function"]?["name"]?.GetValue<string>())
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToArray();
+            Assert.Equal(
+                ["agent", "skill", "list_directory", "read_file", "grep_search", "glob", "edit", "write_file", "run_shell_command", "save_memory", "todo_write", "ask_user_question", "exit_plan_mode", "web_fetch", "web_search"],
+                toolNames);
         }
         finally
         {
@@ -598,6 +607,13 @@ public sealed class DashScopeProviderTests
             var secondPayload = JsonNode.Parse(requestBodies[1])!.AsObject();
             Assert.True(firstPayload["stream"]!.GetValue<bool>());
             Assert.False(secondPayload["stream"]!.GetValue<bool>());
+            Assert.True(firstPayload["stream_options"]?["include_usage"]?.GetValue<bool>());
+            Assert.Null(firstPayload["max_tokens"]);
+            Assert.Null(firstPayload["temperature"]);
+            Assert.Null(firstPayload["tool_choice"]);
+            Assert.Null(secondPayload["max_tokens"]);
+            Assert.Null(secondPayload["temperature"]);
+            Assert.Null(secondPayload["tool_choice"]);
         }
         finally
         {
@@ -741,6 +757,278 @@ public sealed class DashScopeProviderTests
             Assert.Equal("Recovered from embedded stream error", response!.Summary);
             Assert.Contains(runtimeEvents, static item => item.Stage == "stream-retry" &&
                                                          item.Message.Contains("rate limit exceeded", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DashScopeAssistantResponseProvider_TryGenerateAsync_RetriesTransientHttp429Responses()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-provider-http-retry-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "qwen-oauth"
+                    }
+                  },
+                  "model": {
+                    "name": "coder-model"
+                  }
+                }
+                """);
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var store = new QwenCode.App.Auth.FileQwenOAuthCredentialStore(environmentPaths);
+            await store.WriteAsync(
+                new QwenOAuthCredentials
+                {
+                    AccessToken = "persisted-oauth-token",
+                    RefreshToken = "refresh-token",
+                    ResourceUrl = "https://portal.qwen.ai",
+                    ExpiresAtUtc = DateTimeOffset.UtcNow.AddHours(1)
+                });
+
+            var runtimeProfile = new QwenRuntimeProfile
+            {
+                ProjectRoot = workspaceRoot,
+                GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeBaseDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeSource = "project-settings",
+                ProjectDataDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test"),
+                ChatsDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test", "chats"),
+                HistoryDirectory = Path.Combine(homeRoot, ".qwen", "history", "test"),
+                ContextFileNames = ["QWEN.md"],
+                ContextFilePaths = [],
+                ApprovalProfile = new ApprovalProfile
+                {
+                    DefaultMode = "default",
+                    ConfirmShellCommands = true,
+                    ConfirmFileEdits = true,
+                    AllowRules = [],
+                    AskRules = [],
+                    DenyRules = []
+                }
+            };
+
+            var callCount = 0;
+            var runtimeEvents = new List<AssistantRuntimeEvent>();
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((_, _) =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    var retryResponse = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                    {
+                        Content = new StringContent(
+                            """{"error":{"code":"rate_limit_exceeded","message":"temporary overload"}}""",
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                    retryResponse.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero);
+                    return Task.FromResult(retryResponse);
+                }
+
+                var successPayload = """
+                    data: {"choices":[{"delta":{"content":"retried "}}]}
+
+                    data: {"choices":[{"delta":{"content":"successfully"}}]}
+
+                    data: [DONE]
+                    """;
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(successPayload, Encoding.UTF8, "text/event-stream")
+                };
+                response.Content.Headers.ContentType = new MediaTypeHeaderValue("text/event-stream");
+                return Task.FromResult(response);
+            }));
+
+            var provider = new DashScopeAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(environmentPaths, store),
+                new TokenLimitService());
+
+            var response = await provider.TryGenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "provider-session",
+                    Prompt = "Retry a transient rate limit.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "provider-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                },
+                new AssistantPromptContext
+                {
+                    SessionSummary = "Transcript messages loaded: 0",
+                    HistoryHighlights = [],
+                    ContextFiles = [],
+                    Messages = []
+                },
+                [],
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "qwen-compatible"
+                },
+                runtimeEvents.Add);
+
+            Assert.NotNull(response);
+            Assert.Equal(2, callCount);
+            Assert.Equal("retried successfully", response!.Summary);
+            Assert.Contains(runtimeEvents, static item => item.Stage == "provider-retry");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DashScopeAssistantResponseProvider_TryGenerateAsync_DoesNotRetryQwenQuotaExceeded429()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-provider-quota-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "qwen-oauth"
+                    }
+                  },
+                  "model": {
+                    "name": "coder-model"
+                  }
+                }
+                """);
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var store = new QwenCode.App.Auth.FileQwenOAuthCredentialStore(environmentPaths);
+            await store.WriteAsync(
+                new QwenOAuthCredentials
+                {
+                    AccessToken = "persisted-oauth-token",
+                    RefreshToken = "refresh-token",
+                    ResourceUrl = "https://portal.qwen.ai",
+                    ExpiresAtUtc = DateTimeOffset.UtcNow.AddHours(1)
+                });
+
+            var runtimeProfile = new QwenRuntimeProfile
+            {
+                ProjectRoot = workspaceRoot,
+                GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeBaseDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeSource = "project-settings",
+                ProjectDataDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test"),
+                ChatsDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test", "chats"),
+                HistoryDirectory = Path.Combine(homeRoot, ".qwen", "history", "test"),
+                ContextFileNames = ["QWEN.md"],
+                ContextFilePaths = [],
+                ApprovalProfile = new ApprovalProfile
+                {
+                    DefaultMode = "default",
+                    ConfirmShellCommands = true,
+                    ConfirmFileEdits = true,
+                    AllowRules = [],
+                    AskRules = [],
+                    DenyRules = []
+                }
+            };
+
+            var callCount = 0;
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((_, _) =>
+            {
+                callCount++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                {
+                    Content = new StringContent(
+                        """{"error":{"code":"insufficient_quota","message":"free allocated quota exceeded"}}""",
+                        Encoding.UTF8,
+                        "application/json")
+                });
+            }));
+
+            var provider = new DashScopeAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(environmentPaths, store),
+                new TokenLimitService());
+
+            var exception = await Assert.ThrowsAsync<AssistantProviderRequestException>(() =>
+                provider.TryGenerateAsync(
+                    new AssistantTurnRequest
+                    {
+                        SessionId = "provider-session",
+                        Prompt = "Do not retry a hard quota error.",
+                        WorkingDirectory = workspaceRoot,
+                        TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "provider-session.jsonl"),
+                        RuntimeProfile = runtimeProfile,
+                        GitBranch = "main",
+                        ToolExecution = new NativeToolExecutionResult
+                        {
+                            ToolName = string.Empty,
+                            Status = "not-requested",
+                            ApprovalState = "allow",
+                            WorkingDirectory = workspaceRoot,
+                            Output = string.Empty,
+                            ErrorMessage = string.Empty,
+                            ExitCode = 0,
+                            ChangedFiles = []
+                        }
+                    },
+                    new AssistantPromptContext
+                    {
+                        SessionSummary = "Transcript messages loaded: 0",
+                        HistoryHighlights = [],
+                        ContextFiles = [],
+                        Messages = []
+                    },
+                    [],
+                    new NativeAssistantRuntimeOptions
+                    {
+                        Provider = "qwen-compatible"
+                    }));
+
+            Assert.Equal(1, callCount);
+            Assert.Equal(429, exception.StatusCode);
         }
         finally
         {

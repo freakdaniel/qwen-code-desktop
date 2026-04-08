@@ -66,7 +66,7 @@ public sealed class AuthFlowService(
         var selectedType = FirstNonEmpty(GetString(mergedSettings, "security", "auth", "selectedType"), "openai");
         var selectedScope = ResolveSelectedScope(runtimeProfile);
         var model = GetString(mergedSettings, "model", "name");
-        var endpoint = ResolveEndpoint(mergedSettings, selectedType, model);
+        var endpoint = ResolveEndpoint(mergedSettings, selectedType, model, qwenCredentials);
         var apiKeyEnvironmentVariable = ResolveApiKeyEnvironmentVariable(mergedSettings, selectedType, model);
         var hasApiKey = ResolveHasApiKey(mergedSettings, selectedType, apiKeyEnvironmentVariable, qwenCredentials);
 
@@ -191,6 +191,7 @@ public sealed class AuthFlowService(
         var settingsPath = config.ResolveSettingsPath(paths, request.Scope);
         var root = LoadSettingsRoot(settingsPath);
         SetValue(root, "security", "auth", "selectedType", "qwen-oauth");
+        SetValue(root, "model", "name", "coder-model");
         RemoveValue(root, "security", "auth", "apiKey");
         SaveSettingsRoot(settingsPath, root);
 
@@ -374,10 +375,26 @@ public sealed class AuthFlowService(
             : "OpenAI-compatible";
     }
 
-    private static string ResolveEndpoint(JsonObject mergedSettings, string selectedType, string model)
+    private static string ResolveEndpoint(
+        JsonObject mergedSettings,
+        string selectedType,
+        string model,
+        QwenOAuthCredentials? qwenCredentials)
     {
         if (string.Equals(selectedType, "qwen-oauth", StringComparison.OrdinalIgnoreCase))
         {
+            var resourceUrl = qwenCredentials?.ResourceUrl ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(resourceUrl))
+            {
+                var normalized = resourceUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                    ? resourceUrl
+                    : $"https://{resourceUrl}";
+                var qwenBaseUrl = normalized.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
+                    ? normalized
+                    : $"{normalized.TrimEnd('/')}/v1";
+                return EnsureChatCompletionsEndpoint(qwenBaseUrl);
+            }
+
             return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
         }
 

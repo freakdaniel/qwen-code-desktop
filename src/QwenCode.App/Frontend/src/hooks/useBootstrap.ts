@@ -32,6 +32,7 @@ export interface BootstrapState {
   isReady: boolean
   sessionCache: Record<string, DesktopSessionDetail>
   setBootstrap: React.Dispatch<React.SetStateAction<AppBootstrapPayload>>
+  setSessionCache: React.Dispatch<React.SetStateAction<Record<string, DesktopSessionDetail>>>
   setAuthSnapshot: React.Dispatch<React.SetStateAction<AuthStatusSnapshot>>
   setMcpSnapshot: React.Dispatch<React.SetStateAction<McpSnapshot>>
   latestSessionEvent: DesktopSessionEvent | null
@@ -319,6 +320,7 @@ function useBootstrapState(): BootstrapState {
       sessionCache,
       latestSessionEvent,
       setBootstrap,
+      setSessionCache,
       setAuthSnapshot,
       setMcpSnapshot,
       setLatestSessionEvent,
@@ -336,6 +338,7 @@ function useBootstrapState(): BootstrapState {
       reattachedSessionId,
       sessionCache,
       streamingSnapshots,
+      setSessionCache,
     ],
   )
 }

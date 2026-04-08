@@ -66,9 +66,20 @@ public sealed class AssistantTurnRuntime(
             });
         }
         var toolHistory = new List<AssistantToolCallResult>();
+        Exception? lastProviderFailure = null;
+        string lastProviderName = string.Empty;
 
         foreach (var provider in BuildProviderChain())
         {
+            if (string.Equals(provider.Name, "fallback", StringComparison.OrdinalIgnoreCase) &&
+                lastProviderFailure is not null)
+            {
+                return FinalizeResponse(
+                    BuildProviderFailureResponse(lastProviderName, resolvedConfiguration.Model, lastProviderFailure),
+                    startedAtUtc,
+                    stopwatch.ElapsedMilliseconds);
+            }
+
             eventSink?.Invoke(new AssistantRuntimeEvent
             {
                 Stage = "generating",
@@ -90,13 +101,16 @@ public sealed class AssistantTurnRuntime(
                     return FinalizeResponse(response, startedAtUtc, stopwatch.ElapsedMilliseconds);
                 }
             }
-            catch
+            catch (Exception exception)
             {
+                lastProviderFailure = exception;
+                lastProviderName = provider.Name;
                 eventSink?.Invoke(new AssistantRuntimeEvent
                 {
                     Stage = "fallback",
                     ProviderName = provider.Name,
-                    Message = $"Provider {provider.Name} failed. Falling back to the local assistant runtime."
+                    Status = "error",
+                    Message = BuildProviderFailureMessage(provider.Name, exception)
                 });
             }
         }
@@ -276,5 +290,32 @@ public sealed class AssistantTurnRuntime(
             ToolCalls = response.ToolCalls,
             ToolExecutions = response.ToolExecutions
         };
+    }
+
+    private static AssistantTurnResponse BuildProviderFailureResponse(
+        string providerName,
+        string model,
+        Exception exception) =>
+        new()
+        {
+            Summary = BuildProviderFailureMessage(providerName, exception),
+            ProviderName = providerName,
+            Model = model,
+            StopReason = "provider-error",
+            ToolExecutions = [],
+            Stats = new AssistantExecutionStats()
+        };
+
+    private static string BuildProviderFailureMessage(string providerName, Exception exception)
+    {
+        if (exception is AssistantProviderRequestException requestException)
+        {
+            return requestException.Message;
+        }
+
+        var details = string.IsNullOrWhiteSpace(exception.Message)
+            ? "Unknown provider error."
+            : exception.Message.Trim();
+        return $"Assistant provider '{providerName}' failed: {details}";
     }
 }

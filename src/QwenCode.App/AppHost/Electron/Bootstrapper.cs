@@ -28,6 +28,12 @@ public static class Bootstrapper
     private static DateTimeOffset _mainWindowCreatedAtUtc;
     private static int _startupRecoveryAttempts;
     private static bool _shutdownRequested;
+    private static int _appHooksRegistered;
+
+    /// <summary>
+    /// Occurs when the Electron application requests the .NET host to shut down.
+    /// </summary>
+    public static event Action<string>? ShutdownRequested;
 
     /// <summary>
     /// Starts async
@@ -62,9 +68,40 @@ public static class Bootstrapper
 
         _indexUri = new Uri(indexPath).AbsoluteUri;
         _browserWindowOptions = CreateMainWindowOptions(productName, preloadPath);
+        RegisterApplicationDiagnostics();
 
         await EnsureMainWindowAsync("initial-bootstrap");
         _logger.LogInformation("Main window bootstrap completed");
+    }
+
+    private static void RegisterApplicationDiagnostics()
+    {
+        if (Interlocked.Exchange(ref _appHooksRegistered, 1) != 0)
+        {
+            return;
+        }
+
+        ElectronApi.WindowManager.IsQuitOnWindowAllClosed = true;
+
+        ElectronApi.App.WindowAllClosed += () =>
+        {
+            _logger?.LogInformation("Electron app reported window-all-closed");
+            RequestApplicationShutdown("window-all-closed");
+        };
+
+        ElectronApi.App.BeforeQuit += _ =>
+        {
+            _logger?.LogInformation("Electron app reported before-quit");
+            RequestApplicationShutdown("before-quit");
+            return Task.CompletedTask;
+        };
+
+        ElectronApi.App.WillQuit += _ =>
+        {
+            _logger?.LogInformation("Electron app reported will-quit");
+            RequestApplicationShutdown("will-quit");
+            return Task.CompletedTask;
+        };
     }
 
     private static BrowserWindowOptions CreateMainWindowOptions(string productName, string preloadPath) =>
@@ -195,10 +232,8 @@ public static class Bootstrapper
 
             if (!_shutdownRequested)
             {
-                _shutdownRequested = true;
-                _logger?.LogInformation("Main window #{WindowId} closed; quitting application", windowId);
-                // Force quit immediately to avoid hanging processes
-                Environment.Exit(0);
+                _logger?.LogInformation("Main window #{WindowId} closed; requesting application shutdown", windowId);
+                RequestApplicationShutdown("main-window-closed");
             }
         };
 
@@ -248,4 +283,15 @@ public static class Bootstrapper
     private static bool IsBridgeNotReadyException(Exception exception) =>
         exception.Message.Contains("Cannot access socket bridge", StringComparison.OrdinalIgnoreCase) ||
         exception.Message.Contains("Runtime is not in 'Ready' state", StringComparison.OrdinalIgnoreCase);
+
+    private static void RequestApplicationShutdown(string reason)
+    {
+        if (_shutdownRequested)
+        {
+            return;
+        }
+
+        _shutdownRequested = true;
+        ShutdownRequested?.Invoke(reason);
+    }
 }

@@ -1,5 +1,6 @@
 using System.Runtime;
 using System.Threading;
+using System.Diagnostics;
 using ElectronNET;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +15,7 @@ namespace QwenCode.App;
 
 internal static class Program
 {
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(5);
     private static int _shutdownInitiated;
     private static int _runtimeStopped;
     private static int _processExitCleanupCompleted;
@@ -48,6 +50,7 @@ internal static class Program
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         ConsoleLogBridge.Install(loggerFactory);
         var logger = loggerFactory.CreateLogger("QwenCode.App");
+        Bootstrapper.ShutdownRequested += reason => _ = RequestShutdownAsync(runtimeController, logger, reason);
         RegisterShutdownHandlers(runtimeController, logger);
 
         try
@@ -137,7 +140,16 @@ internal static class Program
         try
         {
             logger.LogInformation("Stopping Electron.NET runtime due to {Reason}", reason);
-            await runtimeController.Stop().ConfigureAwait(false);
+            var stopTask = runtimeController.Stop();
+            var completedTask = await Task.WhenAny(stopTask, Task.Delay(ShutdownTimeout)).ConfigureAwait(false);
+            if (completedTask != stopTask)
+            {
+                logger.LogError("Electron.NET runtime stop timed out after {TimeoutMs} ms during {Reason}", ShutdownTimeout.TotalMilliseconds, reason);
+                ForceTerminateCurrentProcess(logger, $"{reason}-timeout");
+                return;
+            }
+
+            await stopTask.ConfigureAwait(false);
             Interlocked.Exchange(ref _runtimeStopped, 1);
         }
         catch (Exception exception)
@@ -163,7 +175,15 @@ internal static class Program
         try
         {
             logger.LogInformation("Stopping Electron.NET runtime due to {Reason}", reason);
-            runtimeController.Stop().GetAwaiter().GetResult();
+            var stopTask = (Task)runtimeController.Stop();
+            if (!stopTask.Wait(ShutdownTimeout))
+            {
+                logger.LogError("Electron.NET runtime stop timed out after {TimeoutMs} ms during {Reason}", ShutdownTimeout.TotalMilliseconds, reason);
+                ForceTerminateCurrentProcess(logger, $"{reason}-timeout");
+                return;
+            }
+
+            stopTask.GetAwaiter().GetResult();
             Interlocked.Exchange(ref _runtimeStopped, 1);
         }
         catch (Exception exception)
@@ -176,6 +196,28 @@ internal static class Program
         finally
         {
             ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, reason);
+        }
+    }
+
+    private static void ForceTerminateCurrentProcess(Microsoft.Extensions.Logging.ILogger logger, string reason)
+    {
+        try
+        {
+            ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, reason);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Failed to clean up Electron host before forced termination");
+        }
+
+        try
+        {
+            logger.LogWarning("Force terminating current desktop host process due to {Reason}", reason);
+            Log.CloseAndFlush();
+        }
+        finally
+        {
+            Process.GetCurrentProcess().Kill(entireProcessTree: true);
         }
     }
 

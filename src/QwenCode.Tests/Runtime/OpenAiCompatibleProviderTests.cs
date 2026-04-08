@@ -405,6 +405,105 @@ public sealed class OpenAiCompatibleProviderTests
         }
     }
 
+    [Fact]
+    public async Task OpenAiCompatibleAssistantResponseProvider_TryGenerateAsync_RetriesTransientHttp429Responses()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-openai-http-retry-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "openai",
+                      "baseUrl": "https://example.test/v1"
+                    }
+                  },
+                  "env": {
+                    "OPENAI_API_KEY": "openai-key"
+                  },
+                  "model": {
+                    "name": "gpt-4.1"
+                  }
+                }
+                """);
+
+            var runtimeProfile = CreateRuntimeProfile(workspaceRoot, homeRoot);
+            var callCount = 0;
+            var events = new List<AssistantRuntimeEvent>();
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((_, _) =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    var retryResponse = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                    {
+                        Content = new StringContent(
+                            """{"error":{"code":"rate_limit_exceeded","message":"temporary overload"}}""",
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                    retryResponse.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.Zero);
+                    return Task.FromResult(retryResponse);
+                }
+
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "choices": [
+                            {
+                              "message": {
+                                "content": "Recovered after HTTP retry"
+                              }
+                            }
+                          ]
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json")
+                });
+            }));
+
+            var provider = new OpenAiCompatibleAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                new TokenLimitService());
+
+            var response = await provider.TryGenerateAsync(
+                CreateTurnRequest(workspaceRoot, runtimeProfile),
+                CreatePromptContext(),
+                [],
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "openai-compatible",
+                    ApiKeyEnvironmentVariable = "OPENAI_API_KEY"
+                },
+                events.Add);
+
+            Assert.NotNull(response);
+            Assert.Equal(2, callCount);
+            Assert.Equal("Recovered after HTTP retry", response!.Summary);
+            Assert.Contains(events, static item => item.Stage == "provider-retry");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static AssistantTurnRequest CreateTurnRequest(string workspaceRoot, QwenRuntimeProfile runtimeProfile) =>
         new()
         {
