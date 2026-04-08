@@ -47,6 +47,7 @@ public sealed class McpConnectionManagerService(
                     TimeoutMs = server.TimeoutMs,
                     Trust = server.Trust,
                     Description = server.Description,
+                    Instructions = server.Instructions,
                     IncludeTools = server.IncludeTools,
                     ExcludeTools = server.ExcludeTools,
                     SettingsPath = server.SettingsPath,

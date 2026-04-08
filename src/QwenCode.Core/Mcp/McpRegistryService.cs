@@ -149,6 +149,7 @@ public sealed class McpRegistryService(
             TimeoutMs = server["timeout"]?.GetValue<int?>(),
             Trust = server["trust"]?.GetValue<bool?>() ?? false,
             Description = server["description"]?.GetValue<string?>() ?? string.Empty,
+            Instructions = server["instructions"]?.GetValue<string?>() ?? string.Empty,
             IncludeTools = ReadStringArray(server["includeTools"]),
             ExcludeTools = ReadStringArray(server["excludeTools"]),
             SettingsPath = settingsPath,
@@ -162,7 +163,8 @@ public sealed class McpRegistryService(
         {
             ["timeout"] = request.TimeoutMs,
             ["trust"] = request.Trust,
-            ["description"] = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description
+            ["description"] = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description,
+            ["instructions"] = string.IsNullOrWhiteSpace(request.Instructions) ? null : request.Instructions
         };
 
         switch (NormalizeTransport(request.Transport))

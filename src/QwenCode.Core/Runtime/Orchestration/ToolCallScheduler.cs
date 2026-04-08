@@ -31,6 +31,8 @@ public sealed class ToolCallScheduler(
         Action<AssistantRuntimeEvent>? eventSink = null,
         CancellationToken cancellationToken = default)
     {
+        var toolCallGroupId = $"tool-group-{Guid.NewGuid():N}";
+
         foreach (var toolCall in toolCalls)
         {
             var loopDecision = loopDetectionService.ObserveToolCall(request.SessionId, toolCall);
@@ -41,6 +43,9 @@ public sealed class ToolCallScheduler(
                     Stage = "loop-detected",
                     ProviderName = providerName,
                     ToolName = toolCall.ToolName,
+                    ToolCallId = toolCall.Id,
+                    ToolCallGroupId = toolCallGroupId,
+                    ToolArgumentsJson = NormalizeToolArguments(toolCall.ArgumentsJson),
                     Status = "blocked",
                     Message = loopDecision.Reason
                 });
@@ -48,7 +53,7 @@ public sealed class ToolCallScheduler(
                 return new ToolSchedulingResult
                 {
                     ContinueTurnLoop = false,
-                    TerminalSummary = $"Assistant runtime stopped because loop detection found repeated tool calls for '{toolCall.ToolName}'.",
+                    TerminalSummary = $"Stopped because the same tool call for '{toolCall.ToolName}' kept repeating.",
                     TerminalStopReason = "tool-loop-detected"
                 };
             }
@@ -68,6 +73,9 @@ public sealed class ToolCallScheduler(
                     Stage = "tool-blocked",
                     ProviderName = providerName,
                     ToolName = toolCall.ToolName,
+                    ToolCallId = toolCall.Id,
+                    ToolCallGroupId = toolCallGroupId,
+                    ToolArgumentsJson = NormalizeToolArguments(toolCall.ArgumentsJson),
                     Status = deniedExecution.Status,
                     Message = BuildToolMessage(deniedExecution)
                 });
@@ -75,7 +83,7 @@ public sealed class ToolCallScheduler(
                 return new ToolSchedulingResult
                 {
                     ContinueTurnLoop = false,
-                    TerminalSummary = $"Assistant runtime requested native tool '{toolCall.ToolName}', but this subagent runtime is not allowed to execute it.",
+                    TerminalSummary = $"Tool '{toolCall.ToolName}' is not available in this delegated runtime.",
                     TerminalStopReason = "tool-blocked"
                 };
             }
@@ -85,14 +93,17 @@ public sealed class ToolCallScheduler(
                 Stage = "tool-requested",
                 ProviderName = providerName,
                 ToolName = toolCall.ToolName,
+                ToolCallId = toolCall.Id,
+                ToolCallGroupId = toolCallGroupId,
+                ToolArgumentsJson = NormalizeToolArguments(toolCall.ArgumentsJson),
                 Status = "requested",
-                Message = $"Assistant runtime requested native tool '{toolCall.ToolName}'."
+                Message = $"Starting tool '{toolCall.ToolName}'."
             });
 
             var execution = await toolExecutor.ExecuteAsync(
                 request,
                 toolCall,
-                toolEvent => eventSink?.Invoke(CloneNestedToolEvent(toolEvent, providerName)),
+                toolEvent => eventSink?.Invoke(CloneNestedToolEvent(toolEvent, providerName, toolCall, toolCallGroupId)),
                 cancellationToken);
 
             var toolResult = new AssistantToolCallResult
@@ -107,6 +118,9 @@ public sealed class ToolCallScheduler(
                 Stage = MapToolStage(execution.Status),
                 ProviderName = providerName,
                 ToolName = execution.ToolName,
+                ToolCallId = toolCall.Id,
+                ToolCallGroupId = toolCallGroupId,
+                ToolArgumentsJson = NormalizeToolArguments(toolCall.ArgumentsJson),
                 Status = execution.Status,
                 Message = BuildToolMessage(execution)
             });
@@ -131,11 +145,11 @@ public sealed class ToolCallScheduler(
     private static string BuildTerminalSummary(NativeToolExecutionResult execution) =>
         execution.Status switch
         {
-            "approval-required" => $"Assistant runtime requested native tool '{execution.ToolName}', but it is waiting for approval before the turn can continue.",
-            "input-required" => $"Assistant runtime requested native tool '{execution.ToolName}', but it is waiting for user answers before the turn can continue.",
-            "blocked" => $"Assistant runtime requested native tool '{execution.ToolName}', but qwen-compatible approval policy blocked it.",
-            "error" => $"Assistant runtime requested native tool '{execution.ToolName}', but execution failed: {execution.ErrorMessage}",
-            _ => $"Assistant runtime stopped after native tool '{execution.ToolName}' changed state to '{execution.Status}'."
+            "approval-required" => $"Tool '{execution.ToolName}' is waiting for approval before the turn can continue.",
+            "input-required" => $"Tool '{execution.ToolName}' is waiting for user input before the turn can continue.",
+            "blocked" => $"Tool '{execution.ToolName}' was blocked by approval policy.",
+            "error" => $"Tool '{execution.ToolName}' failed: {execution.ErrorMessage}",
+            _ => $"Tool '{execution.ToolName}' changed state to '{execution.Status}'."
         };
 
     private static string MapToolStage(string status) =>
@@ -151,11 +165,11 @@ public sealed class ToolCallScheduler(
     private static string BuildToolMessage(NativeToolExecutionResult execution) =>
         execution.Status switch
         {
-            "approval-required" => $"Assistant runtime requested native tool '{execution.ToolName}', and it is waiting for approval.",
-            "input-required" => $"Assistant runtime requested native tool '{execution.ToolName}', and it is waiting for user answers.",
-            "blocked" => $"Assistant runtime requested native tool '{execution.ToolName}', but approval policy blocked it.",
-            "error" => $"Assistant runtime requested native tool '{execution.ToolName}', but execution failed: {execution.ErrorMessage}",
-            _ => $"Assistant runtime completed native tool '{execution.ToolName}'."
+            "approval-required" => $"Tool '{execution.ToolName}' is waiting for approval.",
+            "input-required" => $"Tool '{execution.ToolName}' is waiting for user input.",
+            "blocked" => $"Tool '{execution.ToolName}' was blocked by approval policy.",
+            "error" => $"Tool '{execution.ToolName}' failed: {execution.ErrorMessage}",
+            _ => $"Tool '{execution.ToolName}' completed."
         };
 
     private static NativeToolExecutionResult CreateDisallowedToolExecutionResult(string toolName, string workingDirectory) =>
@@ -165,20 +179,33 @@ public sealed class ToolCallScheduler(
             Status = "blocked",
             ApprovalState = "deny",
             WorkingDirectory = workingDirectory,
-            ErrorMessage = $"Tool '{toolName}' is not available to this subagent runtime.",
+            ErrorMessage = $"Tool '{toolName}' is not available in this delegated runtime.",
             ChangedFiles = []
         };
 
-    private static AssistantRuntimeEvent CloneNestedToolEvent(AssistantRuntimeEvent runtimeEvent, string providerName) =>
+    private static AssistantRuntimeEvent CloneNestedToolEvent(
+        AssistantRuntimeEvent runtimeEvent,
+        string providerName,
+        AssistantToolCall toolCall,
+        string toolCallGroupId) =>
         new()
         {
             Stage = runtimeEvent.Stage,
             Message = runtimeEvent.Message,
             ProviderName = string.IsNullOrWhiteSpace(runtimeEvent.ProviderName) ? providerName : runtimeEvent.ProviderName,
-            ToolName = runtimeEvent.ToolName,
+            ToolName = string.IsNullOrWhiteSpace(runtimeEvent.ToolName) ? toolCall.ToolName : runtimeEvent.ToolName,
+            ToolCallId = string.IsNullOrWhiteSpace(runtimeEvent.ToolCallId) ? toolCall.Id : runtimeEvent.ToolCallId,
+            ToolCallGroupId = string.IsNullOrWhiteSpace(runtimeEvent.ToolCallGroupId) ? toolCallGroupId : runtimeEvent.ToolCallGroupId,
+            ToolArgumentsJson = NormalizeToolArguments(
+                string.IsNullOrWhiteSpace(runtimeEvent.ToolArgumentsJson) || runtimeEvent.ToolArgumentsJson == "{}"
+                    ? toolCall.ArgumentsJson
+                    : runtimeEvent.ToolArgumentsJson),
             Status = runtimeEvent.Status,
             ContentDelta = runtimeEvent.ContentDelta,
             ContentSnapshot = runtimeEvent.ContentSnapshot,
             AgentName = runtimeEvent.AgentName
         };
+
+    private static string NormalizeToolArguments(string argumentsJson) =>
+        string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson;
 }

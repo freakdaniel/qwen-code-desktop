@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -19,9 +20,12 @@ public sealed class WebToolService(
     IDesktopEnvironmentPaths environmentPaths,
     HttpClient? httpClient = null) : IWebToolService
 {
-    private const int FetchTimeoutMilliseconds = 10_000;
+    private const int FetchTimeoutMilliseconds = 60_000;
     private const int MaxFetchContentLength = 100_000;
     private const int DefaultSearchResultCount = 5;
+    private const int MaxRedirects = 10;
+    private static readonly TimeSpan FetchCacheLifetime = TimeSpan.FromMinutes(15);
+    private static readonly ConcurrentDictionary<string, CachedFetchResult> FetchCache = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly HttpClient client = httpClient ?? CreateDefaultClient();
 
@@ -38,23 +42,30 @@ public sealed class WebToolService(
         CancellationToken cancellationToken = default)
     {
         var url = RequireString(arguments, "url");
-        var prompt = RequireString(arguments, "prompt");
+        var prompt = TryGetString(arguments, "prompt")?.Trim() ?? string.Empty;
         var normalizedUrl = NormalizeFetchUrl(url);
+        var fetchResult = await FetchContentAsync(normalizedUrl, cancellationToken);
 
-        using var response = await SendAsync(normalizedUrl, cancellationToken);
-        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
-        EnsureSuccess(response, payload);
-
-        var contentType = response.Content.Headers.ContentType?.MediaType;
-        var extractedText = ExtractReadableText(payload, contentType);
-        if (string.IsNullOrWhiteSpace(extractedText))
+        if (fetchResult.CrossHostRedirect is { } redirect)
         {
-            extractedText = "(No readable content extracted from the response.)";
+            return BuildRedirectMessage(redirect, prompt);
+        }
+
+        var extractedText = fetchResult.ExtractedText;
+        var effectiveUrl = fetchResult.EffectiveUrl;
+
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return $"""
+Fetched content from {effectiveUrl}
+
+{BuildDefaultFetchExcerpt(extractedText)}
+""";
         }
 
         var promptScopedExcerpt = BuildPromptScopedExcerpt(prompt, extractedText);
         return $"""
-Fetched content from {normalizedUrl}
+Fetched content from {effectiveUrl}
 Requested analysis: {prompt}
 
 {promptScopedExcerpt}
@@ -103,19 +114,105 @@ Requested analysis: {prompt}
         return $"Web search results for \"{query}\" (via {provider.Type}):{Environment.NewLine}{Environment.NewLine}{content}";
     }
 
-    private async Task<HttpResponseMessage> SendAsync(string url, CancellationToken cancellationToken)
+    private async Task<FetchedContentResult> FetchContentAsync(string url, CancellationToken cancellationToken)
+    {
+        if (TryGetCachedFetchResult(url, out var cached))
+        {
+            return cached;
+        }
+
+        var sendResult = await SendAsync(url, cancellationToken);
+        if (sendResult.CrossHostRedirect is { } redirect)
+        {
+            CacheFetchResult(url, new FetchedContentResult(
+                EffectiveUrl: url,
+                ExtractedText: string.Empty,
+                CrossHostRedirect: redirect));
+            return new FetchedContentResult(
+                EffectiveUrl: url,
+                ExtractedText: string.Empty,
+                CrossHostRedirect: redirect);
+        }
+
+        using var response = sendResult.Response!;
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+        EnsureSuccess(response, payload);
+
+        var contentType = response.Content.Headers.ContentType?.MediaType;
+        var extractedText = ExtractReadableText(payload, contentType);
+        if (string.IsNullOrWhiteSpace(extractedText))
+        {
+            extractedText = "(No readable content extracted from the response.)";
+        }
+
+        var result = new FetchedContentResult(
+            EffectiveUrl: sendResult.EffectiveUrl ?? response.RequestMessage?.RequestUri?.ToString() ?? url,
+            ExtractedText: extractedText,
+            CrossHostRedirect: null);
+
+        CacheFetchResult(url, result);
+        return result;
+    }
+
+    private async Task<SendAsyncResult> SendAsync(string url, CancellationToken cancellationToken)
     {
         using var linkedSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linkedSource.CancelAfter(FetchTimeoutMilliseconds);
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.UserAgent.ParseAdd("QwenCodeDesktop/0.1");
-        return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linkedSource.Token);
+        var currentUrl = url;
+        for (var redirectCount = 0; redirectCount <= MaxRedirects; redirectCount++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, currentUrl);
+            request.Headers.UserAgent.ParseAdd("QwenCodeDesktop/0.1");
+            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7");
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linkedSource.Token);
+            }
+            catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException($"Fetching '{url}' timed out after {FetchTimeoutMilliseconds / 1000} seconds.", exception);
+            }
+
+            if (!IsRedirectStatusCode(response.StatusCode))
+            {
+                return new SendAsyncResult(response, currentUrl, null);
+            }
+
+            if (response.Headers.Location is not { } location)
+            {
+                response.Dispose();
+                throw new InvalidOperationException($"Redirect response from '{currentUrl}' did not include a Location header.");
+            }
+
+            var redirectUrl = BuildRedirectUrl(currentUrl, location);
+            if (!IsPermittedRedirect(currentUrl, redirectUrl))
+            {
+                response.Dispose();
+                return new SendAsyncResult(
+                    Response: null,
+                    EffectiveUrl: currentUrl,
+                    CrossHostRedirect: new RedirectInstruction(url, redirectUrl, response.StatusCode));
+            }
+
+            response.Dispose();
+            currentUrl = redirectUrl;
+        }
+
+        throw new InvalidOperationException($"Too many redirects while fetching '{url}'.");
     }
 
     private static HttpClient CreateDefaultClient()
     {
-        var client = new HttpClient();
+        var handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            AutomaticDecompression = DecompressionMethods.Brotli | DecompressionMethods.Deflate | DecompressionMethods.GZip
+        };
+
+        var client = new HttpClient(handler);
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("QwenCodeDesktop", "0.1"));
         return client;
     }
@@ -141,15 +238,31 @@ Requested analysis: {prompt}
             throw new InvalidOperationException("Parameter 'url' must be an absolute http:// or https:// URL.");
         }
 
-        if (uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-            uri.AbsolutePath.Contains("/blob/", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(uri.UserInfo))
         {
-            return url
+            throw new InvalidOperationException("Parameter 'url' must not contain embedded credentials.");
+        }
+
+        var builder = new UriBuilder(uri);
+        if (builder.Scheme == Uri.UriSchemeHttp)
+        {
+            builder.Scheme = Uri.UriSchemeHttps;
+            if (builder.Port == 80)
+            {
+                builder.Port = 443;
+            }
+        }
+
+        var normalized = builder.Uri.ToString();
+        if (builder.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
+            builder.Path.Contains("/blob/", StringComparison.OrdinalIgnoreCase))
+        {
+            return normalized
                 .Replace("github.com", "raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
                 .Replace("/blob/", "/", StringComparison.OrdinalIgnoreCase);
         }
 
-        return uri.ToString();
+        return normalized;
     }
 
     private static string ExtractReadableText(string content, string? mediaType)
@@ -212,6 +325,110 @@ Requested analysis: {prompt}
 
         var result = string.Join(Environment.NewLine + Environment.NewLine, selected);
         return result.Length > 4_000 ? result[..4_000] : result;
+    }
+
+    private static string BuildDefaultFetchExcerpt(string extractedText)
+    {
+        var paragraphs = extractedText
+            .Split([Environment.NewLine + Environment.NewLine, "\n\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(static paragraph => !string.IsNullOrWhiteSpace(paragraph))
+            .Take(4)
+            .ToArray();
+
+        if (paragraphs.Length == 0)
+        {
+            return extractedText[..Math.Min(extractedText.Length, 1_500)];
+        }
+
+        var result = string.Join(Environment.NewLine + Environment.NewLine, paragraphs);
+        return result.Length > 4_000 ? result[..4_000] : result;
+    }
+
+    private static bool TryGetCachedFetchResult(string url, out FetchedContentResult result)
+    {
+        if (FetchCache.TryGetValue(url, out var cached) &&
+            cached.ExpiresAtUtc > DateTimeOffset.UtcNow)
+        {
+            result = cached.Result;
+            return true;
+        }
+
+        FetchCache.TryRemove(url, out _);
+        result = default!;
+        return false;
+    }
+
+    private static void CacheFetchResult(string url, FetchedContentResult result)
+    {
+        FetchCache[url] = new CachedFetchResult(result, DateTimeOffset.UtcNow.Add(FetchCacheLifetime));
+    }
+
+    private static bool IsRedirectStatusCode(HttpStatusCode statusCode) =>
+        statusCode is HttpStatusCode.Moved or
+            HttpStatusCode.Redirect or
+            HttpStatusCode.RedirectMethod or
+            HttpStatusCode.RedirectKeepVerb or
+            HttpStatusCode.TemporaryRedirect or
+            HttpStatusCode.PermanentRedirect;
+
+    private static string BuildRedirectUrl(string sourceUrl, Uri location) =>
+        location.IsAbsoluteUri
+            ? location.ToString()
+            : new Uri(new Uri(sourceUrl), location).ToString();
+
+    private static bool IsPermittedRedirect(string originalUrl, string redirectUrl)
+    {
+        if (!Uri.TryCreate(originalUrl, UriKind.Absolute, out var originalUri) ||
+            !Uri.TryCreate(redirectUrl, UriKind.Absolute, out var redirectUri))
+        {
+            return false;
+        }
+
+        if (!string.Equals(originalUri.Scheme, redirectUri.Scheme, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var originalPort = originalUri.IsDefaultPort ? GetDefaultPort(originalUri.Scheme) : originalUri.Port;
+        var redirectPort = redirectUri.IsDefaultPort ? GetDefaultPort(redirectUri.Scheme) : redirectUri.Port;
+        if (originalPort != redirectPort)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(redirectUri.UserInfo))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            StripWww(originalUri.Host),
+            StripWww(redirectUri.Host),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetDefaultPort(string scheme) =>
+        string.Equals(scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ? 443 : 80;
+
+    private static string StripWww(string host) =>
+        host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)
+            ? host[4..]
+            : host;
+
+    private static string BuildRedirectMessage(RedirectInstruction redirect, string prompt)
+    {
+        var promptLine = string.IsNullOrWhiteSpace(prompt)
+            ? string.Empty
+            : $"{Environment.NewLine}Prompt: {prompt}";
+
+        return $"""
+The requested URL redirected to a different host and was not fetched automatically.
+Original URL: {redirect.OriginalUrl}
+Redirect URL: {redirect.RedirectUrl}
+Status: {(int)redirect.StatusCode} {redirect.StatusCode}{promptLine}
+
+Call web_fetch again with the redirect URL if you want to inspect that destination.
+""";
     }
 
     private WebSearchConfiguration? ResolveWebSearchConfiguration(string projectRoot)
@@ -432,7 +649,13 @@ Requested analysis: {prompt}
             try
             {
                 using var stream = File.OpenRead(settingsPath);
-                using var document = JsonDocument.Parse(stream);
+                using var document = JsonDocument.Parse(
+                    stream,
+                    new JsonDocumentOptions
+                    {
+                        AllowTrailingCommas = true,
+                        CommentHandling = JsonCommentHandling.Skip
+                    });
                 if (JsonNode.Parse(document.RootElement.GetRawText()) is JsonObject objectNode)
                 {
                     MergeObjects(merged, objectNode);
@@ -605,4 +828,23 @@ Requested analysis: {prompt}
         string? Content,
         double? Score,
         string? PublishedDate);
+
+    private sealed record RedirectInstruction(
+        string OriginalUrl,
+        string RedirectUrl,
+        HttpStatusCode StatusCode);
+
+    private sealed record FetchedContentResult(
+        string EffectiveUrl,
+        string ExtractedText,
+        RedirectInstruction? CrossHostRedirect);
+
+    private sealed record CachedFetchResult(
+        FetchedContentResult Result,
+        DateTimeOffset ExpiresAtUtc);
+
+    private sealed record SendAsyncResult(
+        HttpResponseMessage? Response,
+        string? EffectiveUrl,
+        RedirectInstruction? CrossHostRedirect);
 }

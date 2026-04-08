@@ -896,7 +896,8 @@ public sealed class AgentArenaService(
                     WorkingDirectory = created.Worktree.Path,
                     ChangedFiles = []
                 },
-                SystemPromptOverride = BuildArenaSystemPrompt(created.Model),
+                PromptMode = AssistantPromptMode.ArenaCompetitor,
+                SystemPromptOverride = BuildArenaModeSpecificInstructions(created.Model, allowedToolNames),
                 AllowedToolNames = allowedToolNames,
                 ModelOverride = created.Model.Model,
                 AuthTypeOverride = created.Model.AuthType,
@@ -2032,14 +2033,25 @@ public sealed class AgentArenaService(
         return builder.ToString().TrimEnd();
     }
 
-    private static string BuildArenaSystemPrompt(ArenaModelDescriptor model) =>
+    private static string BuildArenaModeSpecificInstructions(ArenaModelDescriptor model, IReadOnlyList<string> allowedToolNames)
+    {
+        var allowedTools = allowedToolNames.Count == 0
+            ? "inherit the native desktop tool surface"
+            : string.Join(", ", allowedToolNames);
+
+        return
         $$"""
-You are an arena competitor operating inside an isolated git worktree.
-Work independently, use tools when needed, and make the strongest implementation attempt you can.
-At the end, summarize what you changed, what remains risky, and why your approach is strong.
 Competitor label: {{model.AgentName}}
 Requested model: {{model.Model}}
+
+Arena rules:
+- Work only inside your assigned worktree. Do not assume access to sibling arena worktrees or the source repository checkout.
+- Use only the tools allowed for this arena run: {{allowedTools}}.
+- Produce the strongest end-to-end attempt you can within your worktree instead of narrating strategy.
+- Verify meaningful changes when feasible and call out anything you could not verify.
+- Do not mention the competition or compare yourself to other agents in the final answer.
 """;
+    }
 
     private static string BuildArenaTaskPrompt(string task, ArenaModelDescriptor model) =>
         $$"""
@@ -2047,7 +2059,10 @@ Arena task:
 {{task}}
 
 You are competing as "{{model.AgentName}}" using model "{{model.Model}}".
-Work only inside your assigned worktree and leave a concise final summary with changed files and tradeoffs.
+Success criteria:
+- Solve as much of the task as you can from inside your worktree.
+- Prefer concrete changes and verification over high-level discussion.
+- Leave a concise final summary with changed files, validation performed, tradeoffs, and residual risks.
 """;
 
     private static List<ArenaModelDescriptor> ParseModels(JsonElement arguments)

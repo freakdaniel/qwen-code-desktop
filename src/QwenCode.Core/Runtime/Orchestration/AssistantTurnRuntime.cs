@@ -49,7 +49,7 @@ public sealed class AssistantTurnRuntime(
         eventSink?.Invoke(new AssistantRuntimeEvent
         {
             Stage = "assembling-context",
-            Message = "Assembling transcript and workspace context for the assistant runtime."
+            Message = "Loading transcript and workspace context."
         });
 
         var resolvedConfiguration = providerConfigurationResolver.Resolve(request, _options);
@@ -193,7 +193,7 @@ public sealed class AssistantTurnRuntime(
 
                 return new AssistantTurnResponse
                 {
-                    Summary = $"Assistant runtime stopped because loop detection found a repeated content pattern.",
+                    Summary = "Stopped because the generated output kept repeating.",
                     ProviderName = provider.Name,
                     Model = response.Model,
                     StopReason = "content-loop-detected",
@@ -252,8 +252,8 @@ public sealed class AssistantTurnRuntime(
         }
 
         var fallbackSummary = toolHistory.Count == 0
-            ? "Assistant runtime stopped before producing a final response."
-            : $"Assistant runtime reached the tool iteration limit after {toolHistory.Count} native tool execution(s).";
+            ? "The assistant stopped before it could produce a final response."
+            : $"Stopped after {toolHistory.Count} tool call(s) because the turn hit the iteration limit before reaching a final answer.";
 
         return new AssistantTurnResponse
         {
@@ -316,6 +316,6 @@ public sealed class AssistantTurnRuntime(
         var details = string.IsNullOrWhiteSpace(exception.Message)
             ? "Unknown provider error."
             : exception.Message.Trim();
-        return $"Assistant provider '{providerName}' failed: {details}";
+        return $"The model provider '{providerName}' failed: {details}";
     }
 }

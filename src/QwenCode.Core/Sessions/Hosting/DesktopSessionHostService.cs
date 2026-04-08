@@ -516,49 +516,55 @@ public sealed class DesktopSessionHostService(
             stopHook,
             cancellationToken);
         var assistantSummary = ApplyStopHookSummary(assistantResponse.Summary, stopHook);
+        var persistAssistantMessage = ShouldPersistAssistantMessage(assistantResponse);
+        var completionStatus = ResolveTurnCompletionStatus(assistantResponse);
         var assistantTimestamp = DateTime.UtcNow;
-        await transcriptWriter.AppendEntryAsync(
-            transcriptPath,
-            new
-            {
-                uuid = Guid.NewGuid().ToString(),
-                parentUuid,
-                sessionId,
-                timestamp = assistantTimestamp,
-                type = "assistant",
-                cwd = workingDirectory,
-                version = "0.1.0",
-                gitBranch,
-                mode = DesktopMode.Code.ToString().ToLowerInvariant(),
-                message = new
+        if (persistAssistantMessage)
+        {
+            await transcriptWriter.AppendEntryAsync(
+                transcriptPath,
+                new
                 {
-                    role = "assistant",
-                    parts = new[]
+                    uuid = Guid.NewGuid().ToString(),
+                    parentUuid,
+                    sessionId,
+                    timestamp = assistantTimestamp,
+                    type = "assistant",
+                    cwd = workingDirectory,
+                    version = "0.1.0",
+                    gitBranch,
+                    mode = DesktopMode.Code.ToString().ToLowerInvariant(),
+                    message = new
                     {
-                        new
+                        role = "assistant",
+                        parts = new[]
                         {
-                            text = assistantSummary
-                        }
+                            new
+                            {
+                                text = assistantSummary
+                            }
+                        },
+                        provider = assistantResponse.ProviderName,
+                        model = assistantResponse.Model
                     },
-                    provider = assistantResponse.ProviderName,
-                    model = assistantResponse.Model
+                    durationMs = assistantResponse.Stats.DurationMs
                 },
-                durationMs = assistantResponse.Stats.DurationMs
-            },
-            cancellationToken);
+                cancellationToken);
 
-        PublishSessionEvent(sessionEventFactory.CreateAssistantCompleted(
-            sessionId,
-            assistantSummary,
-            workingDirectory,
-            gitBranch,
-            resolvedCommand?.Name ?? string.Empty,
-            toolExecution.ToolName));
+            PublishSessionEvent(sessionEventFactory.CreateAssistantCompleted(
+                sessionId,
+                assistantSummary,
+                workingDirectory,
+                gitBranch,
+                resolvedCommand?.Name ?? string.Empty,
+                toolExecution.ToolName));
+        }
+
         activeTurnRegistry.Update(sessionId, state =>
         {
             state.Stage = "assistant-completed";
-            state.Status = "completed";
-            state.ContentSnapshot = assistantSummary;
+            state.Status = completionStatus;
+            state.ContentSnapshot = persistAssistantMessage ? assistantSummary : string.Empty;
         });
 
         await RefreshSessionRecordingAsync(
@@ -569,7 +575,7 @@ public sealed class DesktopSessionHostService(
                 WorkingDirectory = workingDirectory,
                 GitBranch = gitBranch,
                 TitleHint = effectivePrompt,
-                Status = "completed"
+                Status = completionStatus
             },
             cancellationToken);
 
@@ -595,7 +601,7 @@ public sealed class DesktopSessionHostService(
             gitBranch,
             resolvedCommand?.Name ?? string.Empty,
             toolExecution.ToolName,
-            "completed"));
+            completionStatus));
         await ExecuteNotificationHookAsync(
             runtimeProfile,
             sessionId,
@@ -609,7 +615,7 @@ public sealed class DesktopSessionHostService(
             sessionId,
             workingDirectory,
             transcriptPath,
-            "completed",
+            completionStatus,
             assistantSummary,
             cancellationToken);
 
@@ -831,6 +837,8 @@ public sealed class DesktopSessionHostService(
             },
             cancellationToken);
         var assistantSummary = assistantResponse.Summary;
+        var persistAssistantMessage = ShouldPersistAssistantMessage(assistantResponse);
+        var completionStatus = ResolveTurnCompletionStatus(assistantResponse);
         parentUuid = await transcriptWriter.AppendAssistantToolExecutionsAsync(
             detail.TranscriptPath,
             request.SessionId,
@@ -839,48 +847,52 @@ public sealed class DesktopSessionHostService(
             assistantResponse.ToolExecutions,
             cancellationToken);
 
-        await transcriptWriter.AppendEntryAsync(
-            detail.TranscriptPath,
-            new
-            {
-                uuid = Guid.NewGuid().ToString(),
-                parentUuid = toolUuid,
-                sessionId = request.SessionId,
-                timestamp = DateTime.UtcNow,
-                type = "assistant",
-                cwd = workingDirectory,
-                version = "0.1.0",
-                gitBranch,
-                mode = DesktopMode.Code.ToString().ToLowerInvariant(),
-                message = new
+        if (persistAssistantMessage)
+        {
+            await transcriptWriter.AppendEntryAsync(
+                detail.TranscriptPath,
+                new
                 {
-                    role = "assistant",
-                    parts = new[]
+                    uuid = Guid.NewGuid().ToString(),
+                    parentUuid = toolUuid,
+                    sessionId = request.SessionId,
+                    timestamp = DateTime.UtcNow,
+                    type = "assistant",
+                    cwd = workingDirectory,
+                    version = "0.1.0",
+                    gitBranch,
+                    mode = DesktopMode.Code.ToString().ToLowerInvariant(),
+                    message = new
                     {
-                        new
+                        role = "assistant",
+                        parts = new[]
                         {
-                            text = assistantSummary
-                        }
+                            new
+                            {
+                                text = assistantSummary
+                            }
+                        },
+                        provider = assistantResponse.ProviderName,
+                        model = assistantResponse.Model
                     },
-                    provider = assistantResponse.ProviderName,
-                    model = assistantResponse.Model
+                    durationMs = assistantResponse.Stats.DurationMs
                 },
-                durationMs = assistantResponse.Stats.DurationMs
-            },
-            cancellationToken);
+                cancellationToken);
 
-        PublishSessionEvent(sessionEventFactory.CreateAssistantCompleted(
-            request.SessionId,
-            assistantSummary,
-            workingDirectory,
-            gitBranch,
-            string.Empty,
-            execution.ToolName));
+            PublishSessionEvent(sessionEventFactory.CreateAssistantCompleted(
+                request.SessionId,
+                assistantSummary,
+                workingDirectory,
+                gitBranch,
+                string.Empty,
+                execution.ToolName));
+        }
+
         activeTurnRegistry.Update(request.SessionId, state =>
         {
             state.Stage = "assistant-completed";
-            state.Status = "completed";
-            state.ContentSnapshot = assistantSummary;
+            state.Status = completionStatus;
+            state.ContentSnapshot = persistAssistantMessage ? assistantSummary : string.Empty;
         });
 
         await RefreshSessionRecordingAsync(
@@ -891,7 +903,7 @@ public sealed class DesktopSessionHostService(
                 WorkingDirectory = workingDirectory,
                 GitBranch = gitBranch,
                 TitleHint = pendingTool.Title,
-                Status = execution.Status
+                Status = completionStatus
             },
             cancellationToken);
 
@@ -915,7 +927,7 @@ public sealed class DesktopSessionHostService(
             gitBranch,
             string.Empty,
             execution.ToolName,
-            execution.Status));
+            completionStatus));
         await ExecuteNotificationHookAsync(
             runtimeProfile,
             request.SessionId,
@@ -929,7 +941,7 @@ public sealed class DesktopSessionHostService(
             request.SessionId,
             workingDirectory,
             detail.TranscriptPath,
-            execution.Status,
+            completionStatus,
             assistantSummary,
             cancellationToken);
 
@@ -1048,6 +1060,8 @@ public sealed class DesktopSessionHostService(
             },
             cancellationToken);
         var assistantSummary = assistantResponse.Summary;
+        var persistAssistantMessage = ShouldPersistAssistantMessage(assistantResponse);
+        var completionStatus = ResolveTurnCompletionStatus(assistantResponse);
         parentUuid = await transcriptWriter.AppendAssistantToolExecutionsAsync(
             detail.TranscriptPath,
             request.SessionId,
@@ -1056,48 +1070,52 @@ public sealed class DesktopSessionHostService(
             assistantResponse.ToolExecutions,
             cancellationToken);
 
-        await transcriptWriter.AppendEntryAsync(
-            detail.TranscriptPath,
-            new
-            {
-                uuid = Guid.NewGuid().ToString(),
-                parentUuid = parentUuid ?? toolUuid,
-                sessionId = request.SessionId,
-                timestamp = DateTime.UtcNow,
-                type = "assistant",
-                cwd = workingDirectory,
-                version = "0.1.0",
-                gitBranch,
-                mode = DesktopMode.Code.ToString().ToLowerInvariant(),
-                message = new
+        if (persistAssistantMessage)
+        {
+            await transcriptWriter.AppendEntryAsync(
+                detail.TranscriptPath,
+                new
                 {
-                    role = "assistant",
-                    parts = new[]
+                    uuid = Guid.NewGuid().ToString(),
+                    parentUuid = parentUuid ?? toolUuid,
+                    sessionId = request.SessionId,
+                    timestamp = DateTime.UtcNow,
+                    type = "assistant",
+                    cwd = workingDirectory,
+                    version = "0.1.0",
+                    gitBranch,
+                    mode = DesktopMode.Code.ToString().ToLowerInvariant(),
+                    message = new
                     {
-                        new
+                        role = "assistant",
+                        parts = new[]
                         {
-                            text = assistantSummary
-                        }
+                            new
+                            {
+                                text = assistantSummary
+                            }
+                        },
+                        provider = assistantResponse.ProviderName,
+                        model = assistantResponse.Model
                     },
-                    provider = assistantResponse.ProviderName,
-                    model = assistantResponse.Model
+                    durationMs = assistantResponse.Stats.DurationMs
                 },
-                durationMs = assistantResponse.Stats.DurationMs
-            },
-            cancellationToken);
+                cancellationToken);
 
-        PublishSessionEvent(sessionEventFactory.CreateAssistantCompleted(
-            request.SessionId,
-            assistantSummary,
-            workingDirectory,
-            gitBranch,
-            string.Empty,
-            execution.ToolName));
+            PublishSessionEvent(sessionEventFactory.CreateAssistantCompleted(
+                request.SessionId,
+                assistantSummary,
+                workingDirectory,
+                gitBranch,
+                string.Empty,
+                execution.ToolName));
+        }
+
         activeTurnRegistry.Update(request.SessionId, state =>
         {
             state.Stage = "assistant-completed";
-            state.Status = "completed";
-            state.ContentSnapshot = assistantSummary;
+            state.Status = completionStatus;
+            state.ContentSnapshot = persistAssistantMessage ? assistantSummary : string.Empty;
         });
 
         await RefreshSessionRecordingAsync(
@@ -1108,7 +1126,7 @@ public sealed class DesktopSessionHostService(
                 WorkingDirectory = workingDirectory,
                 GitBranch = gitBranch,
                 TitleHint = pendingQuestion.Title,
-                Status = execution.Status
+                Status = completionStatus
             },
             cancellationToken);
 
@@ -1132,7 +1150,7 @@ public sealed class DesktopSessionHostService(
             gitBranch,
             string.Empty,
             execution.ToolName,
-            execution.Status));
+            completionStatus));
         await ExecuteNotificationHookAsync(
             runtimeProfile,
             request.SessionId,
@@ -1146,7 +1164,7 @@ public sealed class DesktopSessionHostService(
             request.SessionId,
             workingDirectory,
             detail.TranscriptPath,
-            execution.Status,
+            completionStatus,
             assistantSummary,
             cancellationToken);
 
@@ -1683,8 +1701,14 @@ public sealed class DesktopSessionHostService(
             CommandInvocation = commandInvocation,
             ResolvedCommand = resolvedCommand,
             ToolExecution = toolExecution,
-            IsApprovalResolution = isApprovalResolution
+            IsApprovalResolution = isApprovalResolution,
+            PromptMode = ResolvePromptMode(runtimeProfile)
         };
+
+    private static AssistantPromptMode ResolvePromptMode(QwenRuntimeProfile runtimeProfile) =>
+        string.Equals(runtimeProfile.ApprovalProfile.DefaultMode, "plan", StringComparison.OrdinalIgnoreCase)
+            ? AssistantPromptMode.Plan
+            : AssistantPromptMode.Primary;
 
     private static ActiveTurnState CreateActiveTurnState(
         string sessionId,
@@ -1819,6 +1843,21 @@ public sealed class DesktopSessionHostService(
             ? stopHook.AggregateOutput.StopReason
             : ResolveHookBlockReason(stopHook);
     }
+
+    private static bool ShouldPersistAssistantMessage(AssistantTurnResponse response) =>
+        response.StopReason switch
+        {
+            "approval-required" => false,
+            "input-required" => false,
+            "blocked" => false,
+            "error" => false,
+            _ => true
+        };
+
+    private static string ResolveTurnCompletionStatus(AssistantTurnResponse response) =>
+        string.IsNullOrWhiteSpace(response.StopReason)
+            ? "completed"
+            : response.StopReason;
 
     private async Task<HookLifecycleResult> ExecuteLifecycleHookAsync(
         QwenRuntimeProfile runtimeProfile,

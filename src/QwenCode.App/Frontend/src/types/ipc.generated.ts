@@ -347,6 +347,9 @@ export interface DesktopSessionEvent {
   gitBranch: string;
   commandName: string;
   toolName: string;
+  toolCallId: string;
+  toolCallGroupId: string;
+  toolArgumentsJson: string;
   status: string;
   contentDelta: string;
   contentSnapshot: string;

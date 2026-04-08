@@ -2,6 +2,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Diagnostics;
+using System.Net.Http;
+using System.Security.Authentication;
 using System.Text.RegularExpressions;
 using QwenCode.App.Agents;
 using QwenCode.App.Compatibility;
@@ -1008,7 +1010,7 @@ public sealed class NativeToolHostService(
         }
         catch (Exception exception)
         {
-            return Error("web_fetch", exception.Message, runtimeProfile.ProjectRoot, approvalState);
+            return Error("web_fetch", ResolveWebFetchErrorMessage(exception), runtimeProfile.ProjectRoot, approvalState);
         }
     }
 
@@ -1212,6 +1214,32 @@ public sealed class NativeToolHostService(
             ErrorMessage = message,
             ChangedFiles = []
         };
+
+    private static string ResolveWebFetchErrorMessage(Exception exception)
+    {
+        var baseException = exception.GetBaseException();
+
+        if (baseException is TimeoutException)
+        {
+            return "The site did not respond in time.";
+        }
+
+        if (baseException is AuthenticationException ||
+            exception is HttpRequestException httpRequestException &&
+            httpRequestException.Message.Contains("SSL connection could not be established", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Could not establish a secure HTTPS connection to the target site. The site's TLS certificate or handshake appears to be invalid.";
+        }
+
+        if (baseException is OperationCanceledException)
+        {
+            return "The web request was cancelled before it finished.";
+        }
+
+        return string.IsNullOrWhiteSpace(exception.Message)
+            ? "The web request failed."
+            : exception.Message;
+    }
 
     private static PathResolutionResult RequirePath(
         JsonElement arguments,

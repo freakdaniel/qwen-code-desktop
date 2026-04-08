@@ -49,6 +49,11 @@ public sealed class LlmContentRequest
     public string SystemPrompt { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the prompt mode
+    /// </summary>
+    public AssistantPromptMode PromptMode { get; init; } = AssistantPromptMode.Primary;
+
+    /// <summary>
     /// Gets or sets the model override
     /// </summary>
     public string ModelOverride { get; init; } = string.Empty;

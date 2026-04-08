@@ -3,6 +3,7 @@ using System.Text.Json;
 using QwenCode.App.Config;
 using QwenCode.App.Models;
 using QwenCode.App.Infrastructure;
+using QwenCode.App.Runtime;
 
 namespace QwenCode.App.Compatibility;
 
@@ -36,6 +37,7 @@ public sealed class QwenRuntimeProfileService(
         var contextFileNames = snapshot.ContextFileNames.Count > 0
             ? snapshot.ContextFileNames
             : ["QWEN.md", "AGENTS.md"];
+        var locale = RuntimeLocaleCatalog.DetectLocale();
 
         return new QwenRuntimeProfile
         {
@@ -52,6 +54,8 @@ public sealed class QwenRuntimeProfileService(
                 .ToArray(),
             ModelName = snapshot.ModelName,
             EmbeddingModel = snapshot.EmbeddingModel,
+            CurrentLocale = locale,
+            CurrentLanguage = RuntimeLocaleCatalog.ResolveLanguageName(locale),
             ChatCompression = snapshot.ChatCompression,
             Telemetry = snapshot.Telemetry,
             Checkpointing = snapshot.Checkpointing,

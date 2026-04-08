@@ -1,6 +1,9 @@
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using QwenCode.App.Models;
+using QwenCode.App.Mcp;
 using QwenCode.App.Sessions;
+using QwenCode.App.Tools;
 
 namespace QwenCode.App.Runtime;
 
@@ -20,16 +23,22 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
     private static readonly string[] DefaultContextFileNames = ["QWEN.md", "AGENTS.md"];
     private readonly IProjectSummaryService _projectSummaryService;
     private readonly ISessionService? _sessionService;
+    private readonly IMcpConnectionManager? _mcpConnectionManager;
 
     /// <summary>
     /// Initializes a new instance of the AssistantPromptAssembler class
     /// </summary>
     /// <param name="projectSummaryService">The project summary service</param>
     /// <param name="sessionService">The session service</param>
-    public AssistantPromptAssembler(IProjectSummaryService projectSummaryService, ISessionService? sessionService = null)
+    /// <param name="mcpConnectionManager">The mcp connection manager</param>
+    public AssistantPromptAssembler(
+        IProjectSummaryService projectSummaryService,
+        ISessionService? sessionService = null,
+        IMcpConnectionManager? mcpConnectionManager = null)
     {
         _projectSummaryService = projectSummaryService;
         _sessionService = sessionService;
+        _mcpConnectionManager = mcpConnectionManager;
     }
 
     /// <summary>
@@ -51,6 +60,22 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
         var contextFiles = TrimContextFiles(allContextFiles, promptBudget.ContextCharacterBudget);
         var projectSummary = _projectSummaryService.Read(request.RuntimeProfile);
         var sessionSummary = BuildSessionSummary(request, transcriptMessages, contextFiles, projectSummary);
+        var environmentSummary = BuildEnvironmentSummary(request);
+        var sessionGuidanceSummary = BuildSessionGuidanceSummary(
+            request,
+            transcriptMessages,
+            contextFiles,
+            projectSummary,
+            promptBudget,
+            trimmedTranscriptMessageCount: Math.Max(0, allTranscriptMessages.Count - transcriptMessages.Count),
+            trimmedContextFileCount: Math.Max(0, allContextFiles.Count - contextFiles.Count));
+        var userInstructionSummary = BuildInstructionSummary(request.RuntimeProfile, request.WorkingDirectory, scope: "global");
+        var workspaceInstructionSummary = BuildInstructionSummary(request.RuntimeProfile, request.WorkingDirectory, scope: "workspace");
+        var durableMemorySummary = BuildDurableMemorySummary(request.RuntimeProfile);
+        var mcpServerSummary = BuildMcpServerSummary(request);
+        var scratchpadSummary = BuildScratchpadSummary(request);
+        var languageSummary = BuildLanguageSummary(request);
+        var outputStyleSummary = BuildOutputStyleSummary(request);
         var trimmedTranscriptMessageCount = Math.Max(0, allTranscriptMessages.Count - transcriptMessages.Count);
         var trimmedContextFileCount = Math.Max(0, allContextFiles.Count - contextFiles.Count);
 
@@ -63,6 +88,15 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
                 .Select(static item => $"{item.Role}: {Trim(item.Content, 120)}")
                 .ToArray(),
             ProjectSummary = projectSummary,
+            EnvironmentSummary = environmentSummary,
+            SessionGuidanceSummary = sessionGuidanceSummary,
+            DurableMemorySummary = durableMemorySummary,
+            UserInstructionSummary = userInstructionSummary,
+            WorkspaceInstructionSummary = workspaceInstructionSummary,
+            McpServerSummary = mcpServerSummary,
+            ScratchpadSummary = scratchpadSummary,
+            LanguageSummary = languageSummary,
+            OutputStyleSummary = outputStyleSummary,
             SessionSummary = $$"""
 {{sessionSummary}}
 Input token limit: {{promptBudget.InputTokenLimit}}
@@ -437,6 +471,7 @@ Workspace: {{request.RuntimeProfile.ProjectRoot}}
 Working directory: {{request.WorkingDirectory}}
 Git branch: {{(string.IsNullOrWhiteSpace(request.GitBranch) ? "(none)" : request.GitBranch)}}
 Approval mode: {{request.RuntimeProfile.ApprovalProfile.DefaultMode}}
+Prompt mode: {{request.PromptMode}}
 Transcript messages loaded: {{transcriptMessages.Count}}
 Context files loaded: {{contextFiles.Count}}
 Context file names: {{string.Join(", ", request.RuntimeProfile.ContextFileNames)}}
@@ -445,6 +480,394 @@ Context file names: {{string.Join(", ", request.RuntimeProfile.ContextFileNames)
 {{toolSummary}}
 Approval resolution: {{request.IsApprovalResolution}}
 """;
+    }
+
+    private static string BuildEnvironmentSummary(AssistantTurnRequest request)
+    {
+        var runtimeProfile = request.RuntimeProfile;
+        var trustSummary = runtimeProfile.FolderTrustEnabled
+            ? $"Workspace trusted: {runtimeProfile.IsWorkspaceTrusted} ({runtimeProfile.WorkspaceTrustSource})."
+            : "Workspace trust: disabled.";
+        var shellProgram = DetectShellProgram();
+        var platform = DetectPlatform();
+        var contextFileNames = runtimeProfile.ContextFileNames.Count == 0
+            ? "(none)"
+            : string.Join(", ", runtimeProfile.ContextFileNames);
+        var modelSummary = string.IsNullOrWhiteSpace(runtimeProfile.ModelName)
+            ? "Model preference: not specified in runtime profile."
+            : $"Model preference: {runtimeProfile.ModelName}.";
+        var localeSummary = string.IsNullOrWhiteSpace(runtimeProfile.CurrentLocale) &&
+                            string.IsNullOrWhiteSpace(runtimeProfile.CurrentLanguage)
+            ? "Locale preference: not specified in runtime profile."
+            : $"Locale preference: {runtimeProfile.CurrentLocale} / {runtimeProfile.CurrentLanguage}.";
+        var compressionSummary = runtimeProfile.ChatCompression is null
+            ? "Chat compression: not configured."
+            : $"Chat compression threshold: {runtimeProfile.ChatCompression.ContextPercentageThreshold?.ToString("0.##") ?? "(unspecified)"} of context.";
+
+        return $$"""
+Workspace root: {{runtimeProfile.ProjectRoot}}
+Working directory: {{request.WorkingDirectory}}
+Git branch: {{(string.IsNullOrWhiteSpace(request.GitBranch) ? "(none)" : request.GitBranch)}}
+Platform: {{platform}}
+Shell: {{shellProgram}}
+Runtime source: {{runtimeProfile.RuntimeSource}}
+Approval mode: {{runtimeProfile.ApprovalProfile.DefaultMode}}
+Confirm shell commands: {{runtimeProfile.ApprovalProfile.ConfirmShellCommands}}
+Confirm file edits: {{runtimeProfile.ApprovalProfile.ConfirmFileEdits}}
+Runtime base directory: {{runtimeProfile.RuntimeBaseDirectory}}
+Project data directory: {{runtimeProfile.ProjectDataDirectory}}
+Chats directory: {{runtimeProfile.ChatsDirectory}}
+History directory: {{runtimeProfile.HistoryDirectory}}
+Checkpointing enabled: {{runtimeProfile.Checkpointing}}
+{{compressionSummary}}
+{{modelSummary}}
+{{localeSummary}}
+{{trustSummary}}
+Declared context file names: {{contextFileNames}}
+""";
+    }
+
+    private static string BuildSessionGuidanceSummary(
+        AssistantTurnRequest request,
+        IReadOnlyList<AssistantConversationMessage> transcriptMessages,
+        IReadOnlyList<string> contextFiles,
+        ProjectSummarySnapshot? projectSummary,
+        PromptBudget promptBudget,
+        int trimmedTranscriptMessageCount,
+        int trimmedContextFileCount)
+    {
+        var commandSummary = request.CommandInvocation is null
+            ? "No slash command resolved in this turn."
+            : $"Slash command '/{request.CommandInvocation.Command.Name}' finished with status '{request.CommandInvocation.Status}'.";
+        var toolSummary = request.ToolExecution.Status == "not-requested"
+            ? "No native tool result exists yet for this provider round."
+            : $"Latest native tool result: '{request.ToolExecution.ToolName}' ({request.ToolExecution.Status}).";
+        var projectSummaryStatus = projectSummary is null
+            ? "No project summary is available."
+            : $"Project summary available from '{projectSummary.FilePath}' with {projectSummary.PendingTasks.Count} pending task(s).";
+
+        return $$"""
+Transcript messages retained for this turn: {{transcriptMessages.Count}}
+Workspace context files retained for this turn: {{contextFiles.Count}}
+{{projectSummaryStatus}}
+{{commandSummary}}
+{{toolSummary}}
+Budget trimmed transcript messages: {{trimmedTranscriptMessageCount}}
+Budget trimmed context files: {{trimmedContextFileCount}}
+Approximate input character budget: {{promptBudget.TotalCharacterBudget}}
+Approval resolution turn: {{request.IsApprovalResolution}}
+Prompt mode: {{request.PromptMode}}
+""";
+    }
+
+    private static string BuildLanguageSummary(AssistantTurnRequest request)
+    {
+        var runtimeProfile = request.RuntimeProfile;
+        var locale = string.IsNullOrWhiteSpace(runtimeProfile.CurrentLocale)
+            ? RuntimeLocaleCatalog.DetectLocale()
+            : RuntimeLocaleCatalog.NormalizeLocale(runtimeProfile.CurrentLocale);
+        var language = string.IsNullOrWhiteSpace(runtimeProfile.CurrentLanguage)
+            ? RuntimeLocaleCatalog.ResolveLanguageName(locale)
+            : runtimeProfile.CurrentLanguage;
+
+        return $$"""
+Preferred locale: {{locale}}
+Preferred language: {{language}}
+Default expectation: reply in the user's language when it is clear from the conversation; otherwise start from the preferred language.
+""";
+    }
+
+    private static string BuildOutputStyleSummary(AssistantTurnRequest request)
+    {
+        var modeSpecificExpectation = request.PromptMode switch
+        {
+            AssistantPromptMode.Plan =>
+                "Prefer a structured plan with ordered steps, dependencies, and risks. Avoid presenting unexecuted work as completed.",
+            AssistantPromptMode.FollowupSuggestion =>
+                "Return one short user-like follow-up suggestion only, with no explanation or extra framing.",
+            AssistantPromptMode.Subagent =>
+                "Return a concise parent-facing execution summary with evidence, blockers, and changed files.",
+            AssistantPromptMode.ArenaCompetitor =>
+                "Return a concise competitive wrap-up that explains changes, risks, and why the approach is strong.",
+            _ =>
+                "Prefer concise, action-oriented answers that report concrete results before optional detail."
+        };
+
+        var planModeExpectation = string.Equals(request.RuntimeProfile.ApprovalProfile.DefaultMode, "plan", StringComparison.OrdinalIgnoreCase)
+            ? "Plan-style approval mode is active, so prioritize read-only investigation and planning unless the user explicitly exits that mode."
+            : "Use normal execution behavior for the active approval mode.";
+
+        return $$"""
+Mode-specific expectation: {{modeSpecificExpectation}}
+Approval-aware expectation: {{planModeExpectation}}
+Verification expectation: state clearly what was verified, what was inferred, and what remains unverified.
+""";
+    }
+
+    private string BuildMcpServerSummary(AssistantTurnRequest request)
+    {
+        if (_mcpConnectionManager is null)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var servers = _mcpConnectionManager
+                .ListServersWithStatus(new WorkspacePaths { WorkspaceRoot = request.RuntimeProfile.ProjectRoot })
+                .Where(static server => string.Equals(server.Status, "connected", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(static server => server.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (servers.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            return string.Join(
+                Environment.NewLine,
+                servers.Select(static server =>
+                {
+                    var instructionSuffix = string.IsNullOrWhiteSpace(server.Instructions)
+                        ? string.Empty
+                        : $" Instructions: {server.Instructions.Trim()}";
+                    return $"- {server.Name} ({server.Scope}, {server.Transport}): " +
+                           $"{server.DiscoveredToolsCount} tool(s), " +
+                           $"{server.DiscoveredPromptsCount} prompt(s), " +
+                           $"resources {(server.SupportsResources ? "available" : "unavailable")}, " +
+                           $"prompts {(server.SupportsPrompts ? "available" : "unavailable")}, " +
+                           $"trust={server.Trust}, " +
+                           $"status={server.Status}." +
+                           instructionSuffix;
+                }));
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string BuildScratchpadSummary(AssistantTurnRequest request)
+    {
+        var sanitizedSessionId = SanitizePathSegment(request.SessionId);
+        var scratchpadDirectory = Path.Combine(
+            request.RuntimeProfile.RuntimeBaseDirectory,
+            "tmp",
+            "scratchpad",
+            sanitizedSessionId);
+
+        return $$"""
+Use `{{scratchpadDirectory}}` for temporary files, intermediate outputs, and helper scripts that should not become part of the user's project.
+- Prefer this directory over cluttering the repository with transient artifacts.
+- Write into the project itself only when the result is meant to persist as part of the user's workspace.
+""";
+    }
+
+    private static string BuildDurableMemorySummary(QwenRuntimeProfile runtimeProfile)
+    {
+        var sections = new List<string>();
+        sections.AddRange(BuildDurableMemoryScopeSections("Global", runtimeProfile.GlobalQwenDirectory, runtimeProfile.ContextFileNames));
+
+        if (runtimeProfile.IsWorkspaceTrusted)
+        {
+            sections.AddRange(BuildDurableMemoryScopeSections("Project", runtimeProfile.ProjectRoot, runtimeProfile.ContextFileNames));
+        }
+
+        return sections.Count == 0
+            ? string.Empty
+            : string.Join($"{Environment.NewLine}{Environment.NewLine}", sections);
+    }
+
+    private static string BuildInstructionSummary(
+        QwenRuntimeProfile runtimeProfile,
+        string workingDirectory,
+        string scope)
+    {
+        var contextFilePaths = DiscoverContextFilePaths(runtimeProfile, workingDirectory);
+        if (contextFilePaths.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sections = new List<string>();
+        foreach (var path in contextFilePaths)
+        {
+            var isGlobalInstruction = IsPathWithin(path, runtimeProfile.GlobalQwenDirectory);
+            var isWorkspaceInstruction = IsPathWithin(path, runtimeProfile.ProjectRoot);
+            if (string.Equals(scope, "global", StringComparison.OrdinalIgnoreCase) && !isGlobalInstruction)
+            {
+                continue;
+            }
+
+            if (string.Equals(scope, "workspace", StringComparison.OrdinalIgnoreCase) && !isWorkspaceInstruction)
+            {
+                continue;
+            }
+
+            try
+            {
+                var content = ReadContextFileWithImports(runtimeProfile, path, new HashSet<string>(PathComparer), 0);
+                var facts = ExtractInstructionFacts(content);
+                if (facts.Count == 0)
+                {
+                    continue;
+                }
+
+                sections.Add(
+                    $$"""
+From {{GetDisplayPath(runtimeProfile.ProjectRoot, runtimeProfile.GlobalQwenDirectory, path)}}:
+{{string.Join(Environment.NewLine, facts.Select(static fact => $"- {fact}"))}}
+""");
+            }
+            catch
+            {
+                // Ignore unreadable instruction files while building prompt summaries.
+            }
+        }
+
+        return sections.Count == 0
+            ? string.Empty
+            : string.Join($"{Environment.NewLine}{Environment.NewLine}", sections);
+    }
+
+    private static IReadOnlyList<string> BuildDurableMemoryScopeSections(
+        string scopeLabel,
+        string rootPath,
+        IReadOnlyList<string> contextFileNames)
+    {
+        var sections = new List<string>();
+        foreach (var fileName in contextFileNames.Where(static name => !string.IsNullOrWhiteSpace(name)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var path = Path.Combine(rootPath, fileName);
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                var content = File.ReadAllText(path);
+                var facts = ExtractDurableMemoryFacts(content);
+                if (facts.Count == 0)
+                {
+                    continue;
+                }
+
+                sections.Add(
+                    $$"""
+{{scopeLabel}} durable memory ({{Path.GetFileName(path)}}):
+{{string.Join(Environment.NewLine, facts.Select(static fact => $"- {fact}"))}}
+""");
+            }
+            catch
+            {
+                // Ignore unreadable memory files while building prompt summaries.
+            }
+        }
+
+        return sections;
+    }
+
+    private static IReadOnlyList<string> ExtractDurableMemoryFacts(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return [];
+        }
+
+        var headerIndex = content.IndexOf(MemoryStore.MemorySectionHeader, StringComparison.Ordinal);
+        if (headerIndex < 0)
+        {
+            return [];
+        }
+
+        var startIndex = headerIndex + MemoryStore.MemorySectionHeader.Length;
+        var endIndex = content.IndexOf($"{Environment.NewLine}## ", startIndex, StringComparison.Ordinal);
+        if (endIndex < 0)
+        {
+            endIndex = content.Length;
+        }
+
+        var section = content[startIndex..endIndex];
+        return section
+            .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(static line => line.Trim())
+            .Where(static line => line.StartsWith("-", StringComparison.Ordinal))
+            .Select(static line => line.TrimStart('-').Trim())
+            .Where(static line => !string.IsNullOrWhiteSpace(line))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> ExtractInstructionFacts(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return [];
+        }
+
+        var sanitized = RemoveDurableMemorySection(content);
+        var facts = new List<string>();
+        foreach (var rawLine in sanitized.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.Trim();
+            if (string.IsNullOrWhiteSpace(line) ||
+                string.Equals(line, "---", StringComparison.Ordinal) ||
+                string.Equals(line, MemoryStore.MemorySectionHeader, StringComparison.Ordinal) ||
+                line.StartsWith("@", StringComparison.Ordinal) ||
+                line.StartsWith("#", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var normalized = TrimInstructionPrefix(line);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                continue;
+            }
+
+            facts.Add(normalized);
+        }
+
+        return facts
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToArray();
+    }
+
+    private static string RemoveDurableMemorySection(string content)
+    {
+        var headerIndex = content.IndexOf(MemoryStore.MemorySectionHeader, StringComparison.Ordinal);
+        if (headerIndex < 0)
+        {
+            return content;
+        }
+
+        var endIndex = content.IndexOf($"{Environment.NewLine}## ", headerIndex + MemoryStore.MemorySectionHeader.Length, StringComparison.Ordinal);
+        if (endIndex < 0)
+        {
+            endIndex = content.Length;
+        }
+
+        return string.Concat(content.AsSpan(0, headerIndex), content.AsSpan(endIndex));
+    }
+
+    private static string TrimInstructionPrefix(string line)
+    {
+        var normalized = line.Trim();
+        while (normalized.StartsWith("-", StringComparison.Ordinal) ||
+               normalized.StartsWith("*", StringComparison.Ordinal))
+        {
+            normalized = normalized[1..].TrimStart();
+        }
+
+        var separatorIndex = normalized.IndexOf(". ", StringComparison.Ordinal);
+        if (separatorIndex > 0 &&
+            normalized[..separatorIndex].All(char.IsDigit))
+        {
+            normalized = normalized[(separatorIndex + 2)..].TrimStart();
+        }
+
+        return normalized;
     }
 
     private static string? TryGetString(JsonElement root, string propertyName) =>
@@ -483,6 +906,69 @@ Approval resolution: {{request.IsApprovalResolution}}
         return fullPath.StartsWith(
             fullRoot,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    private static bool IsPathWithin(string path, string root)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(root))
+        {
+            return false;
+        }
+
+        var fullPath = Path.GetFullPath(path);
+        var fullRoot = Path.GetFullPath(root);
+        return fullPath.StartsWith(
+            fullRoot,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    }
+
+    private static string SanitizePathSegment(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "session";
+        }
+
+        var invalidCharacters = Path.GetInvalidFileNameChars();
+        var sanitized = new string(value.Select(character => invalidCharacters.Contains(character) ? '_' : character).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(sanitized) ? "session" : sanitized;
+    }
+
+    private static string DetectShellProgram()
+    {
+        var shell = Environment.GetEnvironmentVariable("SHELL");
+        if (!string.IsNullOrWhiteSpace(shell))
+        {
+            return Path.GetFileName(shell);
+        }
+
+        var comSpec = Environment.GetEnvironmentVariable("ComSpec");
+        if (!string.IsNullOrWhiteSpace(comSpec))
+        {
+            return Path.GetFileName(comSpec);
+        }
+
+        return "unknown";
+    }
+
+    private static string DetectPlatform()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return "Windows";
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return "macOS";
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            return "Linux";
+        }
+
+        return RuntimeInformation.OSDescription;
     }
 
     private static string Trim(string value, int maxLength) =>

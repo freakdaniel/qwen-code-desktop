@@ -36,6 +36,7 @@ public sealed class McpRegistryTests
                     ["API_KEY"] = "test"
                 },
                 Description = "Docs server",
+                Instructions = "Use this server for internal docs lookups.",
                 IncludeTools = ["fetch-docs"]
             });
 
@@ -46,9 +47,11 @@ public sealed class McpRegistryTests
             Assert.Equal("docs", server.Name);
             Assert.Contains("\"mcpServers\"", settingsContent);
             Assert.Contains("\"command\": \"node\"", settingsContent);
+            Assert.Contains("\"instructions\": \"Use this server for internal docs lookups.\"", settingsContent);
             Assert.Equal("docs", listedServer.Name);
             Assert.Equal("user", listedServer.Scope);
             Assert.Equal("stdio", listedServer.Transport);
+            Assert.Equal("Use this server for internal docs lookups.", listedServer.Instructions);
         }
         finally
         {
@@ -91,7 +94,8 @@ public sealed class McpRegistryTests
                   "mcpServers": {
                     "shared": {
                       "command": "dotnet",
-                      "args": ["project-server.dll"]
+                      "args": ["project-server.dll"],
+                      "instructions": "Prefer this project-local MCP server for repo-specific prompts."
                     }
                   }
                 }
@@ -109,6 +113,7 @@ public sealed class McpRegistryTests
             Assert.Equal("project", server.Scope);
             Assert.Equal("dotnet", server.CommandOrUrl);
             Assert.Contains("project-server.dll", server.Arguments);
+            Assert.Contains("project-local MCP server", server.Instructions);
         }
         finally
         {

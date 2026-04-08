@@ -63,6 +63,7 @@ interface ProjectOption {
 const ACCENT = '#615CED';
 const ACCENT_HOVER = '#4e49d9';
 const CHAT_MAX_WIDTH = '4xl';
+const LIVE_TOOL_SOURCE = '__live_tool__';
 
 const MODE_ICONS: Record<AgentMode, React.ReactNode> = {
   'default': <ShieldCheck size={14} />,
@@ -82,6 +83,10 @@ function isThinkingEntry(entry: DesktopSessionEntry): boolean {
   const title = entry.title?.toLowerCase() ?? '';
   return type === 'thought' || type === 'thinking' ||
     title === 'thinking' || title === 'thought';
+}
+
+function isLiveToolEntry(entry: DesktopSessionEntry): boolean {
+  return entry.type === 'tool' && entry.sourcePath === LIVE_TOOL_SOURCE;
 }
 
 // Tool display info: i18n key + icon component
@@ -454,6 +459,135 @@ function upsertOptimisticUserEntry(
   };
 }
 
+interface LiveToolCallSnapshot {
+  id: string;
+  groupId: string;
+  toolName: string;
+  argumentsJson: string;
+  status: string;
+  timestamp: string;
+  updatedAt: string;
+  workingDirectory: string;
+  gitBranch: string;
+}
+
+function normalizeToolLifecycleStatus(kind: string, status: string): string {
+  const normalizedStatus = (status || '').trim().toLowerCase();
+  if (normalizedStatus) {
+    return normalizedStatus;
+  }
+
+  switch (kind) {
+    case 'toolCompleted':
+      return 'completed';
+    case 'toolFailed':
+      return 'error';
+    case 'toolBlocked':
+      return 'blocked';
+    case 'toolApprovalRequired':
+      return 'approval-required';
+    case 'userInputRequired':
+      return 'input-required';
+    default:
+      return 'requested';
+  }
+}
+
+function isToolLifecycleEvent(event: import('@/types/desktop').DesktopSessionEvent): boolean {
+  if (!event.toolName?.trim()) {
+    return false;
+  }
+
+  return (
+    event.kind === 'toolApprovalRequired' ||
+    event.kind === 'userInputRequired' ||
+    event.kind === 'toolCompleted' ||
+    event.kind === 'toolBlocked' ||
+    event.kind === 'toolFailed' ||
+    (event.kind === 'assistantGenerating' && normalizeToolLifecycleStatus(event.kind, event.status) === 'requested')
+  );
+}
+
+function isToolPendingStatus(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return (
+    normalized === 'requested' ||
+    normalized === 'running' ||
+    normalized === 'streaming' ||
+    normalized === 'approval-required' ||
+    normalized === 'input-required'
+  );
+}
+
+function buildLiveToolEntries(
+  events: import('@/types/desktop').DesktopSessionEvent[],
+  workingDirectory: string,
+  gitBranch: string,
+): DesktopSessionEntry[] {
+  const calls: LiveToolCallSnapshot[] = [];
+
+  for (const event of events) {
+    if (!isToolLifecycleEvent(event)) {
+      continue;
+    }
+
+    const normalizedStatus = normalizeToolLifecycleStatus(event.kind, event.status);
+    let call =
+      (event.toolCallId
+        ? calls.find((item) => item.id === event.toolCallId)
+        : undefined) ??
+      [...calls].reverse().find((item) =>
+        item.toolName === event.toolName && isToolPendingStatus(item.status),
+      );
+
+    if (!call) {
+      call = {
+        id: event.toolCallId || `live-tool-${calls.length}-${event.toolName}-${event.timestampUtc}`,
+        groupId: event.toolCallGroupId || `live-tool-group-${calls.length}`,
+        toolName: event.toolName,
+        argumentsJson: event.toolArgumentsJson || '{}',
+        status: normalizedStatus,
+        timestamp: event.timestampUtc,
+        updatedAt: event.timestampUtc,
+        workingDirectory: event.workingDirectory || workingDirectory,
+        gitBranch: event.gitBranch || gitBranch,
+      };
+      calls.push(call);
+    }
+
+    call.toolName = event.toolName || call.toolName;
+    call.groupId = event.toolCallGroupId || call.groupId;
+    call.argumentsJson = event.toolArgumentsJson || call.argumentsJson || '{}';
+    call.status = normalizedStatus;
+    call.updatedAt = event.timestampUtc;
+    call.workingDirectory = event.workingDirectory || call.workingDirectory || workingDirectory;
+    call.gitBranch = event.gitBranch || call.gitBranch || gitBranch;
+  }
+
+  return calls.map((call) => ({
+    id: call.id,
+    type: 'tool',
+    timestamp: call.updatedAt,
+    workingDirectory: call.workingDirectory || workingDirectory,
+    gitBranch: call.gitBranch || gitBranch,
+    title: call.toolName,
+    body: '',
+    thinkingBody: '',
+    status: call.status,
+    toolName: call.toolName,
+    approvalState: '',
+    exitCode: null,
+    arguments: call.argumentsJson || '{}',
+    scope: call.groupId,
+    sourcePath: LIVE_TOOL_SOURCE,
+    resolutionStatus: 'live',
+    resolvedAt: '',
+    changedFiles: [],
+    questions: [],
+    answers: [],
+  }));
+}
+
 function formatThinkingDuration(locale: string, durationMs: number): string {
   if (durationMs < 1_000) {
     return locale.startsWith('ru')
@@ -486,6 +620,33 @@ function getThinkingStatusLabel(locale: string, durationMs: number): string {
   return locale.startsWith('ru') ? 'Думаю' : 'Thinking';
 }
 
+function normalizeWittyLoadingPhrases(value: unknown, fallback: string): string[] {
+  if (!Array.isArray(value)) {
+    return [fallback];
+  }
+
+  const phrases = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return phrases.length > 0 ? phrases : [fallback];
+}
+
+function pickWittyLoadingPhrase(phrases: readonly string[], fallback: string, previous = ''): string {
+  if (phrases.length === 0) {
+    return fallback;
+  }
+
+  if (phrases.length === 1) {
+    return phrases[0] || fallback;
+  }
+
+  const candidates = phrases.filter((phrase) => phrase !== previous);
+  const pool = candidates.length > 0 ? candidates : phrases;
+  return pool[Math.floor(Math.random() * pool.length)] || fallback;
+}
+
 function getSessionPickerPlaceholder(locale: string): string {
   return locale.startsWith('ru') ? 'Выберите чат' : 'Select a chat';
 }
@@ -515,34 +676,65 @@ function getTodoStatusLabel(locale: string, status: string): string {
   return locale.startsWith('ru') ? 'Ожидает' : 'Pending';
 }
 
-function ProcessingDots({ color = '#8f90a6', size = 6 }: { color?: string; size?: number }) {
+function AnimatedThinkingLabel({
+  label,
+  color = '#a1a1aa',
+  dotColor = '#a1a1aa',
+  fontSize = '12px',
+}: {
+  label: string;
+  color?: string;
+  dotColor?: string;
+  fontSize?: string;
+}) {
   return (
-    <HStack spacing={1} align="center">
-      {[0, 1, 2].map((index) => (
-        <motion.span
-          key={index}
-          animate={{
-            opacity: [0.35, 1, 0.35],
-            scale: [0.92, 1.14, 0.92],
-            y: [0, -1.5, 0],
-          }}
-          transition={{
-            duration: 0.9,
-            repeat: Number.POSITIVE_INFINITY,
-            ease: 'easeInOut',
-            delay: index * 0.12,
-          }}
-          style={{
-            display: 'block',
-            width: `${size}px`,
-            height: `${size}px`,
-            borderRadius: '999px',
-            background: color,
-          }}
-        />
-      ))}
+    <HStack spacing={0.5} align="center">
+      <Text fontSize={fontSize} color={color} fontWeight="medium" whiteSpace="nowrap">
+        {label}
+      </Text>
+      <HStack as="span" spacing={0.5} align="center">
+        {[0, 1, 2].map((index) => (
+          <motion.span
+            key={index}
+            animate={{ opacity: [0.18, 1, 0.18] }}
+            transition={{
+              duration: 1.15,
+              repeat: Number.POSITIVE_INFINITY,
+              ease: 'easeInOut',
+              delay: index * 0.18,
+            }}
+            style={{
+              color: dotColor,
+              fontSize,
+              lineHeight: 1,
+              display: 'inline-block',
+              minWidth: '0.18em',
+              textAlign: 'center',
+            }}
+          >
+            .
+          </motion.span>
+        ))}
+      </HStack>
     </HStack>
   );
+}
+
+function getToolStatusColor(status: string): string {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === 'completed') {
+    return '#86efac';
+  }
+
+  if (normalized === 'error' || normalized === 'failed' || normalized === 'blocked') {
+    return '#fca5a5';
+  }
+
+  if (normalized === 'approval-required' || normalized === 'input-required') {
+    return '#fcd34d';
+  }
+
+  return '#60a5fa';
 }
 
 // Tool-specific argument summary for display
@@ -552,6 +744,11 @@ function getToolArgSummary(entry: DesktopSessionEntry): string {
   try {
     const a = JSON.parse(entry.arguments) as Record<string, unknown>;
     const str = (k: string) => typeof a[k] === 'string' ? (a[k] as string) : '';
+
+    if (toolKey.includes('web_fetch') || toolKey.includes('fetch')) {
+      const url = str('url') || str('uri') || str('href');
+      return url ? trunc(url, 88) : '';
+    }
 
     // File path tools — show filename
     if (toolKey.includes('read') || toolKey.includes('write') || toolKey.includes('edit') || toolKey.includes('str_replace')) {
@@ -596,6 +793,14 @@ function getToolArgSummary(entry: DesktopSessionEntry): string {
   }
 }
 
+function getLiveToolLabel(locale: string): string {
+  if (locale.startsWith('ru')) {
+    return 'Сейчас';
+  }
+
+  return 'Live';
+}
+
 export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAreaProps) {
   const { t } = useTranslation();
   const {
@@ -605,6 +810,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     setBootstrap,
     setSessionCache,
     activeTurnSessions,
+    liveSessionEvents,
     streamingSnapshots,
     latestSessionEvent,
   } = useBootstrap();
@@ -627,6 +833,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
   const [selectedProjectMode, setSelectedProjectMode] = useState<'project' | 'no-project'>('project');
   const [selectedProjectPath, setSelectedProjectPath] = useState('');
   const [customProjectPaths, setCustomProjectPaths] = useState<string[]>([]);
+  const [loadingPhrase, setLoadingPhrase] = useState('');
   const [projectPickerPosition, setProjectPickerPosition] = useState({ top: 0, left: 0, width: 320, maxHeight: 320 });
 
   // Session data from IPC
@@ -637,9 +844,11 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modeBtnRef = useRef<HTMLButtonElement>(null);
   const modeMenuRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const projectPickerButtonRef = useRef<HTMLButtonElement>(null);
   const projectPickerMenuRef = useRef<HTMLDivElement>(null);
+  const shouldStickToBottomRef = useRef(true);
+  const scrollFrameRef = useRef<number | null>(null);
 
   const selectedModel = useMemo(() => {
     const models = bootstrap?.qwenModels?.availableModels ?? [];
@@ -659,6 +868,34 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
   const isPendingSelectedSession = !!selectedSessionId && !!pendingTurnSessionIds[selectedSessionId];
   const isComposerBusy = isPendingSelectedSession || isSessionStreaming;
   const isAwaitingAssistantText = hasSession && isComposerBusy && !streamingSnapshot.trim();
+  const defaultThinkingLabel = t('tools.thinking');
+  const plainThinkingLabel = getThinkingStatusLabel(locale, 0);
+  const wittyLoadingPhrases = useMemo(
+    () => normalizeWittyLoadingPhrases(
+      t('tools.wittyLoadingPhrases', { returnObjects: true, defaultValue: [] }),
+      defaultThinkingLabel,
+    ),
+    [defaultThinkingLabel, t],
+  );
+  const liveToolEntries = useMemo(
+    () =>
+      selectedSessionId && isSessionStreaming
+        ? buildLiveToolEntries(
+          liveSessionEvents[selectedSessionId] ?? [],
+          selectedSession?.workingDirectory ?? sessionDetail?.session.workingDirectory ?? '',
+          selectedSession?.gitBranch ?? sessionDetail?.session.gitBranch ?? '',
+        )
+        : [],
+    [
+      isSessionStreaming,
+      liveSessionEvents,
+      selectedSession?.gitBranch,
+      selectedSession?.workingDirectory,
+      selectedSessionId,
+      sessionDetail?.session.gitBranch,
+      sessionDetail?.session.workingDirectory,
+    ],
+  );
 
   const projectOptions = useMemo(() => {
     const projectMap = new Map<string, ProjectOption>();
@@ -751,40 +988,56 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
   }, []);
 
   const displaySessionDetail = useMemo(() => {
-    if (!sessionDetail || !selectedSessionId || !isSessionStreaming || !streamingSnapshot.trim()) {
+    if (!sessionDetail || !selectedSessionId || !isSessionStreaming) {
       return sessionDetail;
     }
 
+    const syntheticEntries: DesktopSessionEntry[] = [...liveToolEntries];
+    const hasStreamingAssistant = streamingSnapshot.trim().length > 0;
     const lastNonSystemEntry = [...sessionDetail.entries]
       .reverse()
       .find((entry) => entry.type !== 'system' && entry.type !== 'tool_result');
-    if (lastNonSystemEntry?.type === 'assistant' && (lastNonSystemEntry.body ?? '') === streamingSnapshot) {
+
+    if (
+      hasStreamingAssistant &&
+      !(lastNonSystemEntry?.type === 'assistant' && (lastNonSystemEntry.body ?? '') === streamingSnapshot)
+    ) {
+      const timestamp = latestSessionEvent?.sessionId === selectedSessionId
+        ? latestSessionEvent.timestampUtc
+        : new Date().toISOString();
+      syntheticEntries.push(
+        createStreamingAssistantEntry(
+          selectedSessionId,
+          selectedSession?.workingDirectory ?? sessionDetail.session.workingDirectory,
+          selectedSession?.gitBranch ?? sessionDetail.session.gitBranch,
+          streamingSnapshot,
+          timestamp,
+        ),
+      );
+    }
+
+    if (syntheticEntries.length === 0) {
       return sessionDetail;
     }
 
-    const timestamp = latestSessionEvent?.sessionId === selectedSessionId
-      ? latestSessionEvent.timestampUtc
-      : new Date().toISOString();
-    const syntheticEntry = createStreamingAssistantEntry(
-      selectedSessionId,
-      selectedSession?.workingDirectory ?? sessionDetail.session.workingDirectory,
-      selectedSession?.gitBranch ?? sessionDetail.session.gitBranch,
-      streamingSnapshot,
-      timestamp,
-    );
+    const syntheticAssistantCount = syntheticEntries.filter((entry) => entry.type === 'assistant').length;
+    const syntheticToolCount = syntheticEntries.filter((entry) => entry.type === 'tool').length;
+    const lastTimestamp = syntheticEntries[syntheticEntries.length - 1]?.timestamp ?? sessionDetail.summary.lastTimestamp;
 
     return {
       ...sessionDetail,
-      entryCount: sessionDetail.entryCount + 1,
-      windowSize: sessionDetail.windowSize + 1,
+      entryCount: sessionDetail.entryCount + syntheticEntries.length,
+      windowSize: sessionDetail.windowSize + syntheticEntries.length,
       summary: {
         ...sessionDetail.summary,
-        assistantCount: sessionDetail.summary.assistantCount + 1,
-        lastTimestamp: timestamp,
+        assistantCount: sessionDetail.summary.assistantCount + syntheticAssistantCount,
+        toolCount: sessionDetail.summary.toolCount + syntheticToolCount,
+        lastTimestamp,
       },
-      entries: [...sessionDetail.entries, syntheticEntry],
+      entries: [...sessionDetail.entries, ...syntheticEntries],
     };
   }, [
+    liveToolEntries,
     isSessionStreaming,
     latestSessionEvent,
     selectedSession?.gitBranch,
@@ -794,14 +1047,57 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     streamingSnapshot,
   ]);
 
-  // Auto-scroll
+  const updateStickToBottomState = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    shouldStickToBottomRef.current = distanceToBottom <= 72;
+  }, []);
+
+  const scrollToBottom = useCallback((force = false) => {
+    const container = scrollContainerRef.current;
+    if (!container || (!force && !shouldStickToBottomRef.current)) {
+      return;
+    }
+
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+    }
+
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      const currentContainer = scrollContainerRef.current;
+      if (!currentContainer) {
+        scrollFrameRef.current = null;
+        return;
+      }
+
+      currentContainer.scrollTop = currentContainer.scrollHeight;
+      shouldStickToBottomRef.current = true;
+      scrollFrameRef.current = null;
+    });
+  }, []);
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+    }
+  }, []);
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [displaySessionDetail?.entries.length, isAwaitingAssistantText, streamingSnapshot]);
+    scrollToBottom();
+  }, [displaySessionDetail?.entries.length, isAwaitingAssistantText, scrollToBottom, streamingSnapshot]);
 
   useEffect(() => {
     setUsedTokens(estimateSessionTokens(displaySessionDetail));
   }, [displaySessionDetail]);
+
+  useEffect(() => {
+    shouldStickToBottomRef.current = true;
+    scrollToBottom(true);
+  }, [scrollToBottom, selectedSessionId]);
 
   useEffect(() => {
     if (!selectedSessionId || !activeTurnSessions[selectedSessionId]) {
@@ -880,6 +1176,21 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     }
   }, [bootstrap?.workspaceRoot, runtimeTempRoot, selectedProjectPath, sessions]);
 
+  useEffect(() => {
+    if (!selectedSessionId) {
+      return;
+    }
+
+    const cachedDetail = sessionCache[selectedSessionId];
+    if (!cachedDetail) {
+      return;
+    }
+
+    setSessionDetail(cachedDetail);
+    setUsedTokens(estimateSessionTokens(cachedDetail));
+    setIsLoadingSession(false);
+  }, [selectedSessionId, sessionCache]);
+
   // Load session
   useEffect(() => {
     if (!selectedSessionId) {
@@ -889,18 +1200,19 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
       return;
     }
 
-    let cancelled = false;
     const cachedDetail = sessionCache[selectedSessionId];
 
     if (cachedDetail) {
       setSessionDetail(cachedDetail);
       setUsedTokens(estimateSessionTokens(cachedDetail));
-    } else {
-      setSessionDetail(null);
-      setUsedTokens(0);
+      setIsLoadingSession(false);
+      return;
     }
 
-    setIsLoadingSession(!cachedDetail);
+    let cancelled = false;
+    setSessionDetail(null);
+    setUsedTokens(0);
+    setIsLoadingSession(true);
 
     const loadSession = async () => {
       try {
@@ -918,7 +1230,23 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
     void loadSession();
     return () => { cancelled = true; };
-  }, [loadSessionDetail, selectedSessionId, sessionCache]);
+  }, [loadSessionDetail, selectedSessionId]);
+
+  useEffect(() => {
+    if (!isAwaitingAssistantText) {
+      setLoadingPhrase('');
+      return;
+    }
+
+    const firstPhrase = pickWittyLoadingPhrase(wittyLoadingPhrases, defaultThinkingLabel);
+    setLoadingPhrase(firstPhrase);
+
+    const intervalId = window.setInterval(() => {
+      setLoadingPhrase((current) => pickWittyLoadingPhrase(wittyLoadingPhrases, defaultThinkingLabel, current));
+    }, 2600);
+
+    return () => window.clearInterval(intervalId);
+  }, [defaultThinkingLabel, isAwaitingAssistantText, wittyLoadingPhrases]);
 
   const handleSubmit = useCallback(async () => {
     const trimmedPrompt = prompt.trim();
@@ -955,6 +1283,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     setPrompt('');
     setProjectPickerOpen(false);
     setProjectPickerQuery('');
+    shouldStickToBottomRef.current = true;
     setPendingTurnSessionIds((current) => ({ ...current, [targetSessionId]: true }));
     setBootstrap((current) => ({
       ...current,
@@ -1057,7 +1386,13 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
       const blockType: Block['type'] =
         isThought ? 'thought' : isTool ? 'tool-group' : isUser ? 'user' : 'assistant';
 
-      if (!currentBlock || currentBlock.type !== blockType) {
+      const shouldSplitToolGroup =
+        blockType === 'tool-group' &&
+        currentBlock?.type === 'tool-group' &&
+        ((currentBlock.entries[currentBlock.entries.length - 1]?.scope || '') !== (entry.scope || '')) &&
+        ((currentBlock.entries[currentBlock.entries.length - 1]?.scope || '') || (entry.scope || ''));
+
+      if (!currentBlock || currentBlock.type !== blockType || shouldSplitToolGroup) {
         if (currentBlock) blocks.push(currentBlock);
         currentBlock = { type: blockType, entries: [entry] };
       } else {
@@ -1112,7 +1447,12 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
       )}
 
       {/* Main area — messages or welcome */}
-      <Box flex={1} overflowY="scroll" sx={{
+      <Box
+        ref={scrollContainerRef}
+        flex={1}
+        overflowY="scroll"
+        onScroll={updateStickToBottomState}
+        sx={{
         '&::-webkit-scrollbar': { width: '6px' },
         '&::-webkit-scrollbar-track': { background: 'transparent' },
         '&::-webkit-scrollbar-thumb': { background: '#5b5b67', borderRadius: '3px' },
@@ -1167,10 +1507,12 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                     // ── Tool groups — timeline design ──
                     if (block.type === 'tool-group') {
                       const count = block.entries.length;
+                      const hasLiveEntries = block.entries.some((entry) => isLiveToolEntry(entry));
 
                       // ── Single tool: show inline, no expand needed ──
                       if (count === 1) {
                         const entry = block.entries[0];
+                        const isLiveEntry = isLiveToolEntry(entry);
                         const info = getToolInfo(entry.toolName || entry.title || '');
                         const ToolIcon = info.Icon;
                         const label = t(info.labelKey);
@@ -1200,13 +1542,55 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                               )}
                               <Box color="gray.500" flexShrink={0}><ToolIcon size={12} /></Box>
                               <Text fontSize="xs" color="gray.400" fontWeight="medium" flexShrink={0}>{label}</Text>
+                              {isLiveEntry && isToolPendingStatus(entry.status) && (
+                                <HStack
+                                  spacing={1.5}
+                                  px={1.5}
+                                  py="2px"
+                                  borderRadius="full"
+                                  bg="rgba(97,92,237,0.10)"
+                                  border="1px solid rgba(97,92,237,0.22)"
+                                  flexShrink={0}
+                                >
+                                  <motion.span
+                                    animate={{ scale: [0.92, 1.18, 0.92], opacity: [0.45, 1, 0.45] }}
+                                    transition={{ duration: 1.1, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' }}
+                                    style={{
+                                      display: 'inline-flex',
+                                      width: '6px',
+                                      height: '6px',
+                                      borderRadius: '9999px',
+                                      background: '#a5b4fc',
+                                      boxShadow: '0 0 12px rgba(165,180,252,0.7)',
+                                    }}
+                                  />
+                                  <Text fontSize="10px" color="#c7d2fe" fontWeight="semibold" letterSpacing="0.04em" textTransform="uppercase">
+                                    {getLiveToolLabel(locale)}
+                                  </Text>
+                                </HStack>
+                              )}
                               {summary && (
                                 <HStack spacing={2} flex={1} minW={0}>
-                                  <Box boxSize="5px" borderRadius="full" bg="gray.600" flexShrink={0} />
+                                  <Box
+                                    boxSize="5px"
+                                    borderRadius="full"
+                                    bg={getToolStatusColor(entry.status)}
+                                    flexShrink={0}
+                                    boxShadow={isToolPendingStatus(entry.status) ? `0 0 10px ${getToolStatusColor(entry.status)}` : 'none'}
+                                  />
                                   <Text fontSize="xs" color="gray.600" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>
                                     {summary}
                                   </Text>
                                 </HStack>
+                              )}
+                              {!summary && (
+                                <Box
+                                  boxSize="5px"
+                                  borderRadius="full"
+                                  bg={getToolStatusColor(entry.status)}
+                                  flexShrink={0}
+                                  boxShadow={isToolPendingStatus(entry.status) ? `0 0 10px ${getToolStatusColor(entry.status)}` : 'none'}
+                                />
                               )}
                             </HStack>
                             <AnimatePresence initial={false}>
@@ -1263,7 +1647,20 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                       }
 
                       // ── Multiple tools: collapsible with timeline ──
-                      const isCollapsed = collapsedBlocks[blockKey] !== false;
+                      const pendingCount = block.entries.filter((entry) => isToolPendingStatus(entry.status)).length;
+                      const failedCount = block.entries.filter((entry) => {
+                        const normalized = entry.status.trim().toLowerCase();
+                        return normalized === 'error' || normalized === 'failed' || normalized === 'blocked';
+                      }).length;
+                      const livePendingCount = block.entries.filter((entry) => isLiveToolEntry(entry) && isToolPendingStatus(entry.status)).length;
+                      const headerStatus = pendingCount > 0
+                        ? 'requested'
+                        : failedCount > 0
+                          ? 'error'
+                          : 'completed';
+                      const isCollapsed = hasLiveEntries
+                        ? collapsedBlocks[blockKey] === true
+                        : collapsedBlocks[blockKey] !== false;
 
                       return (
                         <Box key={blockKey} py={0.5}>
@@ -1292,6 +1689,14 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                               </HStack>
                             )}
                             <Text fontSize="xs" color="gray.500">{t('tools.toolCalls', { count })}</Text>
+                            <Box
+                              as="span"
+                              boxSize="6px"
+                              borderRadius="full"
+                              bg={getToolStatusColor(headerStatus)}
+                              flexShrink={0}
+                              boxShadow={livePendingCount > 0 ? `0 0 10px ${getToolStatusColor(headerStatus)}` : 'none'}
+                            />
                           </HStack>
 
                           {/* Expanded: timeline list */}
@@ -1301,6 +1706,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                 <Box ml={3} mt={1} mb={1}>
                                   {block.entries.map((entry, entryInnerIdx) => {
                                     const isLastEntry = entryInnerIdx === block.entries.length - 1;
+                                    const isLiveEntry = isLiveToolEntry(entry);
                                     const info = getToolInfo(entry.toolName || entry.title || '');
                                     const ToolIcon = info.Icon;
                                     const label = t(info.labelKey);
@@ -1310,7 +1716,13 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                     const files = entry.changedFiles ?? [];
 
                                     return (
-                                      <Box key={entry.id} position="relative" pl="22px" py="1px">
+                                      <motion.div
+                                        key={entry.id}
+                                        initial={isLiveEntry ? { opacity: 0, y: 8 } : false}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                                      >
+                                      <Box position="relative" pl="22px" py="1px">
                                         {/* Vertical line: full height for non-last, half for last (stops at mid-row) */}
                                         <Box
                                           position="absolute"
@@ -1331,11 +1743,32 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                           style={{ transform: 'translateY(-50%)' }}
                                         />
                                         <HStack spacing={2} minH="22px">
-                                          <Box color="gray.500" flexShrink={0}><ToolIcon size={12} /></Box>
+                                          <Box color={isLiveEntry && isToolPendingStatus(entry.status) ? '#a5b4fc' : 'gray.500'} flexShrink={0}><ToolIcon size={12} /></Box>
                                           <Text fontSize="xs" color="gray.300" fontWeight="medium" flexShrink={0}>{label}</Text>
+                                          {isLiveEntry && isToolPendingStatus(entry.status) && (
+                                            <motion.span
+                                              animate={{ scale: [0.92, 1.18, 0.92], opacity: [0.45, 1, 0.45] }}
+                                              transition={{ duration: 1.1, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' }}
+                                              style={{
+                                                display: 'inline-flex',
+                                                width: '6px',
+                                                height: '6px',
+                                                borderRadius: '9999px',
+                                                background: '#a5b4fc',
+                                                boxShadow: '0 0 12px rgba(165,180,252,0.7)',
+                                                flexShrink: 0,
+                                              }}
+                                            />
+                                          )}
                                           {summary && (
                                             <HStack spacing={2} flex={1} minW={0}>
-                                              <Box boxSize="5px" borderRadius="full" bg="gray.600" flexShrink={0} />
+                                              <Box
+                                                boxSize="5px"
+                                                borderRadius="full"
+                                                bg={getToolStatusColor(entry.status)}
+                                                flexShrink={0}
+                                                boxShadow={isToolPendingStatus(entry.status) ? `0 0 10px ${getToolStatusColor(entry.status)}` : 'none'}
+                                              />
                                               <Text fontSize="xs" color="gray.600" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>
                                                 {summary}
                                               </Text>
@@ -1386,6 +1819,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                           </Box>
                                         )}
                                       </Box>
+                                      </motion.div>
                                     );
                                   })}
                                 </Box>
@@ -1550,35 +1984,22 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                     {isAwaitingAssistantText && (
                       <motion.div
                         key="assistant-processing"
-                        initial={{ opacity: 0, y: 10 }}
+                        initial={{ opacity: 0, y: 4 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
+                        exit={{ opacity: 0, y: 2 }}
                         transition={{ duration: 0.18, ease: 'easeOut' }}
                       >
-                        <Flex justify="flex-start" py={2}>
-                          <Box
-                            maxW="240px"
-                            px={4}
-                            py={3}
-                            borderRadius="20px"
-                            borderTopLeftRadius="4px"
-                            bg="gray.850"
-                            border="1px solid"
-                            borderColor="whiteAlpha.100"
-                            boxShadow="0 18px 40px -28px rgba(0, 0, 0, 0.95)"
-                          >
-                            <VStack align="start" spacing={2}>
-                              <Text fontSize="xs" color="gray.400" fontWeight="medium">
-                                {t('tools.thinking')}
-                              </Text>
-                              <ProcessingDots color="#7c7ff3" size={7} />
-                            </VStack>
-                          </Box>
+                        <Flex justify="flex-start" py={2} px={2}>
+                          <AnimatedThinkingLabel
+                            label={plainThinkingLabel}
+                            color="#9ca3af"
+                            dotColor="#9ca3af"
+                            fontSize="12px"
+                          />
                         </Flex>
                       </motion.div>
                     )}
                   </AnimatePresence>
-                  <div ref={messagesEndRef} />
                 </VStack>
               </Box>
             </Box>
@@ -1822,17 +2243,41 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
           }}
         />
 
-        <Box
-          mx="auto"
-          w="full"
-          maxW={CHAT_MAX_WIDTH}
-          borderRadius="28px"
-          overflow="visible"
-          border="1px solid"
-          borderColor="gray.700"
-          bg="gray.800"
-          boxShadow="0 24px 80px -48px rgba(0,0,0,0.95)"
-        >
+        <Box mx="auto" w="full" maxW={CHAT_MAX_WIDTH}>
+          <Box minH="24px" px={2} mb={2} display="flex" alignItems="center">
+            <AnimatePresence mode="wait" initial={false}>
+              {isAwaitingAssistantText && (
+                <motion.div
+                  key={loadingPhrase || 'loading-phrase'}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  style={{ width: '100%' }}
+                >
+                  <Text
+                    fontSize="xs"
+                    color="gray.500"
+                    pl={1}
+                    whiteSpace="nowrap"
+                    overflow="hidden"
+                    textOverflow="ellipsis"
+                  >
+                    {loadingPhrase || defaultThinkingLabel}
+                  </Text>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </Box>
+
+          <Box
+            borderRadius="28px"
+            overflow="visible"
+            border="1px solid"
+            borderColor="gray.700"
+            bg="gray.800"
+            boxShadow="0 24px 80px -48px rgba(0,0,0,0.95)"
+          >
           {/* Textarea */}
           <Box px={5} pt={4}>
             <ChakraTextarea
@@ -1956,24 +2401,6 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
             {/* Right: donut + send */}
             <HStack gap={2}>
-              <AnimatePresence initial={false}>
-                {isAwaitingAssistantText && (
-                  <motion.div
-                    key="composer-processing-state"
-                    initial={{ opacity: 0, x: 6 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 6 }}
-                    transition={{ duration: 0.16, ease: 'easeOut' }}
-                  >
-                    <HStack spacing={2} pr={1}>
-                      <ProcessingDots color="#7c7ff3" size={5} />
-                      <Text fontSize="xs" color="gray.400" whiteSpace="nowrap">
-                        {t('tools.thinking')}
-                      </Text>
-                    </HStack>
-                  </motion.div>
-                )}
-              </AnimatePresence>
               {/* Context ring */}
               <Box
                 ref={donutRef}
@@ -2049,6 +2476,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
               />
             </HStack>
           </HStack>
+        </Box>
         </Box>
 
         {/* Disclaimer — always visible */}

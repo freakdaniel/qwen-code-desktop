@@ -109,6 +109,91 @@ public sealed class SessionHostTurnTests
     }
 
     [Fact]
+    public async Task DesktopSessionHostService_StartTurnAsync_UsesPlanPromptModeWhenApprovalProfileIsPlan()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-plan-mode-session-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "permissions": {
+                    "defaultMode": "plan"
+                  }
+                }
+                """);
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
+            var compatibilityService = new QwenCompatibilityService(environmentPaths);
+            var approvalPolicyService = new ApprovalPolicyService();
+            var chatRecordingService = new ChatRecordingService();
+            var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService, chatRecordingService);
+            var interruptedTurnStore = new InterruptedTurnStore();
+            var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);
+            var pendingApprovalResolver = new PendingApprovalResolver();
+            var sessionMessageBus = new SessionMessageBus(
+                new PendingToolApprovalMessageHandler(
+                    transcriptStore,
+                    pendingApprovalResolver,
+                    runtimeProfileService),
+                new PendingQuestionAnswerMessageHandler(
+                    transcriptStore,
+                    pendingApprovalResolver,
+                    runtimeProfileService,
+                    new UserQuestionToolService()));
+            var capturingRuntime = new CapturingAssistantTurnRuntime();
+            var sessionHost = new DesktopSessionHostService(
+                runtimeProfileService,
+                new CommandActionRuntime(
+                    new SlashCommandRuntime(compatibilityService),
+                    runtimeProfileService,
+                    compatibilityService,
+                    new ToolCatalogService(runtimeProfileService, approvalPolicyService)),
+                capturingRuntime,
+                new ChatCompressionService(),
+                chatRecordingService,
+                new NativeToolHostService(runtimeProfileService, approvalPolicyService),
+                new LocalPassthroughHookLifecycleService(),
+                new UserQuestionToolService(),
+                new LocalPassthroughUserPromptHookService(),
+                transcriptStore,
+                activeTurnRegistry,
+                interruptedTurnStore,
+                new SessionTranscriptWriter(),
+                new SessionEventFactory(),
+                sessionMessageBus);
+
+            var result = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Draft a careful implementation plan.",
+                    WorkingDirectory = workspaceRoot
+                });
+
+            Assert.True(result.CreatedNewSession);
+            Assert.NotNull(capturingRuntime.LastRequest);
+            Assert.Equal(AssistantPromptMode.Plan, capturingRuntime.LastRequest!.PromptMode);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DesktopSessionHostService_StartTurnAsync_AllowsExistingExternalProjectDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-external-project-session-{Guid.NewGuid():N}");
@@ -543,6 +628,87 @@ public sealed class SessionHostTurnTests
     }
 
     [Fact]
+    public async Task DesktopSessionHostService_StartTurnAsync_DoesNotPersistToolFailureSummaryAsAssistantMessage()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-tool-failure-turn-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var approvalPolicyService = new ApprovalPolicyService();
+            var chatRecordingService = new ChatRecordingService();
+            var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService, chatRecordingService);
+            var interruptedTurnStore = new InterruptedTurnStore();
+            var activeTurnRegistry = new ActiveTurnRegistry(interruptedTurnStore);
+            var pendingApprovalResolver = new PendingApprovalResolver();
+            var sessionMessageBus = new SessionMessageBus(
+                new PendingToolApprovalMessageHandler(
+                    transcriptStore,
+                    pendingApprovalResolver,
+                    runtimeProfileService),
+                new PendingQuestionAnswerMessageHandler(
+                    transcriptStore,
+                    pendingApprovalResolver,
+                    runtimeProfileService,
+                    new UserQuestionToolService()));
+            var runtime = new ToolFailureAssistantTurnRuntime();
+            var sessionHost = new DesktopSessionHostService(
+                runtimeProfileService,
+                new CommandActionRuntime(
+                    new SlashCommandRuntime(compatibilityService),
+                    runtimeProfileService,
+                    compatibilityService,
+                    new ToolCatalogService(runtimeProfileService, approvalPolicyService)),
+                runtime,
+                new ChatCompressionService(),
+                chatRecordingService,
+                new NativeToolHostService(runtimeProfileService, approvalPolicyService),
+                new LocalPassthroughHookLifecycleService(),
+                new UserQuestionToolService(),
+                new LocalPassthroughUserPromptHookService(),
+                transcriptStore,
+                activeTurnRegistry,
+                interruptedTurnStore,
+                new SessionTranscriptWriter(),
+                new SessionEventFactory(),
+                sessionMessageBus);
+
+            var emittedEvents = new List<DesktopSessionEvent>();
+            sessionHost.SessionEvent += (_, sessionEvent) => emittedEvents.Add(sessionEvent);
+
+            var result = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Check the site and explain what happened.",
+                    WorkingDirectory = workspaceRoot
+                });
+
+            Assert.Equal("error", result.Session.Status);
+            Assert.DoesNotContain(emittedEvents, item => item.Kind == DesktopSessionEventKind.AssistantCompleted);
+
+            var transcript = File.ReadAllLines(result.Session.TranscriptPath);
+            Assert.Single(transcript);
+            Assert.Contains("\"type\":\"user\"", transcript[0]);
+            Assert.DoesNotContain(transcript, line => line.Contains("\"type\":\"assistant\"", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DesktopSessionHostService_StartTurnAsync_AppendsCompressionCheckpointForLongSessions()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-session-compression-{Guid.NewGuid():N}");
@@ -625,5 +791,75 @@ public sealed class SessionHostTurnTests
     }
 
 
+}
+
+file sealed class CapturingAssistantTurnRuntime : IAssistantTurnRuntime
+{
+    public AssistantTurnRequest? LastRequest { get; private set; }
+
+    public Task<AssistantTurnResponse> GenerateAsync(
+        AssistantTurnRequest request,
+        Action<AssistantRuntimeEvent>? eventSink = null,
+        CancellationToken cancellationToken = default)
+    {
+        LastRequest = request;
+        return Task.FromResult(new AssistantTurnResponse
+        {
+            Summary = "captured",
+            ProviderName = "captured-runtime",
+            Model = "captured-model",
+            ToolExecutions = []
+        });
+    }
+}
+
+file sealed class ToolFailureAssistantTurnRuntime : IAssistantTurnRuntime
+{
+    public Task<AssistantTurnResponse> GenerateAsync(
+        AssistantTurnRequest request,
+        Action<AssistantRuntimeEvent>? eventSink = null,
+        CancellationToken cancellationToken = default)
+    {
+        eventSink?.Invoke(new AssistantRuntimeEvent
+        {
+            Stage = "tool-failed",
+            ToolName = "web_fetch",
+            ToolCallId = "tool-call-web-fetch",
+            ToolCallGroupId = "tool-group-web-fetch",
+            ToolArgumentsJson = """{"url":"https://example.com"}""",
+            Status = "error",
+            Message = "Could not establish a secure HTTPS connection to the target site."
+        });
+
+        return Task.FromResult(new AssistantTurnResponse
+        {
+            Summary = "Tool 'web_fetch' failed: Could not establish a secure HTTPS connection to the target site.",
+            ProviderName = "captured-runtime",
+            Model = "captured-model",
+            StopReason = "error",
+            ToolExecutions = []
+        });
+    }
+}
+
+file sealed class LocalPassthroughUserPromptHookService : IUserPromptHookService
+{
+    public Task<UserPromptHookResult> ExecuteAsync(
+        QwenRuntimeProfile runtimeProfile,
+        UserPromptHookRequest request,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new UserPromptHookResult
+        {
+            EffectivePrompt = request.Prompt
+        });
+}
+
+file sealed class LocalPassthroughHookLifecycleService : IHookLifecycleService
+{
+    public Task<HookLifecycleResult> ExecuteAsync(
+        QwenRuntimeProfile runtimeProfile,
+        HookInvocationRequest request,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new HookLifecycleResult());
 }
 

@@ -61,6 +61,16 @@ public sealed class QwenRuntimeProfile
     public string EmbeddingModel { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the preferred locale
+    /// </summary>
+    public string CurrentLocale { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the preferred language name
+    /// </summary>
+    public string CurrentLanguage { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the chat compression
     /// </summary>
     public RuntimeChatCompressionSettings? ChatCompression { get; init; }

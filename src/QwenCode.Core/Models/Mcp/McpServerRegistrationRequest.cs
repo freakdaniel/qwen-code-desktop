@@ -58,6 +58,11 @@ public sealed class McpServerRegistrationRequest
     public string Description { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the server instructions
+    /// </summary>
+    public string Instructions { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the include tools
     /// </summary>
     public IReadOnlyList<string> IncludeTools { get; init; } = [];

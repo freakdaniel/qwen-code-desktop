@@ -1,3 +1,5 @@
+using QwenCode.App.Runtime;
+
 namespace QwenCode.App.Options;
 
 /// <summary>
@@ -38,9 +40,7 @@ public sealed class NativeAssistantRuntimeOptions
     /// <summary>
     /// Gets or sets the system prompt
     /// </summary>
-    public string SystemPrompt { get; set; } =
-        "You are the native Qwen Code Desktop runtime. Summarize the current turn clearly, " +
-        "mention command or tool outcomes when relevant, and stay concise and actionable.";
+    public string SystemPrompt { get; set; } = NativeAssistantRuntimePromptBuilder.DefaultSystemPrompt;
 
     /// <summary>
     /// Gets or sets the temperature
@@ -50,7 +50,7 @@ public sealed class NativeAssistantRuntimeOptions
     /// <summary>
     /// Gets or sets the max tool iterations
     /// </summary>
-    public int MaxToolIterations { get; set; } = 4;
+    public int MaxToolIterations { get; set; } = 12;
 
     /// <summary>
     /// Gets or sets the input token limit

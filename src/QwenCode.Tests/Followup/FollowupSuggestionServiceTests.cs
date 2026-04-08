@@ -12,6 +12,7 @@ public sealed class FollowupSuggestionServiceTests
 
         try
         {
+            LlmContentRequest? capturedRequest = null;
             var workspaceRoot = Path.Combine(root, "workspace");
             var homeRoot = Path.Combine(root, "home");
             var systemRoot = Path.Combine(root, "system");
@@ -36,12 +37,16 @@ public sealed class FollowupSuggestionServiceTests
             var generator = new ProviderBackedFollowupSuggestionGenerator(
                 runtimeProfileService,
                 new AssistantPromptAssembler(new ProjectSummaryService()),
-                new StaticContentGenerator(static _ => new LlmContentResponse
+                new StaticContentGenerator(request =>
                 {
-                    Content = "run the tests",
-                    ProviderName = "qwen-compatible",
-                    Model = "qwen3-coder-plus",
-                    StopReason = "completed"
+                    capturedRequest = request;
+                    return new LlmContentResponse
+                    {
+                        Content = "run the tests",
+                        ProviderName = "qwen-compatible",
+                        Model = "qwen3-coder-plus",
+                        StopReason = "completed"
+                    };
                 }),
                 Options.Create(new NativeAssistantRuntimeOptions
                 {
@@ -78,6 +83,9 @@ public sealed class FollowupSuggestionServiceTests
             Assert.NotEmpty(snapshot.Suggestions);
             Assert.Equal("run the tests", snapshot.Suggestions[0].Text);
             Assert.Equal("qwen-compatible", snapshot.Suggestions[0].Source);
+            Assert.NotNull(capturedRequest);
+            Assert.Equal(AssistantPromptMode.FollowupSuggestion, capturedRequest!.PromptMode);
+            Assert.True(capturedRequest.DisableTools);
         }
         finally
         {

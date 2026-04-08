@@ -183,7 +183,8 @@ public sealed class McpConnectionManagerTests
             {
                 Name = "docs",
                 Scope = "user",
-                Transport = "http"
+                Transport = "http",
+                Instructions = "Use the docs server before generic web search."
             });
         var runtime = new FakeMcpToolRuntime(
             new McpReconnectResult
@@ -206,6 +207,7 @@ public sealed class McpConnectionManagerTests
         Assert.Equal(3, result.DiscoveredToolsCount);
         Assert.Equal(3, listed.DiscoveredToolsCount);
         Assert.Equal(2, listed.DiscoveredPromptsCount);
+        Assert.Equal("Use the docs server before generic web search.", listed.Instructions);
         Assert.True(listed.SupportsPrompts);
         Assert.True(listed.SupportsResources);
         Assert.NotNull(listed.LastDiscoveryUtc);

@@ -27,6 +27,7 @@ export interface BootstrapState {
   authSnapshot: AuthStatusSnapshot
   mcpSnapshot: McpSnapshot
   activeTurnSessions: Record<string, true>
+  liveSessionEvents: Record<string, DesktopSessionEvent[]>
   streamingSnapshots: Record<string, string>
   reattachedSessionId: string
   isReady: boolean
@@ -51,6 +52,7 @@ function useBootstrapState(): BootstrapState {
   const [authSnapshot, setAuthSnapshot] = useState<AuthStatusSnapshot>(fallbackBootstrap.qwenAuth)
   const [mcpSnapshot, setMcpSnapshot] = useState<McpSnapshot>(fallbackBootstrap.qwenMcp)
   const [activeTurnSessions, setActiveTurnSessions] = useState<Record<string, true>>({})
+  const [liveSessionEvents, setLiveSessionEvents] = useState<Record<string, DesktopSessionEvent[]>>({})
   const [streamingSnapshots, setStreamingSnapshots] = useState<Record<string, string>>({})
   const [reattachedSessionId, setReattachedSessionId] = useState('')
   const [latestSessionEvent, setLatestSessionEvent] = useState<DesktopSessionEvent | null>(null)
@@ -71,7 +73,13 @@ function useBootstrapState(): BootstrapState {
   }
 
   const syncActiveTurns = (turns: ActiveTurnState[], preferredSessionId = '') => {
+    const activeSessionIds = new Set(turns.map((turn) => turn.sessionId))
     setActiveTurnSessions(Object.fromEntries(turns.map((t) => [t.sessionId, true] as const)))
+    setLiveSessionEvents((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([sessionId]) => activeSessionIds.has(sessionId)),
+      ),
+    )
     setStreamingSnapshots(
       Object.fromEntries(
         turns.filter((t) => t.contentSnapshot).map((t) => [t.sessionId, t.contentSnapshot] as const),
@@ -103,6 +111,9 @@ function useBootstrapState(): BootstrapState {
       gitBranch: activeTurn.gitBranch,
       commandName: '',
       toolName: activeTurn.toolName,
+      toolCallId: '',
+      toolCallGroupId: '',
+      toolArgumentsJson: '{}',
       status: activeTurn.status,
       contentDelta: '',
       contentSnapshot: activeTurn.contentSnapshot,
@@ -227,6 +238,27 @@ function useBootstrapState(): BootstrapState {
           }
 
           setLatestSessionEvent(event)
+          setLiveSessionEvents((current) => {
+            if (event.kind === 'turnStarted' || event.kind === 'turnReattached') {
+              return { ...current, [event.sessionId]: [event] }
+            }
+
+            if (event.kind === 'turnCompleted' || event.kind === 'turnCancelled') {
+              if (!(event.sessionId in current)) {
+                return current
+              }
+
+              const next = { ...current }
+              delete next[event.sessionId]
+              return next
+            }
+
+            const history = current[event.sessionId] ?? []
+            return {
+              ...current,
+              [event.sessionId]: [...history, event].slice(-120),
+            }
+          })
 
           setActiveTurnSessions((current) => {
             if (event.kind === 'turnStarted') {
@@ -314,6 +346,7 @@ function useBootstrapState(): BootstrapState {
       authSnapshot,
       mcpSnapshot,
       activeTurnSessions,
+      liveSessionEvents,
       streamingSnapshots,
       reattachedSessionId,
       isReady,
@@ -332,6 +365,7 @@ function useBootstrapState(): BootstrapState {
       authSnapshot,
       bootstrap,
       isReady,
+      liveSessionEvents,
       latestSessionEvent,
       loadSessionDetail,
       mcpSnapshot,

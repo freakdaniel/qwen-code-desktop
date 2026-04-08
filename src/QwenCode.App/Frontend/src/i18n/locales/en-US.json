@@ -83,6 +83,18 @@
     "webSearch": "Web Search",
     "tool": "Tool",
     "thinking": "Thinking…",
+    "wittyLoadingPhrases": [
+      "I'm Feeling Lucky",
+      "Shipping awesomeness...",
+      "Reticulating splines...",
+      "Warming up the AI hamsters...",
+      "Generating witty retort...",
+      "Brewing fresh bytes...",
+      "One moment, optimizing humor...",
+      "Compiling brilliance...",
+      "Resolving dependencies... and existential crises...",
+      "Converting coffee into code..."
+    ],
     "toolCalls_one": "{{count}} tool call",
     "toolCalls_other": "{{count}} tool calls",
     "statusCompleted": "DONE",

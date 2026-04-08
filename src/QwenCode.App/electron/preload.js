@@ -1,4 +1,68 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, shell } = require('electron');
+
+const EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+
+function isExternalUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return EXTERNAL_PROTOCOLS.has(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function openExternalUrl(url) {
+  if (!isExternalUrl(url)) {
+    return Promise.resolve(false);
+  }
+
+  return shell.openExternal(url).then(() => true);
+}
+
+function installExternalLinkInterception() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return;
+  }
+
+  const handlePointerNavigation = (event) => {
+    const target = event.target;
+    const anchor = target && typeof target.closest === 'function'
+      ? target.closest('a[href]')
+      : null;
+
+    if (!anchor) {
+      return;
+    }
+
+    const href = anchor.getAttribute('href') || anchor.href;
+    if (!isExternalUrl(href)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    void openExternalUrl(href);
+  };
+
+  window.addEventListener('click', handlePointerNavigation, true);
+  window.addEventListener('auxclick', handlePointerNavigation, true);
+
+  const originalOpen = window.open?.bind(window);
+  window.open = (url, target, features) => {
+    if (typeof url === 'string' && isExternalUrl(url)) {
+      void openExternalUrl(url);
+      return null;
+    }
+
+    return originalOpen ? originalOpen(url, target, features) : null;
+  };
+}
+
+installExternalLinkInterception();
 
 const invoke = (channel, payload) =>
   new Promise((resolve, reject) => {
@@ -53,6 +117,7 @@ contextBridge.exposeInMainWorld('qwenDesktop', {
   approvePendingTool: (request) => invoke('qwen-desktop:sessions:approve-tool', request),
   answerPendingQuestion: (request) => invoke('qwen-desktop:sessions:answer-question', request),
   executeNativeTool: (request) => invoke('qwen-desktop:tools:execute-native', request),
+  openExternalUrl,
   subscribeStateChanged: (callback) => {
     const channel = 'qwen-desktop:app:state-changed';
     const handler = (_event, raw) => {

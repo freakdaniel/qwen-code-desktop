@@ -1,3 +1,5 @@
+using QwenCode.App.Mcp;
+
 namespace QwenCode.Tests.Runtime;
 
 public sealed class AssistantPromptAssemblerTests
@@ -47,6 +49,9 @@ public sealed class AssistantPromptAssemblerTests
                 # Project memory
                 Remember the desktop runtime must stay native.
                 @docs/guidelines.md
+
+                ## Qwen Added Memories
+                - Persist renderer reconnect behavior.
                 """
             );
 
@@ -69,7 +74,23 @@ public sealed class AssistantPromptAssemblerTests
                 """
             );
 
-            var assembler = new AssistantPromptAssembler(new ProjectSummaryService());
+            var assembler = new AssistantPromptAssembler(
+                new ProjectSummaryService(),
+                null,
+                new FakeMcpConnectionManager(
+                    new McpServerDefinition
+                    {
+                        Name = "docs",
+                        Scope = "project",
+                        Transport = "http",
+                        CommandOrUrl = "http://docs",
+                        Status = "connected",
+                        Instructions = "Use this server for repo-specific docs and prompts.",
+                        DiscoveredToolsCount = 3,
+                        DiscoveredPromptsCount = 2,
+                        SupportsPrompts = true,
+                        SupportsResources = true
+                    }));
             var promptContext = await assembler.AssembleAsync(
                 new AssistantTurnRequest
                 {
@@ -88,6 +109,8 @@ public sealed class AssistantPromptAssemblerTests
                         HistoryDirectory = Path.Combine(runtimeRoot, "history", "project-a"),
                         ContextFileNames = ["QWEN.md", "AGENTS.md"],
                         ContextFilePaths = [rootContextPath, nestedContextPath],
+                        CurrentLocale = "en",
+                        CurrentLanguage = "English",
                         FolderTrustEnabled = true,
                         IsWorkspaceTrusted = true,
                         WorkspaceTrustSource = "file",
@@ -124,6 +147,27 @@ public sealed class AssistantPromptAssemblerTests
             Assert.Contains("Transcript messages loaded: 4", promptContext.SessionSummary);
             Assert.Contains("Context file names: QWEN.md, AGENTS.md", promptContext.SessionSummary);
             Assert.Contains("Project summary: loaded", promptContext.SessionSummary);
+            Assert.Contains("Workspace root:", promptContext.EnvironmentSummary);
+            Assert.Contains("Platform:", promptContext.EnvironmentSummary);
+            Assert.Contains("Shell:", promptContext.EnvironmentSummary);
+            Assert.Contains("Runtime base directory:", promptContext.EnvironmentSummary);
+            Assert.Contains("Workspace trusted:", promptContext.EnvironmentSummary);
+            Assert.Contains("Transcript messages retained for this turn:", promptContext.SessionGuidanceSummary);
+            Assert.Contains("Project summary available", promptContext.SessionGuidanceSummary);
+            Assert.Contains("Prefer native runtime integrations.", promptContext.UserInstructionSummary);
+            Assert.Contains("desktop runtime must stay native", promptContext.WorkspaceInstructionSummary);
+            Assert.Contains("Respect repository conventions.", promptContext.WorkspaceInstructionSummary);
+            Assert.Contains("reconnect flow must survive renderer reloads", promptContext.WorkspaceInstructionSummary);
+            Assert.Contains("Project durable memory", promptContext.DurableMemorySummary);
+            Assert.Contains("Persist renderer reconnect behavior.", promptContext.DurableMemorySummary);
+            Assert.Contains("docs (project, http): 3 tool(s), 2 prompt(s), resources available", promptContext.McpServerSummary);
+            Assert.Contains("prompts available", promptContext.McpServerSummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("repo-specific docs and prompts", promptContext.McpServerSummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("scratchpad", promptContext.ScratchpadSummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("session-1", promptContext.ScratchpadSummary, StringComparison.Ordinal);
+            Assert.Contains("Preferred locale: en", promptContext.LanguageSummary);
+            Assert.Contains("Preferred language: English", promptContext.LanguageSummary);
+            Assert.Contains("Mode-specific expectation:", promptContext.OutputStyleSummary);
             Assert.NotNull(promptContext.ProjectSummary);
             Assert.True(promptContext.ProjectSummary!.HasHistory);
             Assert.Equal("Finish the native qwen desktop runtime.", promptContext.ProjectSummary.OverallGoal);
@@ -195,6 +239,8 @@ public sealed class AssistantPromptAssemblerTests
                         HistoryDirectory = Path.Combine(runtimeRoot, "history", "project-a"),
                         ContextFileNames = ["QWEN.md", "AGENTS.md"],
                         ContextFilePaths = [],
+                        CurrentLocale = "en",
+                        CurrentLanguage = "English",
                         FolderTrustEnabled = true,
                         IsWorkspaceTrusted = false,
                         WorkspaceTrustSource = "file",
@@ -227,6 +273,15 @@ public sealed class AssistantPromptAssemblerTests
             Assert.DoesNotContain("Project memory", promptContext.ContextFiles[0], StringComparison.Ordinal);
             Assert.Null(promptContext.ProjectSummary);
             Assert.Contains("Project summary: not found.", promptContext.SessionSummary);
+            Assert.Contains("Workspace trusted:", promptContext.EnvironmentSummary);
+            Assert.Contains("Platform:", promptContext.EnvironmentSummary);
+            Assert.Contains("No project summary is available.", promptContext.SessionGuidanceSummary);
+            Assert.Contains("Only global context should load.", promptContext.UserInstructionSummary);
+            Assert.True(string.IsNullOrWhiteSpace(promptContext.WorkspaceInstructionSummary));
+            Assert.True(string.IsNullOrWhiteSpace(promptContext.DurableMemorySummary));
+            Assert.True(string.IsNullOrWhiteSpace(promptContext.McpServerSummary));
+            Assert.Contains("scratchpad", promptContext.ScratchpadSummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Preferred language: English", promptContext.LanguageSummary);
         }
         finally
         {
@@ -302,6 +357,9 @@ public sealed class AssistantPromptAssemblerTests
             Assert.Equal("assistant", promptContext.Messages[2].Role);
             Assert.Contains("Most recent assistant answer", promptContext.Messages[2].Content);
             Assert.Contains("Transcript messages loaded: 3", promptContext.SessionSummary);
+            Assert.Contains("Transcript messages retained for this turn: 3", promptContext.SessionGuidanceSummary);
+            Assert.True(string.IsNullOrWhiteSpace(promptContext.UserInstructionSummary));
+            Assert.True(string.IsNullOrWhiteSpace(promptContext.WorkspaceInstructionSummary));
         }
         finally
         {
@@ -339,7 +397,21 @@ public sealed class AssistantPromptAssemblerTests
                 Path.Combine(workspaceRoot, "QWEN.md"),
                 new string('p', 2400));
 
-            var assembler = new AssistantPromptAssembler(new ProjectSummaryService());
+            var assembler = new AssistantPromptAssembler(
+                new ProjectSummaryService(),
+                null,
+                new FakeMcpConnectionManager(
+                    new McpServerDefinition
+                    {
+                        Name = "docs",
+                        Scope = "project",
+                        Transport = "http",
+                        CommandOrUrl = "http://docs",
+                        Status = "connected",
+                        DiscoveredToolsCount = 3,
+                        DiscoveredPromptsCount = 2,
+                        SupportsResources = true
+                    }));
             var promptContext = await assembler.AssembleAsync(
                 new AssistantTurnRequest
                 {
@@ -358,6 +430,8 @@ public sealed class AssistantPromptAssemblerTests
                         HistoryDirectory = Path.Combine(runtimeRoot, "history", "project-a"),
                         ContextFileNames = ["QWEN.md"],
                         ContextFilePaths = [],
+                        CurrentLocale = "en",
+                        CurrentLanguage = "English",
                         FolderTrustEnabled = true,
                         IsWorkspaceTrusted = true,
                         WorkspaceTrustSource = "file",
@@ -397,10 +471,35 @@ public sealed class AssistantPromptAssemblerTests
             Assert.True(promptContext.TrimmedTranscriptMessageCount > 0 || promptContext.TrimmedContextFileCount > 0);
             Assert.True(promptContext.Messages.Count < 12 || promptContext.ContextFiles.Count < 2);
             Assert.Contains("Prompt budget trimmed: True", promptContext.SessionSummary);
+            Assert.Contains("Budget trimmed transcript messages:", promptContext.SessionGuidanceSummary);
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private sealed class FakeMcpConnectionManager(params McpServerDefinition[] servers) : IMcpConnectionManager
+    {
+        private readonly IReadOnlyList<McpServerDefinition> configuredServers = servers;
+
+        public IReadOnlyList<McpServerDefinition> ListServersWithStatus(WorkspacePaths paths) => configuredServers;
+
+        public Task<McpReconnectResult> ReconnectAsync(
+            WorkspacePaths paths,
+            string name,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new McpReconnectResult
+            {
+                Name = name,
+                Status = "connected",
+                AttemptedAtUtc = DateTimeOffset.UtcNow,
+                Message = "reconnected"
+            });
+
+        public Task DisconnectAsync(
+            WorkspacePaths paths,
+            string name,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

@@ -313,7 +313,8 @@ public sealed class SubagentCoordinatorService(
                 WorkingDirectory = runtimeProfile.ProjectRoot,
                 ChangedFiles = []
             },
-            SystemPromptOverride = BuildSystemPrompt(agent),
+            PromptMode = AssistantPromptMode.Subagent,
+            SystemPromptOverride = BuildModeSpecificInstructions(agent),
             AllowedToolNames = agent.Tools,
             ModelOverride = modelSelection.Inherits ? string.Empty : modelSelection.ModelId,
             AuthTypeOverride = modelSelection.Inherits ? string.Empty : modelSelection.AuthType
@@ -329,8 +330,16 @@ Subagent scope: {{agent.Scope}}
 Parent request:
 {{prompt.Trim()}}
 
-Return only the information the parent runtime needs to continue the task.
-Be concise, evidence-driven, and explicit about blockers, approvals, and changed files.
+Execution boundaries:
+- You are a delegated worker for the parent runtime, not the end-user facing assistant.
+- Stay inside the assigned scope and do not reopen parent-level strategy decisions unless the task is blocked.
+- Prefer finishing the assigned slice end-to-end when it is safe to do so.
+- If the task is blocked, stop and report the blocker, the missing input or approval, and the narrowest next step.
+
+Return contract:
+- Return only the information the parent runtime needs to continue the task.
+- Be concise, evidence-driven, and explicit about findings, blockers, approvals, verification, and changed files.
+- If you edit code, include the touched file paths and any residual risks or follow-up checks.
 """;
 
     private static string BuildRunConfigurationSection(SubagentRunConfiguration configuration)
@@ -351,14 +360,13 @@ Be concise, evidence-driven, and explicit about blockers, approvals, and changed
             : "Subagent runtime limits: " + string.Join(", ", parts);
     }
 
-    private static string BuildSystemPrompt(SubagentDescriptor agent)
+    private static string BuildModeSpecificInstructions(SubagentDescriptor agent)
     {
         var allowedTools = agent.Tools.Count == 0
             ? "inherit the native desktop tool surface"
             : string.Join(", ", agent.Tools);
 
         return $$"""
-You are a specialized headless subagent running inside the native Qwen Code Desktop runtime.
 Role: {{agent.Name}}
 Description: {{agent.Description}}
 Source: {{agent.FilePath}}
@@ -367,10 +375,11 @@ Specialized instructions:
 {{agent.SystemPrompt}}
 
 Operational rules:
-- Work autonomously inside the delegated task scope.
 - Use only the tools available to this subagent: {{allowedTools}}.
-- Do not address the end user directly.
-- Return a concise execution summary for the parent runtime.
+- You are not alone in the codebase. Do not revert work you did not create, and adapt to concurrent edits from other agents when possible.
+- Do not address the end user directly. Optimize your work so the parent runtime can integrate it quickly.
+- Do not claim tasks are complete unless you verified the relevant outcome or clearly state what remains unverified.
+- Escalate only real blockers, missing approvals, or scope conflicts. Otherwise keep moving within your delegated slice.
 """;
     }
 

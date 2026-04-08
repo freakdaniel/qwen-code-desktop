@@ -302,6 +302,98 @@ public sealed class OpenAiCompatibleProviderTests
     }
 
     [Fact]
+    public async Task OpenAiCompatibleAssistantResponseProvider_TryGenerateAsync_PreservesBaseAndRequestSpecificSystemPrompts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-openai-system-prompt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "openai",
+                      "baseUrl": "https://example.test/v1"
+                    }
+                  },
+                  "env": {
+                    "OPENAI_API_KEY": "openai-key"
+                  },
+                  "model": {
+                    "name": "gpt-4.1"
+                  }
+                }
+                """);
+
+            var runtimeProfile = CreateRuntimeProfile(workspaceRoot, homeRoot);
+            string? capturedPayload = null;
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((request, _) =>
+            {
+                capturedPayload = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "choices": [
+                            {
+                              "message": {
+                                "content": "ok"
+                              }
+                            }
+                          ]
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json")
+                });
+            }));
+
+            var provider = new OpenAiCompatibleAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                new TokenLimitService());
+            var request = CreateTurnRequest(
+                workspaceRoot,
+                runtimeProfile,
+                systemPromptOverride: "Request-specific instructions.");
+
+            var response = await provider.TryGenerateAsync(
+                request,
+                CreatePromptContext(),
+                [],
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "openai-compatible",
+                    ApiKeyEnvironmentVariable = "OPENAI_API_KEY",
+                    SystemPrompt = "Base runtime instructions."
+                });
+
+            Assert.NotNull(response);
+            var payload = JsonNode.Parse(capturedPayload!)!.AsObject();
+            var systemPrompt = payload["messages"]?[0]?["content"]?.GetValue<string>();
+            Assert.Contains("# Runtime Instructions", systemPrompt);
+            Assert.Contains("Base runtime instructions.", systemPrompt);
+            Assert.Contains("# Request-Specific Instructions", systemPrompt);
+            Assert.Contains("Request-specific instructions.", systemPrompt);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task OpenAiCompatibleAssistantResponseProvider_TryGenerateAsync_RemovesStreamOptionsForModelScopeFallback()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-modelscope-fallback-{Guid.NewGuid():N}");
@@ -504,7 +596,10 @@ public sealed class OpenAiCompatibleProviderTests
         }
     }
 
-    private static AssistantTurnRequest CreateTurnRequest(string workspaceRoot, QwenRuntimeProfile runtimeProfile) =>
+    private static AssistantTurnRequest CreateTurnRequest(
+        string workspaceRoot,
+        QwenRuntimeProfile runtimeProfile,
+        string systemPromptOverride = "") =>
         new()
         {
             SessionId = "openai-provider-session",
@@ -512,6 +607,7 @@ public sealed class OpenAiCompatibleProviderTests
             WorkingDirectory = workspaceRoot,
             TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "openai-provider-session.jsonl"),
             RuntimeProfile = runtimeProfile,
+            SystemPromptOverride = systemPromptOverride,
             ToolExecution = new NativeToolExecutionResult
             {
                 ToolName = string.Empty,

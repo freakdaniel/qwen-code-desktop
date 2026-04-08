@@ -26,7 +26,7 @@ public sealed class WebToolServiceTests
 
             var handler = new StubHttpMessageHandler(request =>
             {
-                Assert.Equal("https://example.com/article", request.RequestUri!.ToString());
+                Assert.Equal("https://example.com/build-report", request.RequestUri!.ToString());
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(
@@ -40,10 +40,10 @@ public sealed class WebToolServiceTests
                 new FakeDesktopEnvironmentPaths(homeRoot, null),
                 new HttpClient(handler));
 
-            using var document = JsonDocument.Parse("""{"url":"https://example.com/article","prompt":"deployment latency"}""");
+            using var document = JsonDocument.Parse("""{"url":"https://example.com/build-report","prompt":"deployment latency"}""");
             var output = await service.FetchAsync(runtimeProfile, document.RootElement);
 
-            Assert.Contains("Fetched content from https://example.com/article", output);
+            Assert.Contains("Fetched content from https://example.com/build-report", output);
             Assert.Contains("deployment latency", output);
             Assert.Contains("deployment succeeded and latency improved", output);
         }
@@ -127,6 +127,181 @@ public sealed class WebToolServiceTests
             Assert.Contains("Qwen Code Desktop continues the C# port with native tooling.", output);
             Assert.Contains("Sources:", output);
             Assert.Contains("[1] Port status (https://example.com/port)", output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task WebToolService_SearchAsync_ReadsUserSettingsWithCommentsAndTrailingCommas()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-web-search-user-settings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+
+            File.WriteAllText(
+                Path.Combine(homeRoot, ".qwen", "settings.json"),
+                """
+                {
+                  // user-scoped web search provider
+                  "webSearch": {
+                    "provider": [
+                      {
+                        "type": "tavily",
+                        "apiKey": "user-test-key",
+                        "maxResults": 2,
+                      },
+                    ],
+                    "default": "tavily",
+                  },
+                }
+                """);
+
+            var runtimeProfile = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, null))
+                .Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            var handler = new StubHttpMessageHandler(async request =>
+            {
+                Assert.Equal(HttpMethod.Post, request.Method);
+                Assert.Equal("https://api.tavily.com/search", request.RequestUri!.ToString());
+                var requestBody = await request.Content!.ReadAsStringAsync();
+                Assert.Contains("\"query\":\"moscow weather tomorrow\"", requestBody);
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "results":[
+                            {
+                              "title":"Forecast",
+                              "url":"https://example.com/weather",
+                              "content":"Snow is possible overnight."
+                            }
+                          ]
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json")
+                };
+            });
+
+            var service = new WebToolService(
+                new FakeDesktopEnvironmentPaths(homeRoot, null),
+                new HttpClient(handler));
+
+            using var document = JsonDocument.Parse("""{"query":"moscow weather tomorrow"}""");
+            var output = await service.SearchAsync(runtimeProfile, document.RootElement);
+
+            Assert.Contains("Web search results for \"moscow weather tomorrow\" (via tavily):", output);
+            Assert.Contains("Forecast", output);
+            Assert.DoesNotContain("Web search is disabled", output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task WebToolService_FetchAsync_FollowsPermittedSameHostRedirect()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-web-fetch-redirect-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+
+            var runtimeProfile = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, null))
+                .Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            var requestCount = 0;
+            var handler = new StubHttpMessageHandler(request =>
+            {
+                requestCount++;
+
+                if (requestCount == 1)
+                {
+                    Assert.Equal("https://example.com/permitted-redirect", request.RequestUri!.ToString());
+                    var redirect = new HttpResponseMessage(HttpStatusCode.Found);
+                    redirect.Headers.Location = new Uri("https://www.example.com/permitted-redirect");
+                    return redirect;
+                }
+
+                Assert.Equal("https://www.example.com/permitted-redirect", request.RequestUri!.ToString());
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "<html><body><p>Latency improved after deployment.</p></body></html>",
+                        Encoding.UTF8,
+                        "text/html")
+                };
+            });
+
+            var service = new WebToolService(
+                new FakeDesktopEnvironmentPaths(homeRoot, null),
+                new HttpClient(handler));
+
+            using var document = JsonDocument.Parse("""{"url":"https://example.com/permitted-redirect","prompt":"latency"}""");
+            var output = await service.FetchAsync(runtimeProfile, document.RootElement);
+
+            Assert.Equal(2, requestCount);
+            Assert.Contains("Fetched content from https://www.example.com/permitted-redirect", output);
+            Assert.Contains("Latency improved after deployment", output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task WebToolService_FetchAsync_ReturnsRedirectInstructionsForCrossHostRedirect()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-web-fetch-cross-redirect-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+
+            var runtimeProfile = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, null))
+                .Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            var handler = new StubHttpMessageHandler(request =>
+            {
+                Assert.Equal("https://example.com/cross-host-redirect", request.RequestUri!.ToString());
+                var redirect = new HttpResponseMessage(HttpStatusCode.Found);
+                redirect.Headers.Location = new Uri("https://news.example.net/cross-host-redirect");
+                return redirect;
+            });
+
+            var service = new WebToolService(
+                new FakeDesktopEnvironmentPaths(homeRoot, null),
+                new HttpClient(handler));
+
+            using var document = JsonDocument.Parse("""{"url":"https://example.com/cross-host-redirect","prompt":"summary"}""");
+            var output = await service.FetchAsync(runtimeProfile, document.RootElement);
+
+            Assert.Contains("redirected to a different host", output);
+            Assert.Contains("Original URL: https://example.com/cross-host-redirect", output);
+            Assert.Contains("Redirect URL: https://news.example.net/cross-host-redirect", output);
+            Assert.Contains("Prompt: summary", output);
         }
         finally
         {

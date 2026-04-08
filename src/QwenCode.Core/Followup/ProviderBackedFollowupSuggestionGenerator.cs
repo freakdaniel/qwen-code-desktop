@@ -19,28 +19,7 @@ public sealed class ProviderBackedFollowupSuggestionGenerator(
     IContentGenerator contentGenerator,
     IOptions<NativeAssistantRuntimeOptions> options) : IFollowupSuggestionGenerator
 {
-    private const string SuggestionPrompt = """
-[SUGGESTION MODE: Suggest what the user might naturally type next.]
-
-FIRST: Look at the user's recent messages and original request.
-
-Your job is to predict what THEY would type next, not what you think they should do.
-
-THE TEST: Would they think "I was just about to type that"?
-
-Be specific: "run the tests" beats "continue".
-
-NEVER SUGGEST:
-- evaluative text like "looks good" or "thanks"
-- questions
-- AI-voice like "Let me..." or "I'll..."
-- multiple sentences
-- brand new ideas the user did not ask for
-
-Stay silent if the next step is not obvious.
-
-Reply with ONLY the suggestion, no quotes or explanation.
-""";
+    private const string SuggestionPrompt = "Predict the most likely short next message the user would type in this conversation.";
 
     private readonly NativeAssistantRuntimeOptions runtimeOptions = options.Value;
 
@@ -81,7 +60,7 @@ Reply with ONLY the suggestion, no quotes or explanation.
                 WorkingDirectory = workingDirectory,
                 ChangedFiles = []
             },
-            SystemPromptOverride = "You generate one short next-step suggestion for the user. Never call tools.",
+            PromptMode = AssistantPromptMode.FollowupSuggestion,
             DisableTools = true
         };
         var promptContext = await promptAssembler.AssembleAsync(request, cancellationToken: cancellationToken);
@@ -99,6 +78,7 @@ Reply with ONLY the suggestion, no quotes or explanation.
                     PromptContext = promptContext,
                     GitBranch = request.GitBranch,
                     SystemPrompt = request.SystemPromptOverride,
+                    PromptMode = request.PromptMode,
                     ModelOverride = request.ModelOverride,
                     AuthTypeOverride = request.AuthTypeOverride,
                     EndpointOverride = request.EndpointOverride,

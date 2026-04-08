@@ -33,6 +33,51 @@ public sealed class AssistantPromptContext
     public string SessionSummary { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the environment summary
+    /// </summary>
+    public string EnvironmentSummary { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the session guidance summary
+    /// </summary>
+    public string SessionGuidanceSummary { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the durable memory summary
+    /// </summary>
+    public string DurableMemorySummary { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the user instruction summary
+    /// </summary>
+    public string UserInstructionSummary { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the workspace instruction summary
+    /// </summary>
+    public string WorkspaceInstructionSummary { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the mcp server summary
+    /// </summary>
+    public string McpServerSummary { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the scratchpad summary
+    /// </summary>
+    public string ScratchpadSummary { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the language summary
+    /// </summary>
+    public string LanguageSummary { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the output style summary
+    /// </summary>
+    public string OutputStyleSummary { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the was budget trimmed
     /// </summary>
     public bool WasBudgetTrimmed { get; init; }

@@ -107,6 +107,9 @@ public sealed class SessionEventFactory : ISessionEventFactory
             GitBranch = gitBranch,
             CommandName = commandName,
             ToolName = string.IsNullOrWhiteSpace(runtimeEvent.ToolName) ? fallbackToolName : runtimeEvent.ToolName,
+            ToolCallId = runtimeEvent.ToolCallId,
+            ToolCallGroupId = runtimeEvent.ToolCallGroupId,
+            ToolArgumentsJson = runtimeEvent.ToolArgumentsJson,
             Status = string.IsNullOrWhiteSpace(runtimeEvent.Status) ? runtimeEvent.Stage : runtimeEvent.Status,
             ContentDelta = runtimeEvent.ContentDelta,
             ContentSnapshot = runtimeEvent.ContentSnapshot,
@@ -161,7 +164,7 @@ public sealed class SessionEventFactory : ISessionEventFactory
             SessionId = sessionId,
             Kind = DesktopSessionEventKind.TurnReattached,
             TimestampUtc = DateTime.UtcNow,
-            Message = "Recovered an interrupted desktop turn and attached it to a new runtime execution.",
+            Message = "Recovered an interrupted turn and attached it to the current run.",
             WorkingDirectory = workingDirectory,
             GitBranch = gitBranch,
             ToolName = toolName,
@@ -188,7 +191,7 @@ public sealed class SessionEventFactory : ISessionEventFactory
             SessionId = sessionId,
             Kind = DesktopSessionEventKind.ToolApproved,
             TimestampUtc = timestampUtc,
-            Message = $"Approved native tool '{toolName}' for execution.",
+            Message = $"Approved tool '{toolName}'.",
             WorkingDirectory = workingDirectory,
             GitBranch = gitBranch,
             ToolName = toolName,
@@ -215,7 +218,7 @@ public sealed class SessionEventFactory : ISessionEventFactory
             SessionId = sessionId,
             Kind = DesktopSessionEventKind.UserInputReceived,
             TimestampUtc = timestampUtc,
-            Message = $"Captured user answers for native tool '{toolName}'.",
+            Message = $"Captured answers for tool '{toolName}'.",
             WorkingDirectory = workingDirectory,
             GitBranch = gitBranch,
             ToolName = toolName,
@@ -331,11 +334,11 @@ public sealed class SessionEventFactory : ISessionEventFactory
     private static string BuildToolEventMessage(NativeToolExecutionResult toolExecution) =>
         toolExecution.Status switch
         {
-            "approval-required" => $"Native tool '{toolExecution.ToolName}' is waiting for approval.",
-            "input-required" => $"Native tool '{toolExecution.ToolName}' is waiting for user answers.",
-            "completed" => $"Native tool '{toolExecution.ToolName}' completed inside the .NET host.",
-            "blocked" => $"Native tool '{toolExecution.ToolName}' was blocked by approval policy.",
-            "error" => $"Native tool '{toolExecution.ToolName}' failed: {toolExecution.ErrorMessage}",
-            _ => $"Native tool '{toolExecution.ToolName}' updated the session."
+            "approval-required" => $"Tool '{toolExecution.ToolName}' is waiting for approval.",
+            "input-required" => $"Tool '{toolExecution.ToolName}' is waiting for user answers.",
+            "completed" => $"Tool '{toolExecution.ToolName}' completed.",
+            "blocked" => $"Tool '{toolExecution.ToolName}' was blocked by approval policy.",
+            "error" => $"Tool '{toolExecution.ToolName}' failed: {toolExecution.ErrorMessage}",
+            _ => $"Tool '{toolExecution.ToolName}' updated the session."
         };
 }

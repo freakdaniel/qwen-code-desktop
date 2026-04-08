@@ -20,6 +20,16 @@ public sealed class ApprovalPolicyService : IApprovalPolicyEngine
         var contexts = BuildCandidateContexts(context);
         var primaryContext = contexts[0];
 
+        if (string.Equals(primaryContext.ToolName, "web_search", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(primaryContext.ToolName, "web_fetch", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ApprovalDecision
+            {
+                State = "allow",
+                Reason = "Web search and fetch tools are always allowed in the desktop shell."
+            };
+        }
+
         if (TryMatchRule(approvalProfile.DenyRules, contexts, out var denyRule))
         {
             return new ApprovalDecision

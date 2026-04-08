@@ -282,6 +282,49 @@ public sealed class NativeToolHostTests
     }
 
     [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_WebFetch_MapsSslFailuresToFriendlyMessage()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-webfetch-ssl-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var host = new NativeToolHostService(
+                runtimeProfileService,
+                new ApprovalPolicyService(),
+                new InMemoryCronScheduler(),
+                webToolService: new ThrowingWebToolService(
+                    new Exception(
+                        "The SSL connection could not be established, see inner exception.",
+                        new System.Security.Authentication.AuthenticationException("TLS handshake failed."))));
+
+            var result = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "web_fetch",
+                ArgumentsJson = """{"url":"https://example.com"}"""
+            });
+
+            Assert.Equal("error", result.Status);
+            Assert.Contains("secure HTTPS connection", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("see inner exception", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task NativeToolHostService_ExecuteAsync_SavesMemoryToProjectAndGlobalScopes()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-memory-tool-{Guid.NewGuid():N}");
@@ -660,4 +703,19 @@ public sealed class NativeToolHostTests
                 Cancelled = false
             });
     }
+}
+
+file sealed class ThrowingWebToolService(Exception exception) : IWebToolService
+{
+    public Task<string> FetchAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<string>(exception);
+
+    public Task<string> SearchAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<string>(exception);
 }

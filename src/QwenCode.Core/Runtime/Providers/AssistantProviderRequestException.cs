@@ -52,7 +52,7 @@ public sealed class AssistantProviderRequestException : Exception
 
         var statusSegment = statusCode.HasValue ? $"HTTP {statusCode.Value}" : "request error";
         return string.IsNullOrWhiteSpace(trimmedBody)
-            ? $"Assistant provider '{providerName}' failed via {endpoint} with {statusSegment}."
-            : $"Assistant provider '{providerName}' failed via {endpoint} with {statusSegment}: {trimmedBody}";
+            ? $"The model provider '{providerName}' failed with {statusSegment}."
+            : $"The model provider '{providerName}' failed with {statusSegment}: {trimmedBody}";
     }
 }

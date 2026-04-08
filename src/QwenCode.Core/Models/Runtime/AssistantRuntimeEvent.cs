@@ -26,6 +26,21 @@ public sealed class AssistantRuntimeEvent
     public string ToolName { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the tool call id
+    /// </summary>
+    public string ToolCallId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the tool call group id
+    /// </summary>
+    public string ToolCallGroupId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the tool arguments json
+    /// </summary>
+    public string ToolArgumentsJson { get; init; } = "{}";
+
+    /// <summary>
     /// Gets or sets the status
     /// </summary>
     public string Status { get; init; } = string.Empty;

@@ -61,12 +61,13 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(
             configuration.Model,
             options.Temperature,
             tokenLimits.OutputTokenLimit,
-            string.IsNullOrWhiteSpace(request.SystemPromptOverride) ? options.SystemPrompt : request.SystemPromptOverride,
+            options.SystemPrompt,
             request,
             promptContext,
             toolHistory,
             null,
-            configuration.ExtraBody);
+            configuration.ExtraBody,
+            configuration.ProviderFlavor);
 
         var preferStreaming = true;
         var allowStreamingRecovery = true;

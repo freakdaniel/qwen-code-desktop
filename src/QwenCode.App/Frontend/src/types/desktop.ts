@@ -133,6 +133,7 @@ export type AppBootstrapPayload =
 
 export interface DesktopBridge extends Omit<QwenDesktopBridge, 'setLocale'> {
   setLocale: (locale: string) => Promise<DesktopStateChangedEvent>
+  openExternalUrl?: (url: string) => Promise<boolean>
   minimizeWindow?: () => void
   maximizeWindow?: () => void
   closeWindow?: () => void

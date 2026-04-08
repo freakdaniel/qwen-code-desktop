@@ -45,6 +45,7 @@ internal static class OpenAiCompatibleProtocol
     /// <param name="toolHistory">The tool history</param>
     /// <param name="metadata">The metadata</param>
     /// <param name="extraBody">The extra body</param>
+    /// <param name="providerFlavor">The provider flavor</param>
     /// <returns>The resulting json object</returns>
     public static JsonObject BuildPayload(
         string model,
@@ -55,7 +56,8 @@ internal static class OpenAiCompatibleProtocol
         AssistantPromptContext promptContext,
         IReadOnlyList<AssistantToolCallResult> toolHistory,
         JsonObject? metadata = null,
-        JsonObject? extraBody = null)
+        JsonObject? extraBody = null,
+        string providerFlavor = "")
     {
         var payload = new JsonObject
         {
@@ -63,7 +65,7 @@ internal static class OpenAiCompatibleProtocol
             ["temperature"] = temperature,
             ["stream"] = false,
             ["max_tokens"] = maxOutputTokens,
-            ["messages"] = BuildMessages(request, promptContext, toolHistory, systemPrompt)
+            ["messages"] = BuildMessages(request, promptContext, toolHistory, systemPrompt, model, providerFlavor)
         };
 
         if (!request.DisableTools)
@@ -366,38 +368,24 @@ internal static class OpenAiCompatibleProtocol
         AssistantTurnRequest request,
         AssistantPromptContext promptContext,
         IReadOnlyList<AssistantToolCallResult> toolHistory,
-        string systemPrompt)
+        string systemPrompt,
+        string model,
+        string providerFlavor)
     {
-        var projectSummarySection = BuildProjectSummarySection(promptContext.ProjectSummary);
-
-        var userContent = $$"""
-{{promptContext.SessionSummary}}
-
-Current turn prompt:
-{{request.Prompt}}
-
-{{projectSummarySection}}
-
-History highlights:
-{{string.Join(Environment.NewLine, promptContext.HistoryHighlights)}}
-
-Workspace context files:
-{{string.Join(Environment.NewLine + Environment.NewLine, promptContext.ContextFiles)}}
-
-Native tool loop state:
-{{(toolHistory.Count == 0 ? "No native tool results have been recorded for this turn yet." : "Structured assistant/tool messages below contain the current native tool loop history.")}}
-
-Write a concise desktop assistant response for this session turn.
-Mention command or tool outcomes when relevant.
-If approval is still needed, state that explicitly.
-""";
+        var resolvedSystemPrompt = NativeAssistantRuntimePromptBuilder.BuildSystemPrompt(
+            request,
+            promptContext,
+            NormalizeCustomPrompt(systemPrompt),
+            NormalizeCustomPrompt(request.SystemPromptOverride),
+            model,
+            providerFlavor);
 
         var messages = new JsonArray
         {
             new JsonObject
             {
                 ["role"] = "system",
-                ["content"] = systemPrompt
+                ["content"] = resolvedSystemPrompt
             }
         };
 
@@ -413,7 +401,7 @@ If approval is still needed, state that explicitly.
         messages.Add(new JsonObject
         {
             ["role"] = "user",
-            ["content"] = userContent
+            ["content"] = NativeAssistantRuntimePromptBuilder.BuildCurrentTurnUserMessage(request, promptContext, toolHistory)
         });
 
         foreach (var toolResult in toolHistory)
@@ -448,6 +436,18 @@ If approval is still needed, state that explicitly.
         }
 
         return messages;
+    }
+
+    private static string NormalizeCustomPrompt(string prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+        {
+            return string.Empty;
+        }
+
+        return string.Equals(prompt, NativeAssistantRuntimePromptBuilder.DefaultSystemPrompt, StringComparison.Ordinal)
+            ? string.Empty
+            : prompt.Trim();
     }
 
     private static void FlattenDeepSeekMessageContent(JsonArray messages)
@@ -526,32 +526,6 @@ Changed files:
 {{changedFiles}}
 Pending questions:
 {{pendingQuestions}}
-""";
-    }
-
-    private static string BuildProjectSummarySection(ProjectSummarySnapshot? projectSummary)
-    {
-        if (projectSummary is null || !projectSummary.HasHistory)
-        {
-            return "Project summary:\nNo project summary file is available for this workspace.";
-        }
-
-        var pendingTasks = projectSummary.PendingTasks.Count == 0
-            ? "No pending tasks captured in PROJECT_SUMMARY.md."
-            : string.Join(Environment.NewLine, projectSummary.PendingTasks.Select(static task => $"- {task}"));
-
-        return $$"""
-Project summary:
-Source: {{projectSummary.FilePath}}
-Updated: {{(string.IsNullOrWhiteSpace(projectSummary.TimeAgo) ? projectSummary.TimestampUtc.ToString("u") : projectSummary.TimeAgo)}}
-Overall goal:
-{{projectSummary.OverallGoal}}
-
-Current plan:
-{{projectSummary.CurrentPlan}}
-
-Pending tasks:
-{{pendingTasks}}
 """;
     }
 

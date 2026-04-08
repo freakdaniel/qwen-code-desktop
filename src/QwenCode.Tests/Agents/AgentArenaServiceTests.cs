@@ -59,6 +59,13 @@ public sealed class AgentArenaServiceTests
             Assert.Contains("arena-test-session", result.Output);
             Assert.Contains("[Alpha]", result.Output);
             Assert.Contains("[Beta]", result.Output);
+            Assert.Equal(2, runtime.Requests.Count);
+            Assert.All(runtime.Requests, static request => Assert.Equal(AssistantPromptMode.ArenaCompetitor, request.PromptMode));
+            Assert.All(runtime.Requests, static request => Assert.Contains("Arena rules:", request.SystemPromptOverride, StringComparison.Ordinal));
+            Assert.All(runtime.Requests, static request => Assert.Contains("Work only inside your assigned worktree", request.SystemPromptOverride, StringComparison.Ordinal));
+            Assert.All(runtime.Requests, static request => Assert.Contains("Do not mention the competition", request.SystemPromptOverride, StringComparison.Ordinal));
+            Assert.All(runtime.Requests, static request => Assert.Contains("Success criteria:", request.Prompt, StringComparison.Ordinal));
+            Assert.All(runtime.Requests, static request => Assert.Contains("validation performed, tradeoffs, and residual risks", request.Prompt, StringComparison.Ordinal));
 
             var artifactPath = result.ChangedFiles.Single(path => path.EndsWith("result.json", StringComparison.OrdinalIgnoreCase));
             Assert.True(File.Exists(artifactPath));
@@ -703,11 +710,14 @@ public sealed class AgentArenaServiceTests
 
     private sealed class RecordingArenaTurnRuntime : IAssistantTurnRuntime
     {
+        public List<AssistantTurnRequest> Requests { get; } = [];
+
         public Task<AssistantTurnResponse> GenerateAsync(
             AssistantTurnRequest request,
             Action<AssistantRuntimeEvent>? eventSink = null,
             CancellationToken cancellationToken = default)
         {
+            Requests.Add(request);
             eventSink?.Invoke(new AssistantRuntimeEvent
             {
                 Stage = "generating",

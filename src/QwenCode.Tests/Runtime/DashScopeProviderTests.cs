@@ -325,6 +325,128 @@ public sealed class DashScopeProviderTests
     }
 
     [Fact]
+    public async Task DashScopeAssistantResponseProvider_TryGenerateAsync_PreservesBaseAndRequestSpecificSystemPrompts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-dashscope-system-prompt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "env": {
+                    "DASHSCOPE_API_KEY": "dashscope-settings-key"
+                  },
+                  "model": {
+                    "name": "qwen3-coder-plus"
+                  }
+                }
+                """);
+
+            var runtimeProfile = new QwenRuntimeProfile
+            {
+                ProjectRoot = workspaceRoot,
+                GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeBaseDirectory = Path.Combine(homeRoot, ".qwen"),
+                RuntimeSource = "project-settings",
+                ProjectDataDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test"),
+                ChatsDirectory = Path.Combine(homeRoot, ".qwen", "projects", "test", "chats"),
+                HistoryDirectory = Path.Combine(homeRoot, ".qwen", "history", "test"),
+                ContextFileNames = ["QWEN.md"],
+                ContextFilePaths = [],
+                ApprovalProfile = new ApprovalProfile
+                {
+                    DefaultMode = "default",
+                    ConfirmShellCommands = true,
+                    ConfirmFileEdits = true,
+                    AllowRules = [],
+                    AskRules = [],
+                    DenyRules = []
+                }
+            };
+
+            string? capturedPayload = null;
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((request, _) =>
+            {
+                capturedPayload = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+                var responsePayload = """
+                    data: {"choices":[{"delta":{"content":"ok"}}]}
+
+                    data: [DONE]
+                    """;
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(responsePayload, Encoding.UTF8, "text/event-stream")
+                };
+                response.Content.Headers.ContentType = new MediaTypeHeaderValue("text/event-stream");
+                return Task.FromResult(response);
+            }));
+
+            var provider = new DashScopeAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                new TokenLimitService());
+
+            var response = await provider.TryGenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "provider-session",
+                    Prompt = "Continue the session.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "provider-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    },
+                    SystemPromptOverride = "Request-specific instructions."
+                },
+                new AssistantPromptContext
+                {
+                    SessionSummary = "Transcript messages loaded: 0",
+                    HistoryHighlights = [],
+                    ContextFiles = [],
+                    Messages = []
+                },
+                [],
+                new NativeAssistantRuntimeOptions
+                {
+                    Provider = "qwen-compatible",
+                    ApiKeyEnvironmentVariable = "DASHSCOPE_API_KEY",
+                    SystemPrompt = "Base runtime instructions."
+                });
+
+            Assert.NotNull(response);
+            var payload = JsonNode.Parse(capturedPayload!)!.AsObject();
+            var systemPrompt = payload["messages"]?[0]?["content"]?.GetValue<string>();
+            Assert.Contains("# Runtime Instructions", systemPrompt);
+            Assert.Contains("Base runtime instructions.", systemPrompt);
+            Assert.Contains("# Request-Specific Instructions", systemPrompt);
+            Assert.Contains("Request-specific instructions.", systemPrompt);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DashScopeAssistantResponseProvider_TryGenerateAsync_ParsesInterleavedStreamingToolCalls()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-provider-stream-tools-{Guid.NewGuid():N}");

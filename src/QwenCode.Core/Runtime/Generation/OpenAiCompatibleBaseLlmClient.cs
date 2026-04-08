@@ -47,12 +47,13 @@ public sealed class OpenAiCompatibleBaseLlmClient(
             configuration.Model,
             request.TemperatureOverride ?? runtimeOptions.Temperature,
             tokenLimits.OutputTokenLimit,
-            string.IsNullOrWhiteSpace(request.SystemPrompt) ? runtimeOptions.SystemPrompt : request.SystemPrompt,
+            runtimeOptions.SystemPrompt,
             assistantRequest,
             request.PromptContext,
             [],
             request.Metadata,
-            configuration.ExtraBody);
+            configuration.ExtraBody,
+            configuration.ProviderFlavor);
         payload["stream"] = false;
 
         using var httpRequest = BuildJsonRequest(configuration.Endpoint, configuration.ApiKey, configuration.Headers, payload);
@@ -239,6 +240,7 @@ public sealed class OpenAiCompatibleBaseLlmClient(
             RuntimeProfile = request.RuntimeProfile,
             GitBranch = request.GitBranch,
             ToolExecution = CreateNoOpToolExecution(request.WorkingDirectory),
+            PromptMode = request.PromptMode,
             SystemPromptOverride = request.SystemPrompt,
             ModelOverride = request.ModelOverride,
             AuthTypeOverride = request.AuthTypeOverride,

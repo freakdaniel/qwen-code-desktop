@@ -160,7 +160,7 @@ public sealed class AssistantTurnRuntimeTests
                 });
 
             Assert.Equal("loop-provider", response.ProviderName);
-            Assert.Contains("loop detection", response.Summary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("same tool call", response.Summary, StringComparison.OrdinalIgnoreCase);
             Assert.Equal("tool-loop-detected", response.StopReason);
             Assert.Equal(4, response.Stats.ToolCallCount);
             Assert.Equal(0, response.Stats.SuccessfulToolCallCount);

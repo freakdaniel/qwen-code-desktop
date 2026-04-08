@@ -235,4 +235,117 @@ public sealed class ContentGeneratorTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task OpenAiCompatibleBaseLlmClient_GenerateContentAsync_PreservesBaseAndRequestSpecificSystemPrompts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-content-system-prompt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "openai"
+                    }
+                  },
+                  "env": {
+                    "OPENAI_API_KEY": "json-settings-key"
+                  },
+                  "model": {
+                    "name": "qwen3-coder-plus"
+                  }
+                }
+                """);
+
+            string? capturedPayload = null;
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((request, _) =>
+            {
+                capturedPayload = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            """
+                            {
+                              "choices": [
+                                {
+                                  "message": {
+                                    "content": "ok"
+                                  }
+                                }
+                              ]
+                            }
+                            """,
+                            Encoding.UTF8,
+                            "application/json")
+                    });
+            }));
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var configService = new RuntimeConfigService(environmentPaths);
+            var modelRegistry = new ModelRegistryService(
+                configService,
+                new TokenLimitService(),
+                Options.Create(new NativeAssistantRuntimeOptions()));
+            var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
+            var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            var client = new OpenAiCompatibleBaseLlmClient(
+                httpClient,
+                new ProviderConfigurationResolver(
+                    environmentPaths,
+                    configService: configService,
+                    modelConfigResolver: new ModelConfigResolver(modelRegistry)),
+                new ModelConfigResolver(modelRegistry),
+                new TokenLimitService(),
+                Options.Create(new NativeAssistantRuntimeOptions
+                {
+                    Provider = "openai-compatible",
+                    ApiKeyEnvironmentVariable = "OPENAI_API_KEY",
+                    SystemPrompt = "Base runtime instructions."
+                }));
+
+            var response = await client.GenerateContentAsync(
+                new LlmContentRequest
+                {
+                    SessionId = "content-session",
+                    Prompt = "Return a short answer.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "content-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    PromptContext = new AssistantPromptContext
+                    {
+                        SessionSummary = "Transcript messages loaded: 0",
+                        HistoryHighlights = [],
+                        ContextFiles = [],
+                        Messages = []
+                    },
+                    SystemPrompt = "Request-specific instructions.",
+                    DisableTools = true
+                });
+
+            Assert.NotNull(response);
+            var payload = JsonNode.Parse(capturedPayload!)!.AsObject();
+            var systemPrompt = payload["messages"]?[0]?["content"]?.GetValue<string>();
+            Assert.Contains("# Runtime Instructions", systemPrompt);
+            Assert.Contains("Base runtime instructions.", systemPrompt);
+            Assert.Contains("# Request-Specific Instructions", systemPrompt);
+            Assert.Contains("Request-specific instructions.", systemPrompt);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

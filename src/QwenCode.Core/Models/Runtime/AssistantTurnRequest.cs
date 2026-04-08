@@ -58,6 +58,11 @@ public sealed class AssistantTurnRequest
     public bool IsApprovalResolution { get; init; }
 
     /// <summary>
+    /// Gets or sets the prompt mode
+    /// </summary>
+    public AssistantPromptMode PromptMode { get; init; } = AssistantPromptMode.Primary;
+
+    /// <summary>
     /// Gets or sets the system prompt override
     /// </summary>
     public string SystemPromptOverride { get; init; } = string.Empty;
