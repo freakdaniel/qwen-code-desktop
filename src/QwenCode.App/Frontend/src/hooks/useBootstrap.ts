@@ -1,13 +1,25 @@
-// Frontend/src/hooks/useBootstrap.ts
-import { startTransition, useEffect, useRef, useState } from 'react'
+import {
+  createElement,
+  createContext,
+  startTransition,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { changeLanguage } from '@/i18n'
 import { fallbackBootstrap } from '@/appData'
 import type {
   ActiveTurnState,
   AppBootstrapPayload,
   AuthStatusSnapshot,
+  DesktopSessionDetail,
   DesktopSessionEvent,
   McpSnapshot,
+  SessionPreview,
 } from '@/types/desktop'
 
 export interface BootstrapState {
@@ -18,15 +30,22 @@ export interface BootstrapState {
   streamingSnapshots: Record<string, string>
   reattachedSessionId: string
   isReady: boolean
+  sessionCache: Record<string, DesktopSessionDetail>
   setBootstrap: React.Dispatch<React.SetStateAction<AppBootstrapPayload>>
   setAuthSnapshot: React.Dispatch<React.SetStateAction<AuthStatusSnapshot>>
   setMcpSnapshot: React.Dispatch<React.SetStateAction<McpSnapshot>>
   latestSessionEvent: DesktopSessionEvent | null
   setLatestSessionEvent: React.Dispatch<React.SetStateAction<DesktopSessionEvent | null>>
   updateAuthSnapshot: (snapshot: AuthStatusSnapshot) => void
+  loadSessionDetail: (
+    sessionId: string,
+    options?: { force?: boolean; limit?: number },
+  ) => Promise<DesktopSessionDetail | null>
 }
 
-export function useBootstrap(): BootstrapState {
+const BootstrapContext = createContext<BootstrapState | null>(null)
+
+function useBootstrapState(): BootstrapState {
   const [bootstrap, setBootstrap] = useState<AppBootstrapPayload>(fallbackBootstrap)
   const [authSnapshot, setAuthSnapshot] = useState<AuthStatusSnapshot>(fallbackBootstrap.qwenAuth)
   const [mcpSnapshot, setMcpSnapshot] = useState<McpSnapshot>(fallbackBootstrap.qwenMcp)
@@ -35,8 +54,15 @@ export function useBootstrap(): BootstrapState {
   const [reattachedSessionId, setReattachedSessionId] = useState('')
   const [latestSessionEvent, setLatestSessionEvent] = useState<DesktopSessionEvent | null>(null)
   const [isReady, setIsReady] = useState(false)
+  const [sessionCache, setSessionCache] = useState<Record<string, DesktopSessionDetail>>({})
   const didHydrateRef = useRef(false)
   const selectedSessionIdRef = useRef('')
+  const sessionCacheRef = useRef<Record<string, DesktopSessionDetail>>({})
+  const inflightSessionLoadsRef = useRef<Record<string, Promise<DesktopSessionDetail | null>>>({})
+
+  useEffect(() => {
+    sessionCacheRef.current = sessionCache
+  }, [sessionCache])
 
   const updateAuthSnapshot = (snapshot: AuthStatusSnapshot) => {
     setAuthSnapshot(snapshot)
@@ -83,6 +109,65 @@ export function useBootstrap(): BootstrapState {
     })
   }
 
+  const loadSessionDetail = useCallback(
+    async (
+      sessionId: string,
+      options?: { force?: boolean; limit?: number },
+    ): Promise<DesktopSessionDetail | null> => {
+      if (!window.qwenDesktop || !sessionId) {
+        return null
+      }
+
+      const force = options?.force ?? false
+      const limit = options?.limit ?? 200
+
+      if (!force && sessionCacheRef.current[sessionId]) {
+        return sessionCacheRef.current[sessionId]
+      }
+
+      if (!force && inflightSessionLoadsRef.current[sessionId] !== undefined) {
+        return inflightSessionLoadsRef.current[sessionId]
+      }
+
+      const request = window.qwenDesktop
+        .getSession({
+          sessionId,
+          offset: null,
+          limit,
+        })
+        .then((detail) => {
+          if (detail) {
+            setSessionCache((current) => ({
+              ...current,
+              [sessionId]: detail,
+            }))
+          }
+
+          return detail ?? null
+        })
+        .finally(() => {
+          delete inflightSessionLoadsRef.current[sessionId]
+        })
+
+      inflightSessionLoadsRef.current[sessionId] = request
+      return request
+    },
+    [],
+  )
+
+  const preloadRecentSessions = useCallback(
+    async (sessions: SessionPreview[]) => {
+      if (sessions.length === 0) return
+
+      await Promise.allSettled(
+        sessions.map((session) =>
+          loadSessionDetail(session.sessionId, { limit: 120 }),
+        ),
+      )
+    },
+    [loadSessionDetail],
+  )
+
   useEffect(() => {
     if (didHydrateRef.current) return
     didHydrateRef.current = true
@@ -90,22 +175,33 @@ export function useBootstrap(): BootstrapState {
 
     const hydrate = async () => {
       if (!window.qwenDesktop) {
-        // Language already detected during i18n init
         setIsReady(true)
         return
       }
 
       const payload = await window.qwenDesktop.bootstrap()
-      setBootstrap(payload)
-      setAuthSnapshot(payload.qwenAuth)
-      setMcpSnapshot(payload.qwenMcp)
-      syncActiveTurns(payload.activeTurns)
-      await changeLanguage(payload.currentLocale)
+      const normalizedPayload: AppBootstrapPayload = {
+        ...payload,
+        qwenAuth: payload.qwenAuth,
+        qwenModels:
+          'qwenModels' in payload && payload.qwenModels
+            ? (payload.qwenModels as AppBootstrapPayload['qwenModels'])
+            : fallbackBootstrap.qwenModels,
+      }
+
+      setBootstrap(normalizedPayload)
+      setAuthSnapshot(normalizedPayload.qwenAuth)
+      setMcpSnapshot(normalizedPayload.qwenMcp)
+      syncActiveTurns(normalizedPayload.activeTurns)
+      await changeLanguage(normalizedPayload.currentLocale)
+      await preloadRecentSessions(normalizedPayload.recentSessions)
 
       disposers.push(
         window.qwenDesktop.subscribeStateChanged((event) => {
           setBootstrap((c) => ({ ...c, currentLocale: event.currentLocale }))
-          startTransition(() => { void changeLanguage(event.currentLocale) })
+          startTransition(() => {
+            void changeLanguage(event.currentLocale)
+          })
         }),
       )
 
@@ -123,7 +219,7 @@ export function useBootstrap(): BootstrapState {
               recentSessions: current.recentSessions.map((s) =>
                 s.sessionId === event.sessionId
                   ? { ...s, title: event.title }
-                  : s
+                  : s,
               ),
             }))
             return
@@ -137,7 +233,7 @@ export function useBootstrap(): BootstrapState {
               return { ...current, [event.sessionId]: true }
             }
             if (event.kind === 'turnCompleted' || event.kind === 'turnCancelled') {
-              setReattachedSessionId((r) => r === event.sessionId ? '' : r)
+              setReattachedSessionId((r) => (r === event.sessionId ? '' : r))
               if (!(event.sessionId in current)) return current
               const next = { ...current }
               delete next[event.sessionId]
@@ -165,6 +261,15 @@ export function useBootstrap(): BootstrapState {
             }
             return current
           })
+
+          if (
+            event.kind === 'assistantCompleted' ||
+            event.kind === 'turnCompleted' ||
+            event.kind === 'turnCancelled' ||
+            event.kind === 'turnReattached'
+          ) {
+            void loadSessionDetail(event.sessionId, { force: true, limit: 200 })
+          }
         }),
       )
 
@@ -173,7 +278,7 @@ export function useBootstrap(): BootstrapState {
 
     void hydrate()
     return () => disposers.forEach((d) => d())
-  }, [])
+  }, [loadSessionDetail, preloadRecentSessions])
 
   useEffect(() => {
     if (!window.qwenDesktop) return
@@ -184,7 +289,9 @@ export function useBootstrap(): BootstrapState {
       if (!disposed && turns) syncActiveTurns(turns)
     }
 
-    const onVisibility = () => { if (document.visibilityState === 'visible') void resync() }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void resync()
+    }
 
     window.addEventListener('focus', resync)
     document.addEventListener('visibilitychange', onVisibility)
@@ -197,22 +304,53 @@ export function useBootstrap(): BootstrapState {
   }, [])
 
   useEffect(() => {
-    document.documentElement.dir = (bootstrap?.currentLocale === 'ar') ? 'rtl' : 'ltr'
+    document.documentElement.dir = bootstrap?.currentLocale === 'ar' ? 'rtl' : 'ltr'
   }, [bootstrap?.currentLocale])
 
-  return {
-    bootstrap,
-    authSnapshot,
-    mcpSnapshot,
-    activeTurnSessions,
-    streamingSnapshots,
-    reattachedSessionId,
-    isReady,
-    latestSessionEvent,
-    setBootstrap,
-    setAuthSnapshot,
-    setMcpSnapshot,
-    setLatestSessionEvent,
-    updateAuthSnapshot,
+  return useMemo(
+    () => ({
+      bootstrap,
+      authSnapshot,
+      mcpSnapshot,
+      activeTurnSessions,
+      streamingSnapshots,
+      reattachedSessionId,
+      isReady,
+      sessionCache,
+      latestSessionEvent,
+      setBootstrap,
+      setAuthSnapshot,
+      setMcpSnapshot,
+      setLatestSessionEvent,
+      updateAuthSnapshot,
+      loadSessionDetail,
+    }),
+    [
+      activeTurnSessions,
+      authSnapshot,
+      bootstrap,
+      isReady,
+      latestSessionEvent,
+      loadSessionDetail,
+      mcpSnapshot,
+      reattachedSessionId,
+      sessionCache,
+      streamingSnapshots,
+    ],
+  )
+}
+
+export function BootstrapProvider({ children }: { children: ReactNode }) {
+  const state = useBootstrapState()
+  return createElement(BootstrapContext.Provider, { value: state }, children)
+}
+
+export function useBootstrap(): BootstrapState {
+  const context = useContext(BootstrapContext)
+
+  if (!context) {
+    throw new Error('useBootstrap must be used within BootstrapProvider')
   }
+
+  return context
 }

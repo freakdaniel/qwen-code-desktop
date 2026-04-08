@@ -4,6 +4,7 @@ import { theme } from './theme'
 import './index.css'
 import App from './App.tsx'
 import { initI18n } from './i18n/index.ts'
+import { BootstrapProvider } from './hooks/useBootstrap.ts'
 
 // Initialize i18n BEFORE rendering so the loading screen
 // already uses the correct system language
@@ -13,7 +14,9 @@ createRoot(document.getElementById('root')!).render(
   <>
     <ColorModeScript initialColorMode={theme.config.initialColorMode} />
     <ChakraProvider theme={theme}>
-      <App />
+      <BootstrapProvider>
+        <App />
+      </BootstrapProvider>
     </ChakraProvider>
   </>
 )

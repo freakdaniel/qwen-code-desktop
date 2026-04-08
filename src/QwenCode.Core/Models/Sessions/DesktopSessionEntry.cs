@@ -91,6 +91,11 @@ public sealed class DesktopSessionEntry
     public string ThinkingBody { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the thinking duration in milliseconds
+    /// </summary>
+    public long ThinkingDurationMs { get; init; }
+
+    /// <summary>
     /// Gets or sets the changed files
     /// </summary>
     public IReadOnlyList<string> ChangedFiles { get; init; } = [];

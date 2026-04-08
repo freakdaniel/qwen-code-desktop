@@ -1,5 +1,6 @@
 using QwenCode.App.Auth;
 using QwenCode.App.Channels;
+using QwenCode.App.Config;
 using QwenCode.App.Extensions;
 using QwenCode.Tests.Shared.Fakes;
 
@@ -136,6 +137,10 @@ public sealed class DesktopProjectionServiceTests
             var promptRegistryService = new PromptRegistryService(
                 mcpConnectionManager,
                 new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
+            var modelRegistry = new ModelRegistryService(
+                new RuntimeConfigService(environmentPaths),
+                new TokenLimitService(),
+                Microsoft.Extensions.Options.Options.Create(new NativeAssistantRuntimeOptions()));
             var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var sessionService = (ISessionService)transcriptStore;
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
@@ -173,6 +178,7 @@ public sealed class DesktopProjectionServiceTests
                     workspaceInspectionService,
                     authFlowService,
                     mcpConnectionManager,
+                    modelRegistry,
                     transcriptStore,
                     activeTurnRegistry,
                     arenaSessionRegistry,
@@ -351,6 +357,10 @@ public sealed class DesktopProjectionServiceTests
                 mcpConnectionManager,
                 new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
             var gitHistoryService = new GitHistoryService(new GitCliService(), runtimeProfileService);
+            var modelRegistry = new ModelRegistryService(
+                new RuntimeConfigService(environmentPaths),
+                new TokenLimitService(),
+                Microsoft.Extensions.Options.Options.Create(new NativeAssistantRuntimeOptions()));
             var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
             var sessionService = (ISessionService)transcriptStore;
             var interruptedStore = new InterruptedTurnStore();
@@ -411,6 +421,7 @@ public sealed class DesktopProjectionServiceTests
                     workspaceInspectionService,
                     authFlowService,
                     mcpConnectionManager,
+                    modelRegistry,
                     transcriptStore,
                     activeTurnRegistry,
                     arenaSessionRegistry,

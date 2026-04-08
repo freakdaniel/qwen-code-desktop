@@ -78,7 +78,7 @@ public sealed class DesktopSessionHostService(
             ToolArgumentsJson = request.ToolArgumentsJson,
             ApproveToolExecution = request.ApproveToolExecution
         };
-        var workingDirectory = ResolveWorkingDirectory(runtimeProfile.ProjectRoot, normalizedRequest.WorkingDirectory);
+        var workingDirectory = ResolveWorkingDirectory(runtimeProfile, normalizedRequest.WorkingDirectory);
         var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
         var createdNewSession = !File.Exists(transcriptPath);
         var gitBranch = TryReadGitBranch(workingDirectory);
@@ -222,7 +222,7 @@ public sealed class DesktopSessionHostService(
         CancellationToken cancellationToken)
     {
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var workingDirectory = ResolveWorkingDirectory(runtimeProfile.ProjectRoot, request.WorkingDirectory);
+        var workingDirectory = ResolveWorkingDirectory(runtimeProfile, request.WorkingDirectory);
         var sessionId = string.IsNullOrWhiteSpace(request.SessionId) ? Guid.NewGuid().ToString() : request.SessionId;
         var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
         var createdNewSession = !File.Exists(transcriptPath);
@@ -542,7 +542,8 @@ public sealed class DesktopSessionHostService(
                     },
                     provider = assistantResponse.ProviderName,
                     model = assistantResponse.Model
-                }
+                },
+                durationMs = assistantResponse.Stats.DurationMs
             },
             cancellationToken);
 
@@ -863,7 +864,8 @@ public sealed class DesktopSessionHostService(
                     },
                     provider = assistantResponse.ProviderName,
                     model = assistantResponse.Model
-                }
+                },
+                durationMs = assistantResponse.Stats.DurationMs
             },
             cancellationToken);
 
@@ -1079,7 +1081,8 @@ public sealed class DesktopSessionHostService(
                     },
                     provider = assistantResponse.ProviderName,
                     model = assistantResponse.Model
-                }
+                },
+                durationMs = assistantResponse.Stats.DurationMs
             },
             cancellationToken);
 
@@ -1586,24 +1589,39 @@ public sealed class DesktopSessionHostService(
         CancellationToken cancellationToken) =>
         chatRecordingService.RefreshMetadataAsync(transcriptPath, context, cancellationToken);
 
-    private static string ResolveWorkingDirectory(string workspaceRoot, string requestedWorkingDirectory)
+    private static string ResolveWorkingDirectory(QwenRuntimeProfile runtimeProfile, string requestedWorkingDirectory)
     {
+        var workspaceRoot = runtimeProfile.ProjectRoot;
+        var runtimeTempRoot = Path.Combine(runtimeProfile.RuntimeBaseDirectory, "tmp");
         var resolved = string.IsNullOrWhiteSpace(requestedWorkingDirectory)
             ? workspaceRoot
             : Path.IsPathRooted(requestedWorkingDirectory)
                 ? Path.GetFullPath(requestedWorkingDirectory)
                 : Path.GetFullPath(Path.Combine(workspaceRoot, requestedWorkingDirectory));
 
-        var fullWorkspaceRoot = Path.GetFullPath(workspaceRoot);
-        if (!resolved.StartsWith(
-                fullWorkspaceRoot,
-                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        if (!IsPathWithinRoot(resolved, workspaceRoot) && !IsPathWithinRoot(resolved, runtimeTempRoot))
         {
-            throw new InvalidOperationException("Session working directory must stay inside the workspace root.");
+            throw new InvalidOperationException("Session working directory must stay inside the workspace root or runtime temp directory.");
         }
 
         Directory.CreateDirectory(resolved);
         return resolved;
+    }
+
+    private static bool IsPathWithinRoot(string path, string root)
+    {
+        static string NormalizeRoot(string value) =>
+            Path.GetFullPath(value)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        var normalizedPath = NormalizeRoot(path);
+        var normalizedRoot = NormalizeRoot(root);
+        return normalizedPath.StartsWith(normalizedRoot, comparison);
     }
 
     private static string TryReadGitBranch(string workingDirectory)

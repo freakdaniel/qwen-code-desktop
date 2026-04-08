@@ -178,6 +178,12 @@ export const fallbackBootstrap: AppBootstrapPayload = {
     },
     checkpointing: false,
   },
+  qwenModels: {
+    defaultModelId: '',
+    embeddingModelId: '',
+    selectedAuthType: 'openai',
+    availableModels: [],
+  },
   qwenTools: {
     sourceMode: 'native-contracts',
     totalCount: 0,

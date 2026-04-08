@@ -238,6 +238,7 @@ export default function Sidebar({
           py={1}
           px={3}
           sx={{
+            scrollbarGutter: 'stable',
             '&::-webkit-scrollbar': { width: '6px' },
             '&::-webkit-scrollbar-track': { background: 'transparent' },
             '&::-webkit-scrollbar-thumb': {

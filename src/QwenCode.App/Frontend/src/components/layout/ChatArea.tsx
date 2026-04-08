@@ -6,6 +6,8 @@ import {
   Flex,
   IconButton,
   Button,
+  Input,
+  Portal,
   Text,
   Textarea as ChakraTextarea,
   Spinner,
@@ -42,13 +44,20 @@ import { AGENT_MODES } from '@/types/ui';
 import type { AgentMode } from '@/types/ui';
 import { useBootstrap } from '@/hooks/useBootstrap';
 import { useTranslation } from 'react-i18next';
-import type { DesktopSessionDetail, DesktopSessionEntry } from '@/types/desktop';
+import type { DesktopSessionDetail, DesktopSessionEntry, SessionPreview } from '@/types/desktop';
 import qwenLogo from '@/assets/qwen-logo.svg';
 
 interface ChatAreaProps {
   onToggleSidebar?: () => void;
   isSidebarOpen: boolean;
   selectedSessionId?: string;
+  onSelectSession?: (sessionId: string) => void;
+}
+
+interface ProjectOption {
+  name: string;
+  path: string;
+  lastActivity: string;
 }
 
 const ACCENT = '#615CED';
@@ -113,6 +122,252 @@ function basename(p: string): string {
   return p.split(/[/\\]/).filter(Boolean).pop() ?? p;
 }
 
+function getSessionDisplayTitle(session: SessionPreview): string {
+  const title = session.title?.trim();
+  if (title) return title;
+  return basename(session.workingDirectory) || session.sessionId;
+}
+
+function normalizePathKey(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
+function pathStartsWith(path: string, root: string): boolean {
+  if (!path || !root) return false;
+
+  const normalizedPath = normalizePathKey(path);
+  const normalizedRoot = normalizePathKey(root);
+  return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
+}
+
+function joinDesktopPath(basePath: string, ...segments: string[]): string {
+  const separator = basePath.includes('\\') ? '\\' : '/';
+  const trimmedBase = basePath.replace(/[\\/]+$/, '');
+  const trimmedSegments = segments
+    .map((segment) => segment.replace(/^[\\/]+|[\\/]+$/g, ''))
+    .filter(Boolean);
+
+  return [trimmedBase, ...trimmedSegments].join(separator);
+}
+
+function getProjectDisplayName(workingDirectory: string, locale: string): string {
+  if (!workingDirectory) {
+    return locale.startsWith('ru') ? 'Без проекта' : 'No project';
+  }
+
+  return basename(workingDirectory) || workingDirectory;
+}
+
+function getProjectPickerSearchPlaceholder(locale: string): string {
+  if (locale.startsWith('ru')) return 'Поиск проектов';
+  if (locale.startsWith('ja')) return 'プロジェクトを検索';
+  if (locale.startsWith('ko')) return '프로젝트 검색';
+  if (locale.startsWith('pt')) return 'Pesquisar projetos';
+  if (locale.startsWith('zh')) return '搜索项目';
+  return 'Search projects';
+}
+
+function getContinueWithoutProjectLabel(locale: string): string {
+  return locale.startsWith('ru') ? 'Продолжить без проекта' : 'Continue without project';
+}
+
+function getAddProjectLabel(locale: string): string {
+  return locale.startsWith('ru') ? 'Добавить новый проект' : 'Add new project';
+}
+
+function getNoProjectsLabel(locale: string): string {
+  return locale.startsWith('ru') ? 'Проекты не найдены' : 'No projects found';
+}
+
+function getProjectlessTempDirectory(runtimeBaseDirectory: string, workspaceRoot: string): string {
+  const baseDirectory = runtimeBaseDirectory.trim() || workspaceRoot.trim();
+  return joinDesktopPath(baseDirectory, 'tmp', 'no-project');
+}
+
+void getSessionDisplayTitle;
+void getSessionPickerPlaceholder;
+void getSessionPickerSearchPlaceholder;
+void getNoSessionsLabel;
+void getNoSessionMatchesLabel;
+
+function parseObjectArguments(argumentsJson: string): Record<string, unknown> | null {
+  if (!argumentsJson) return null;
+
+  try {
+    const parsed = JSON.parse(argumentsJson);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+interface TodoItemSummary {
+  id: string;
+  content: string;
+  status: string;
+}
+
+interface TodoSummary {
+  items: TodoItemSummary[];
+  completedCount: number;
+  totalCount: number;
+}
+
+function parseTodoSummary(argumentsJson: string): TodoSummary | null {
+  const parsed = parseObjectArguments(argumentsJson);
+  if (!parsed || !Array.isArray(parsed.todos)) {
+    return null;
+  }
+
+  const items = parsed.todos
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
+    .map((item) => ({
+      id: typeof item.id === 'string' ? item.id : `${item.content ?? 'todo'}`,
+      content: typeof item.content === 'string' ? item.content : '',
+      status: typeof item.status === 'string' ? item.status : 'pending',
+    }))
+    .filter((item) => item.content);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return {
+    items,
+    completedCount: items.filter((item) => item.status === 'completed').length,
+    totalCount: items.length,
+  };
+}
+
+function formatShellArgumentLines(argumentsJson: string): string[] {
+  const parsed = parseObjectArguments(argumentsJson);
+  if (!parsed) {
+    return argumentsJson
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  const lines: string[] = [];
+  const command = typeof parsed.command === 'string' ? parsed.command.trim() : '';
+  const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
+
+  if (description || command) {
+    lines.push(description && command ? `${description}: ${command}` : description || command);
+  }
+
+  if (typeof parsed.timeout === 'number') {
+    lines.push(`timeout: ${parsed.timeout} ms`);
+  }
+
+  if (typeof parsed.is_background === 'boolean') {
+    lines.push(parsed.is_background ? 'background: true' : 'background: false');
+  }
+
+  if (typeof parsed.workdir === 'string' && parsed.workdir.trim()) {
+    lines.push(`workdir: ${parsed.workdir.trim()}`);
+  }
+
+  if (lines.length > 0) {
+    return lines;
+  }
+
+  return Object.entries(parsed).map(([key, value]) =>
+    `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`,
+  );
+}
+
+function getShellSummary(argumentsJson: string): string {
+  const parsed = parseObjectArguments(argumentsJson);
+  const command = typeof parsed?.command === 'string' ? parsed.command.trim() : '';
+  if (command) {
+    return trunc(command);
+  }
+
+  const [firstLine] = formatShellArgumentLines(argumentsJson);
+  return firstLine ? trunc(firstLine) : '';
+}
+
+function estimateSessionTokens(detail: DesktopSessionDetail | null): number {
+  if (!detail) return 0;
+
+  const totalCharacters = detail.entries.reduce(
+    (sum, entry) =>
+      sum +
+      (entry.body?.length ?? 0) +
+      (entry.thinkingBody?.length ?? 0) +
+      (entry.arguments?.length ?? 0),
+    0,
+  );
+
+  return Math.ceil(totalCharacters / 4);
+}
+
+function formatThinkingDuration(locale: string, durationMs: number): string {
+  if (durationMs < 1_000) {
+    return locale.startsWith('ru')
+      ? `${Math.max(1, Math.round(durationMs))} мс`
+      : `${Math.max(1, Math.round(durationMs))} ms`;
+  }
+
+  if (durationMs < 60_000) {
+    const seconds = durationMs / 1_000;
+    const formatted = seconds < 10 ? seconds.toFixed(1).replace(/\.0$/, '') : Math.round(seconds).toString();
+    return locale.startsWith('ru') ? `${formatted} с` : `${formatted}s`;
+  }
+
+  const minutes = Math.floor(durationMs / 60_000);
+  const seconds = Math.round((durationMs % 60_000) / 1_000);
+  if (locale.startsWith('ru')) {
+    return seconds > 0 ? `${minutes} мин ${seconds} с` : `${minutes} мин`;
+  }
+
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function getThinkingStatusLabel(locale: string, durationMs: number): string {
+  if (durationMs > 0) {
+    return locale.startsWith('ru')
+      ? `Думал в течение ${formatThinkingDuration(locale, durationMs)}`
+      : `Thought for ${formatThinkingDuration(locale, durationMs)}`;
+  }
+
+  return locale.startsWith('ru') ? 'Думаю' : 'Thinking';
+}
+
+function getSessionPickerPlaceholder(locale: string): string {
+  return locale.startsWith('ru') ? 'Выберите чат' : 'Select a chat';
+}
+
+function getSessionPickerSearchPlaceholder(locale: string): string {
+  return locale.startsWith('ru') ? 'Поиск чатов' : 'Search chats';
+}
+
+function getNoSessionsLabel(locale: string): string {
+  return locale.startsWith('ru') ? 'Чаты пока не найдены' : 'No chats available yet';
+}
+
+function getNoSessionMatchesLabel(locale: string): string {
+  return locale.startsWith('ru') ? 'Ничего не найдено' : 'No matching chats';
+}
+
+function getTodoStatusLabel(locale: string, status: string): string {
+  const normalized = status.toLowerCase();
+  if (normalized === 'completed' || normalized === 'done') {
+    return locale.startsWith('ru') ? 'Выполнено' : 'Completed';
+  }
+
+  if (normalized === 'in_progress' || normalized === 'in-progress') {
+    return locale.startsWith('ru') ? 'В работе' : 'In progress';
+  }
+
+  return locale.startsWith('ru') ? 'Ожидает' : 'Pending';
+}
+
 // Tool-specific argument summary for display
 function getToolArgSummary(entry: DesktopSessionEntry): string {
   if (!entry.arguments) return '';
@@ -149,8 +404,12 @@ function getToolArgSummary(entry: DesktopSessionEntry): string {
       return d ? trunc(d) : '';
     }
     // shell — handled separately with full mono display
+    if (toolKey.includes('todo')) {
+      const todoSummary = parseTodoSummary(entry.arguments);
+      return todoSummary ? `${todoSummary.completedCount}/${todoSummary.totalCount}` : '';
+    }
     if (toolKey.includes('bash') || toolKey.includes('execute') || toolKey.includes('shell') || toolKey.includes('run')) {
-      return '';
+      return getShellSummary(entry.arguments);
     }
     // generic fallback: first meaningful string value
     const v = str('description') || str('command') || str('pattern') || str('file_path') || str('path') || str('query') || str('prompt');
@@ -160,11 +419,16 @@ function getToolArgSummary(entry: DesktopSessionEntry): string {
   }
 }
 
-export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
+export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAreaProps) {
   const { t } = useTranslation();
-  const { bootstrap } = useBootstrap();
+  const { bootstrap, sessionCache, loadSessionDetail, setBootstrap } = useBootstrap();
   const sessions = bootstrap?.recentSessions ?? [];
+  const locale = bootstrap?.currentLocale ?? 'en';
   const selectedSession = sessions.find(s => s.sessionId === selectedSessionId);
+  const runtimeTempRoot = useMemo(
+    () => joinDesktopPath(bootstrap?.qwenRuntime?.runtimeBaseDirectory ?? bootstrap?.workspaceRoot ?? '', 'tmp'),
+    [bootstrap?.qwenRuntime?.runtimeBaseDirectory, bootstrap?.workspaceRoot],
+  );
 
   const [mode, setMode] = useState<AgentMode>('default');
   const [prompt, setPrompt] = useState('');
@@ -172,6 +436,12 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
   const [usedTokens, setUsedTokens] = useState(0);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const [showContextTooltip, setShowContextTooltip] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [projectPickerQuery, setProjectPickerQuery] = useState('');
+  const [selectedProjectMode, setSelectedProjectMode] = useState<'project' | 'no-project'>('project');
+  const [selectedProjectPath, setSelectedProjectPath] = useState('');
+  const [customProjectPaths, setCustomProjectPaths] = useState<string[]>([]);
+  const [projectPickerPosition, setProjectPickerPosition] = useState({ top: 0, left: 0, width: 320, maxHeight: 320 });
 
   // Session data from IPC
   const [sessionDetail, setSessionDetail] = useState<DesktopSessionDetail | null>(null);
@@ -182,9 +452,102 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
   const modeBtnRef = useRef<HTMLButtonElement>(null);
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const projectPickerButtonRef = useRef<HTMLButtonElement>(null);
+  const projectPickerMenuRef = useRef<HTMLDivElement>(null);
 
-  const totalTokens = 128_000;
+  const selectedModel = useMemo(() => {
+    const models = bootstrap?.qwenModels?.availableModels ?? [];
+    return (
+      models.find((model) => model.isDefaultModel) ??
+      models.find((model) => model.id === bootstrap?.qwenRuntime?.modelName) ??
+      models.find((model) => model.id === bootstrap?.qwenAuth?.model) ??
+      null
+    );
+  }, [bootstrap]);
+
+  const totalTokens = selectedModel?.contextWindowSize ?? 131_072;
   const currentModeOption = AGENT_MODES.find((m) => m.value === mode) ?? AGENT_MODES[0];
+
+  const projectOptions = useMemo(() => {
+    const projectMap = new Map<string, ProjectOption>();
+    const appendProject = (path: string, lastActivity: string) => {
+      if (!path || pathStartsWith(path, runtimeTempRoot)) {
+        return;
+      }
+
+      const key = normalizePathKey(path);
+      const existing = projectMap.get(key);
+      const nextActivity = lastActivity || existing?.lastActivity || '';
+      projectMap.set(key, {
+        name: getProjectDisplayName(path, locale),
+        path,
+        lastActivity: nextActivity,
+      });
+    };
+
+    appendProject(bootstrap?.workspaceRoot ?? '', '');
+    customProjectPaths.forEach((path) => appendProject(path, ''));
+    sessions
+      .slice()
+      .sort((left, right) => Date.parse(right.lastActivity) - Date.parse(left.lastActivity))
+      .forEach((session) => appendProject(session.workingDirectory, session.lastActivity));
+
+    return Array.from(projectMap.values()).sort((left, right) => {
+      if (!left.lastActivity && !right.lastActivity) return left.name.localeCompare(right.name);
+      if (!left.lastActivity) return 1;
+      if (!right.lastActivity) return -1;
+      return Date.parse(right.lastActivity) - Date.parse(left.lastActivity);
+    });
+  }, [bootstrap?.workspaceRoot, customProjectPaths, locale, runtimeTempRoot, sessions]);
+
+  const topProjectOptions = useMemo(() => projectOptions.slice(0, 3), [projectOptions]);
+
+  const filteredProjectOptions = useMemo(() => {
+    const query = projectPickerQuery.trim().toLowerCase();
+    if (!query) {
+      return topProjectOptions;
+    }
+
+    return projectOptions.filter((project) =>
+      project.name.toLowerCase().includes(query) ||
+      project.path.toLowerCase().includes(query),
+    );
+  }, [projectOptions, projectPickerQuery, topProjectOptions]);
+
+  const selectedProjectLabel = selectedProjectMode === 'no-project'
+    ? getContinueWithoutProjectLabel(locale)
+    : getProjectDisplayName(selectedProjectPath, locale);
+  const selectedProjectWorkingDirectory = selectedProjectMode === 'no-project'
+    ? getProjectlessTempDirectory(bootstrap?.qwenRuntime?.runtimeBaseDirectory ?? '', bootstrap?.workspaceRoot ?? '')
+    : selectedProjectPath;
+  const projectListHeight = useMemo(() => {
+    const visibleRowCount = Math.min(3, Math.max(filteredProjectOptions.length, 1));
+    const desiredHeight = 16 + (visibleRowCount * 40) + ((visibleRowCount - 1) * 4);
+    return Math.min(desiredHeight, Math.max(120, projectPickerPosition.maxHeight - 126));
+  }, [filteredProjectOptions.length, projectPickerPosition.maxHeight]);
+  const updateProjectPickerPosition = useCallback(() => {
+    const buttonRect = projectPickerButtonRef.current?.getBoundingClientRect();
+    if (!buttonRect) {
+      return;
+    }
+
+    const menuWidth = Math.min(320, window.innerWidth - 32);
+    const desiredLeft = buttonRect.left + (buttonRect.width / 2) - (menuWidth / 2);
+    const clampedLeft = Math.min(
+      window.innerWidth - 16 - menuWidth,
+      Math.max(16, desiredLeft),
+    );
+    const preferredTop = buttonRect.bottom + 12;
+    const maxMenuHeight = 360;
+    const minTop = 24;
+    const finalTop = Math.max(minTop, Math.min(preferredTop, window.innerHeight - maxMenuHeight - 24));
+    setProjectPickerPosition({
+      top: finalTop,
+      left: clampedLeft,
+      width: menuWidth,
+      maxHeight: Math.max(220, window.innerHeight - finalTop - 24),
+    });
+  }, []);
 
   const formatTimestamp = useCallback((ts: string): string => {
     if (!ts) return '';
@@ -200,27 +563,95 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [sessionDetail?.entries]);
 
+  useEffect(() => {
+    if (!projectPickerOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+
+      if (projectPickerMenuRef.current?.contains(target) || projectPickerButtonRef.current?.contains(target)) {
+        return;
+      }
+
+      setProjectPickerOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [projectPickerOpen]);
+
+  useEffect(() => {
+    if (!projectPickerOpen) return;
+
+    updateProjectPickerPosition();
+    window.addEventListener('resize', updateProjectPickerPosition);
+    window.addEventListener('scroll', updateProjectPickerPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateProjectPickerPosition);
+      window.removeEventListener('scroll', updateProjectPickerPosition, true);
+    };
+  }, [projectPickerOpen, updateProjectPickerPosition]);
+
+  useEffect(() => {
+    if (!modeDropdownOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+
+      if (modeMenuRef.current?.contains(target) || modeBtnRef.current?.contains(target)) {
+        return;
+      }
+
+      setModeDropdownOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [modeDropdownOpen]);
+
+  useEffect(() => {
+    if (selectedProjectPath) return;
+
+    const fallbackProjectPath =
+      bootstrap?.workspaceRoot ??
+      sessions.find((session) => !pathStartsWith(session.workingDirectory, runtimeTempRoot))?.workingDirectory ??
+      '';
+
+    if (fallbackProjectPath) {
+      setSelectedProjectPath(fallbackProjectPath);
+    }
+  }, [bootstrap?.workspaceRoot, runtimeTempRoot, selectedProjectPath, sessions]);
+
   // Load session
   useEffect(() => {
-    if (!selectedSessionId || !window.qwenDesktop) {
+    if (!selectedSessionId) {
       setSessionDetail(null);
+      setUsedTokens(0);
+      setIsLoadingSession(false);
       return;
     }
 
     let cancelled = false;
-    setIsLoadingSession(true);
+    const cachedDetail = sessionCache[selectedSessionId];
+
+    if (cachedDetail) {
+      setSessionDetail(cachedDetail);
+      setUsedTokens(estimateSessionTokens(cachedDetail));
+    } else {
+      setSessionDetail(null);
+      setUsedTokens(0);
+    }
+
+    setIsLoadingSession(!cachedDetail);
 
     const loadSession = async () => {
       try {
-        const detail = await window.qwenDesktop!.getSession({
-          sessionId: selectedSessionId,
-          offset: null,
-          limit: 200,
-        });
+        const detail = await loadSessionDetail(selectedSessionId, { limit: 200 });
         if (!cancelled && detail) {
           setSessionDetail(detail);
-          const textLength = detail.entries.reduce((sum, e) => sum + (e.body?.length || 0), 0);
-          setUsedTokens(Math.ceil(textLength / 4));
+          setUsedTokens(estimateSessionTokens(detail));
         }
       } catch (err) {
         console.error('Failed to load session:', err);
@@ -231,15 +662,62 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
 
     void loadSession();
     return () => { cancelled = true; };
-  }, [selectedSessionId]);
+  }, [loadSessionDetail, selectedSessionId, sessionCache]);
 
-  const handleSubmit = useCallback(() => {
-    if (!prompt.trim() || isSubmitting || !selectedSessionId) return;
+  const handleSubmit = useCallback(async () => {
+    const trimmedPrompt = prompt.trim();
+    const workingDirectory = selectedSession?.workingDirectory
+      ?? (selectedProjectMode === 'no-project'
+        ? joinDesktopPath(
+          getProjectlessTempDirectory(bootstrap?.qwenRuntime?.runtimeBaseDirectory ?? '', bootstrap?.workspaceRoot ?? ''),
+          window.crypto?.randomUUID?.() ?? `chat-${Date.now()}`,
+        )
+        : selectedProjectWorkingDirectory);
+
+    if (!trimmedPrompt || isSubmitting || !workingDirectory || !window.qwenDesktop) {
+      return;
+    }
+
     setIsSubmitting(true);
-    console.log('Submit prompt:', prompt, 'to session:', selectedSessionId);
-    setPrompt('');
-    setTimeout(() => setIsSubmitting(false), 1000);
-  }, [prompt, isSubmitting, selectedSessionId]);
+
+    try {
+      const result = await window.qwenDesktop.startSessionTurn({
+        sessionId: selectedSessionId ?? '',
+        prompt: trimmedPrompt,
+        workingDirectory,
+        toolName: '',
+        toolArgumentsJson: '{}',
+        approveToolExecution: false,
+      });
+
+      setPrompt('');
+      setProjectPickerOpen(false);
+      setProjectPickerQuery('');
+      setBootstrap((current) => ({
+        ...current,
+        recentSessions: [result.session, ...current.recentSessions.filter((session) => session.sessionId !== result.session.sessionId)]
+          .sort((left, right) => Date.parse(right.lastActivity) - Date.parse(left.lastActivity)),
+      }));
+      onSelectSession?.(result.session.sessionId);
+      await loadSessionDetail(result.session.sessionId, { force: true, limit: 200 });
+    } catch (error) {
+      console.error('Failed to submit prompt:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [
+    isSubmitting,
+    loadSessionDetail,
+    onSelectSession,
+    prompt,
+    selectedProjectMode,
+    selectedProjectWorkingDirectory,
+    selectedSession?.workingDirectory,
+    selectedSessionId,
+    setBootstrap,
+    bootstrap?.qwenRuntime?.runtimeBaseDirectory,
+    bootstrap?.workspaceRoot,
+  ]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && e.ctrlKey) {
@@ -333,7 +811,7 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
       )}
 
       {/* Main area — messages or welcome */}
-      <Box flex={1} overflowY="auto" sx={{
+      <Box flex={1} overflowY="scroll" sx={{
         '&::-webkit-scrollbar': { width: '6px' },
         '&::-webkit-scrollbar-track': { background: 'transparent' },
         '&::-webkit-scrollbar-thumb': { background: '#5b5b67', borderRadius: '3px' },
@@ -396,9 +874,12 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                         const ToolIcon = info.Icon;
                         const label = t(info.labelKey);
                         const isShell = info.labelKey === 'tools.shell';
+                        const todoSummary = parseTodoSummary(entry.arguments);
                         const summary = getToolArgSummary(entry);
                         const isCollapsed = collapsedBlocks[blockKey] !== false;
                         const hasShellDetail = isShell && !!entry.arguments;
+                        const hasTodoDetail = !!todoSummary;
+                        const canExpand = hasShellDetail || hasTodoDetail;
                         const files = entry.changedFiles ?? [];
 
                         return (
@@ -408,12 +889,12 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                               px={2}
                               h="26px"
                               color="gray.500"
-                              cursor={hasShellDetail ? 'pointer' : 'default'}
-                              onClick={hasShellDetail ? () => toggleBlock(blockKey) : undefined}
-                              _hover={hasShellDetail ? { color: 'gray.300' } : undefined}
-                              role={hasShellDetail ? 'button' : undefined}
+                              cursor={canExpand ? 'pointer' : 'default'}
+                              onClick={canExpand ? () => toggleBlock(blockKey) : undefined}
+                              _hover={canExpand ? { color: 'gray.300' } : undefined}
+                              role={canExpand ? 'button' : undefined}
                             >
-                              {hasShellDetail && (
+                              {canExpand && (
                                 <motion.span animate={{ rotate: isCollapsed ? 0 : 90 }} transition={{ duration: 0.18 }} style={{ display: 'flex' }}>
                                   <ChevronRight size={11} />
                                 </motion.span>
@@ -428,12 +909,46 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                             </HStack>
                             {/* Shell detail expand */}
                             <AnimatePresence initial={false}>
-                              {hasShellDetail && !isCollapsed && (
+                              {canExpand && !isCollapsed && (
                                 <motion.div key="sh" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} style={{ overflow: 'hidden' }}>
-                                  <Box ml={7} mt={0.5} mb={1} px={2} py={1.5} bg="gray.900" borderRadius="lg" fontFamily="mono">
-                                    <Text fontSize="xs" color="gray.300" whiteSpace="pre-wrap" wordBreak="break-all">
-                                      {entry.arguments.length > 200 ? entry.arguments.slice(0, 200) + '…' : entry.arguments}
-                                    </Text>
+                                  <Box ml={7} mt={0.5} mb={1} px={2} py={1.5} bg="gray.900" borderRadius="lg">
+                                    {hasShellDetail && (
+                                      <VStack spacing={1} align="stretch" fontFamily="mono">
+                                        {formatShellArgumentLines(entry.arguments).map((line, index) => (
+                                          <Text key={`${entry.id}-shell-${index}`} fontSize="xs" color="gray.300" whiteSpace="pre-wrap" wordBreak="break-word">
+                                            {line}
+                                          </Text>
+                                        ))}
+                                      </VStack>
+                                    )}
+                                    {hasTodoDetail && todoSummary && (
+                                      <VStack spacing={1.5} align="stretch" mt={hasShellDetail ? 2 : 0}>
+                                        <Text fontSize="xs" color="gray.400">
+                                          {locale.startsWith('ru')
+                                            ? `Выполнено ${todoSummary.completedCount} из ${todoSummary.totalCount}`
+                                            : `${todoSummary.completedCount} of ${todoSummary.totalCount} completed`}
+                                        </Text>
+                                        {todoSummary.items.map((item) => {
+                                          const normalizedStatus = item.status.toLowerCase();
+                                          const isCompleted = normalizedStatus === 'completed' || normalizedStatus === 'done';
+                                          return (
+                                            <HStack key={item.id} spacing={2} align="start">
+                                              <Box mt="2px" color={isCompleted ? 'green.400' : 'gray.500'}>
+                                                <CheckSquare size={12} />
+                                              </Box>
+                                              <Box flex={1} minW={0}>
+                                                <Text fontSize="xs" color={isCompleted ? 'gray.200' : 'gray.300'} textDecoration={isCompleted ? 'line-through' : 'none'} whiteSpace="pre-wrap" wordBreak="break-word">
+                                                  {item.content}
+                                                </Text>
+                                                <Text fontSize="10px" color="gray.500">
+                                                  {getTodoStatusLabel(locale, item.status)}
+                                                </Text>
+                                              </Box>
+                                            </HStack>
+                                          );
+                                        })}
+                                      </VStack>
+                                    )}
                                     {entry.exitCode != null && (
                                       <Text fontSize="10px" color={entry.exitCode === 0 ? 'green.500' : 'red.500'} mt={0.5}>exit {entry.exitCode}</Text>
                                     )}
@@ -501,15 +1016,16 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                                     const ToolIcon = info.Icon;
                                     const label = t(info.labelKey);
                                     const isShell = info.labelKey === 'tools.shell';
+                                    const todoSummary = parseTodoSummary(entry.arguments);
                                     const summary = getToolArgSummary(entry);
                                     const files = entry.changedFiles ?? [];
 
                                     return (
-                                      <Box key={entry.id} position="relative" pl="20px" py="1px">
+                                      <Box key={entry.id} position="relative" pl="22px" py="1px">
                                         {/* Vertical line: full height for non-last, half for last (stops at mid-row) */}
                                         <Box
                                           position="absolute"
-                                          left="1px"
+                                          left="2px"
                                           top="0"
                                           bottom={isLastEntry ? '50%' : '0'}
                                           width="1.5px"
@@ -518,9 +1034,9 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                                         {/* Horizontal arm connecting vertical line to content */}
                                         <Box
                                           position="absolute"
-                                          left="1px"
+                                          left="2px"
                                           top="50%"
-                                          width="13px"
+                                          width="14px"
                                           height="1.5px"
                                           bg="gray.700"
                                           style={{ transform: 'translateY(-50%)' }}
@@ -537,12 +1053,46 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                                         {/* Shell command inline */}
                                         {isShell && entry.arguments && (
                                           <Box ml={5} mt={0.5} px={2} py={1} bg="gray.900" borderRadius="md" fontFamily="mono">
-                                            <Text fontSize="xs" color="gray.400" whiteSpace="pre-wrap" wordBreak="break-all">
-                                              {entry.arguments.length > 160 ? entry.arguments.slice(0, 160) + '…' : entry.arguments}
-                                            </Text>
+                                            <VStack spacing={1} align="stretch">
+                                              {formatShellArgumentLines(entry.arguments).map((line, index) => (
+                                                <Text key={`${entry.id}-shell-line-${index}`} fontSize="xs" color="gray.400" whiteSpace="pre-wrap" wordBreak="break-word">
+                                                  {line}
+                                                </Text>
+                                              ))}
+                                            </VStack>
                                             {entry.exitCode != null && (
                                               <Text fontSize="10px" color={entry.exitCode === 0 ? 'green.500' : 'red.500'} mt={0.5}>exit {entry.exitCode}</Text>
                                             )}
+                                          </Box>
+                                        )}
+                                        {todoSummary && (
+                                          <Box ml={5} mt={0.5} px={2} py={1.5} bg="gray.900" borderRadius="md">
+                                            <Text fontSize="xs" color="gray.400" mb={1}>
+                                              {locale.startsWith('ru')
+                                                ? `Выполнено ${todoSummary.completedCount} из ${todoSummary.totalCount}`
+                                                : `${todoSummary.completedCount} of ${todoSummary.totalCount} completed`}
+                                            </Text>
+                                            <VStack spacing={1.5} align="stretch">
+                                              {todoSummary.items.map((item) => {
+                                                const normalizedStatus = item.status.toLowerCase();
+                                                const isCompleted = normalizedStatus === 'completed' || normalizedStatus === 'done';
+                                                return (
+                                                  <HStack key={item.id} spacing={2} align="start">
+                                                    <Box mt="2px" color={isCompleted ? 'green.400' : 'gray.500'}>
+                                                      <CheckSquare size={12} />
+                                                    </Box>
+                                                    <Box flex={1} minW={0}>
+                                                      <Text fontSize="xs" color={isCompleted ? 'gray.200' : 'gray.300'} textDecoration={isCompleted ? 'line-through' : 'none'} whiteSpace="pre-wrap" wordBreak="break-word">
+                                                        {item.content}
+                                                      </Text>
+                                                      <Text fontSize="10px" color="gray.500">
+                                                        {getTodoStatusLabel(locale, item.status)}
+                                                      </Text>
+                                                    </Box>
+                                                  </HStack>
+                                                );
+                                              })}
+                                            </VStack>
                                           </Box>
                                         )}
                                         {/* Changed files */}
@@ -572,6 +1122,7 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                     // ── Legacy thought blocks (type-level, for backward compat) ──
                     if (block.type === 'thought') {
                       const isCollapsed = collapsedBlocks[blockKey] !== false;
+                      const thinkingDurationMs = block.entries.reduce((total, entry) => total + (entry.thinkingDurationMs ?? 0), 0);
                       return (
                         <Box key={blockKey} py={0.5}>
                           <Button
@@ -587,7 +1138,7 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                           >
                             <HStack spacing={1.5}>
                               <Brain size={11} />
-                              <Text fontSize="xs" fontStyle="italic" color="gray.500">{t('tools.thinking')}</Text>
+                              <Text fontSize="xs" color="gray.500">{getThinkingStatusLabel(locale, thinkingDurationMs)}</Text>
                             </HStack>
                           </Button>
                           <AnimatePresence initial={false}>
@@ -600,9 +1151,9 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                                 transition={{ duration: 0.2, ease: 'easeOut' }}
                                 style={{ overflow: 'hidden' }}
                               >
-                                <Box pl={4} ml={2} borderLeft="2px solid" borderColor="gray.700" mt={1}>
+                                <Box px={2} ml={2} mt={1}>
                                   {block.entries.map((entry) => (
-                                    <Text key={entry.id} fontSize="xs" color="gray.500" fontStyle="italic" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="1.6">
+                                    <Text key={entry.id} fontSize="xs" color="gray.500" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="1.6">
                                       {getEntryText(entry)}
                                     </Text>
                                   ))}
@@ -646,7 +1197,7 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                               >
                                 <HStack spacing={1.5}>
                                   <Brain size={11} />
-                                  <Text fontSize="xs" fontStyle="italic" color="gray.500">{t('tools.thinking')}</Text>
+                                  <Text fontSize="xs" color="gray.500">{getThinkingStatusLabel(locale, entry.thinkingDurationMs ?? 0)}</Text>
                                 </HStack>
                               </Button>
                               <AnimatePresence initial={false}>
@@ -659,8 +1210,8 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                                     transition={{ duration: 0.2, ease: 'easeOut' }}
                                     style={{ overflow: 'hidden' }}
                                   >
-                                    <Box pl={4} ml={2} borderLeft="2px solid" borderColor="gray.700" mt={1} mb={text ? 1 : 0}>
-                                      <Text fontSize="xs" color="gray.500" fontStyle="italic" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="1.6">
+                                    <Box px={2} ml={2} mt={1} mb={text ? 1 : 0}>
+                                      <Text fontSize="xs" color="gray.500" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="1.6">
                                         {thinking}
                                       </Text>
                                     </Box>
@@ -728,7 +1279,6 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
             </Center>
           )
         ) : (
-          /* FIX 3: Welcome screen with Qwen logo */
           <Flex h="100%" direction="column" align="center" justify="center" userSelect="none">
             <img
               src={qwenLogo}
@@ -739,14 +1289,210 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
             <Text fontSize="2xl" fontWeight="semibold" color="white" letterSpacing="tight">
               {t('chat.welcomeTitle')}
             </Text>
-            <Text mt={2} fontSize="sm" color="gray.500" textAlign="center" maxW="sm">
-              Select a session from the sidebar or start a new conversation
-            </Text>
-            {sessions.length > 0 && (
-              <Text mt={3} fontSize="xs" color="gray.600">
-                {sessions.length} {t('chat.sessionsAvailable')}
-              </Text>
-            )}
+            <Box mt={2} position="relative">
+              <Button
+                ref={projectPickerButtonRef}
+                onClick={() => {
+                  setProjectPickerQuery('');
+                  if (!projectPickerOpen) {
+                    updateProjectPickerPosition();
+                  }
+
+                  setProjectPickerOpen((current) => !current);
+                }}
+                variant="unstyled"
+                h="auto"
+                px={0}
+                display="inline-flex"
+                flexDirection="column"
+                alignItems="stretch"
+                justifyContent="center"
+                gap={1}
+                color="gray.500"
+                _hover={{ color: 'gray.300' }}
+                _active={{ color: 'gray.300' }}
+              >
+                <Text fontSize="2xl" lineHeight="1" fontWeight="medium" color="inherit" textAlign="center">
+                  {selectedProjectLabel}
+                </Text>
+                <Box
+                  h="0"
+                  borderBottom="1px dashed"
+                  borderColor="currentColor"
+                  opacity={projectPickerOpen ? 0.9 : 0.65}
+                />
+              </Button>
+
+            </Box>
+            <Portal>
+              <AnimatePresence>
+                {projectPickerOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                    style={{
+                      position: 'fixed',
+                      top: `${projectPickerPosition.top}px`,
+                      left: `${projectPickerPosition.left}px`,
+                      width: `${projectPickerPosition.width}px`,
+                      zIndex: 2000,
+                    }}
+                  >
+                    <Box
+                      ref={projectPickerMenuRef}
+                      display="flex"
+                      flexDirection="column"
+                      maxH={`${projectPickerPosition.maxHeight}px`}
+                      bg="gray.800"
+                      border="1px solid"
+                      borderColor="gray.700"
+                      borderRadius="2xl"
+                      shadow="2xl"
+                      overflow="hidden"
+                    >
+                      <HStack px={3} py={1.5} spacing={3} minH="38px">
+                        <Search size={13} color="#9494a2" />
+                        <Input
+                          value={projectPickerQuery}
+                          onChange={(e) => setProjectPickerQuery(e.target.value)}
+                          placeholder={getProjectPickerSearchPlaceholder(locale)}
+                          bg="transparent"
+                          border="none"
+                          color="white"
+                          fontSize="sm"
+                          fontWeight="normal"
+                          h="20px"
+                          minH="20px"
+                          p={0}
+                          _placeholder={{ color: 'gray.500' }}
+                          _focusVisible={{ boxShadow: 'none' }}
+                        />
+                      </HStack>
+
+                      <Box borderTop="1px solid" borderColor="gray.700" />
+
+                      <Box
+                        h={`${projectListHeight}px`}
+                        overflowY="auto"
+                        px={2}
+                        py={2}
+                        sx={{
+                          '&::-webkit-scrollbar': { width: '8px' },
+                          '&::-webkit-scrollbar-track': { background: 'rgba(255,255,255,0.04)' },
+                          '&::-webkit-scrollbar-thumb': { background: '#5b5b67', borderRadius: '999px' },
+                          '&::-webkit-scrollbar-thumb:hover': { background: '#72727f' },
+                        }}
+                      >
+                        <VStack spacing={1} align="stretch">
+                          {filteredProjectOptions.length > 0 ? (
+                            filteredProjectOptions.map((project) => (
+                              <Button
+                                key={project.path}
+                                variant="ghost"
+                                justifyContent="space-between"
+                                h="40px"
+                                px={3}
+                                borderRadius="xl"
+                                color="gray.200"
+                                fontWeight="normal"
+                                _hover={{ bg: 'gray.700' }}
+                                onClick={() => {
+                                  setSelectedProjectMode('project');
+                                  setSelectedProjectPath(project.path);
+                                  setProjectPickerOpen(false);
+                                  setProjectPickerQuery('');
+                                }}
+                              >
+                                <HStack spacing={3} minW={0}>
+                                  <FolderOpen size={14} />
+                                  <Text fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                    {project.name}
+                                  </Text>
+                                </HStack>
+                                {selectedProjectMode === 'project' && normalizePathKey(project.path) === normalizePathKey(selectedProjectPath) && (
+                                  <Check size={16} color={ACCENT} />
+                                )}
+                              </Button>
+                            ))
+                          ) : (
+                            <Center py={4}>
+                              <Text fontSize="sm" color="gray.500">
+                                {getNoProjectsLabel(locale)}
+                              </Text>
+                            </Center>
+                          )}
+                        </VStack>
+                      </Box>
+
+                      <Box borderTop="1px solid" borderColor="gray.700" />
+
+                      <VStack spacing={1} align="stretch" px={2} py={2}>
+                        <Button
+                          variant="ghost"
+                          justifyContent="space-between"
+                          h="40px"
+                          px={3}
+                          borderRadius="xl"
+                          color="gray.200"
+                          fontWeight="normal"
+                          _hover={{ bg: 'gray.700' }}
+                          onClick={() => {
+                            setSelectedProjectMode('no-project');
+                            setProjectPickerOpen(false);
+                            setProjectPickerQuery('');
+                          }}
+                        >
+                          <HStack spacing={3} minW={0}>
+                            <MessageCircle size={14} />
+                            <Text fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                              {getContinueWithoutProjectLabel(locale)}
+                            </Text>
+                          </HStack>
+                          {selectedProjectMode === 'no-project' && <Check size={16} color={ACCENT} />}
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          justifyContent="space-between"
+                          h="40px"
+                          px={3}
+                          borderRadius="xl"
+                          color="gray.200"
+                          fontWeight="normal"
+                          _hover={{ bg: 'gray.700' }}
+                          onClick={async () => {
+                            const result = await window.qwenDesktop?.selectProjectDirectory?.();
+                            if (!result || result.cancelled || !result.selectedPath) {
+                              return;
+                            }
+
+                            setCustomProjectPaths((current) =>
+                              current.some((path) => normalizePathKey(path) === normalizePathKey(result.selectedPath))
+                                ? current
+                                : [result.selectedPath, ...current],
+                            );
+                            setSelectedProjectMode('project');
+                            setSelectedProjectPath(result.selectedPath);
+                            setProjectPickerOpen(false);
+                            setProjectPickerQuery('');
+                          }}
+                        >
+                          <HStack spacing={3} minW={0}>
+                            <FilePlus size={14} />
+                            <Text fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                              {getAddProjectLabel(locale)}
+                            </Text>
+                          </HStack>
+                          <Box boxSize="16px" flexShrink={0} />
+                        </Button>
+                      </VStack>
+                    </Box>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </Portal>
           </Flex>
         )}
       </Box>
@@ -868,9 +1614,10 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                                 alignItems="center"
                                 h="52px"
                                 px={3}
+                                borderRadius="2xl"
                                 onClick={() => { setMode(m.value); setModeDropdownOpen(false); }}
                                 bg="transparent"
-                                _hover={{ bg: 'gray.900', borderRadius: 'xl' }}
+                                _hover={{ bg: 'gray.900', borderRadius: '2xl' }}
                                 color="white"
                                 gap={3}
                               >
@@ -938,11 +1685,9 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                         <Text fontSize="xs" color="gray.300" fontWeight="medium" wordBreak="break-word">
                           {t('chat.contextUsed', { used: usedTokens.toLocaleString(), total: totalTokens.toLocaleString() })}
                         </Text>
-                        {contextPercent >= 70 && (
-                          <Text fontSize="xs" color="orange.400" mt={1}>
-                            {t('chat.contextCompression')}
-                          </Text>
-                        )}
+                        <Text fontSize="xs" color={contextPercent >= 70 ? 'orange.400' : 'gray.500'} mt={1}>
+                          {t('chat.contextCompression')}
+                        </Text>
                       </Box>
                     </motion.div>
                   )}
@@ -967,7 +1712,7 @@ export default function ChatArea({ selectedSessionId }: ChatAreaProps) {
                 bg={ACCENT}
                 color="white"
                 _hover={{ bg: ACCENT_HOVER }}
-                isDisabled={!prompt.trim() || isSubmitting || !selectedSessionId}
+                isDisabled={!prompt.trim() || isSubmitting || (!selectedSession && !selectedProjectWorkingDirectory)}
                 isLoading={isSubmitting}
                 onClick={handleSubmit}
                 borderRadius="full"

@@ -1,4 +1,5 @@
 using QwenCode.App.Models;
+using QwenCode.App.Runtime;
 
 namespace QwenCode.App.Models;
 
@@ -86,6 +87,11 @@ public sealed class AppBootstrapPayload
     /// Gets or sets the qwen runtime
     /// </summary>
     public required QwenRuntimeProfile QwenRuntime { get; init; }
+
+    /// <summary>
+    /// Gets or sets the qwen models
+    /// </summary>
+    public required RuntimeModelSnapshot QwenModels { get; init; }
 
     /// <summary>
     /// Gets or sets the qwen tools

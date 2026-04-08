@@ -1,7 +1,7 @@
 @import "@fontsource-variable/google-sans";
 
 :root {
-  font-family: 'Google Sans Variable', 'Google Sans', system-ui, sans-serif;
+  font-family: 'Google Sans Variable', 'Google Sans', system-ui, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji', sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;

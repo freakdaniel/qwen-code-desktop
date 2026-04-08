@@ -879,6 +879,11 @@ export interface SetLocaleRequest {
   locale: string;
 }
 
+export interface SelectProjectDirectoryResult {
+  cancelled: boolean;
+  selectedPath: string;
+}
+
 export interface StartDesktopSessionTurnRequest {
   sessionId: string;
   prompt: string;
@@ -966,6 +971,7 @@ export interface QwenDesktopBridge {
   createGitCheckpoint(request: CreateGitCheckpointRequest): Promise<WorkspaceSnapshot>;
   createManagedWorktree(request: CreateManagedWorktreeRequest): Promise<WorkspaceSnapshot>;
   getWorkspaceSnapshot(): Promise<WorkspaceSnapshot>;
+  selectProjectDirectory(): Promise<SelectProjectDirectoryResult>;
   restoreGitCheckpoint(request: RestoreGitCheckpointRequest): Promise<WorkspaceSnapshot>;
 }
 
@@ -1015,5 +1021,6 @@ export const qwenDesktopChannels = {
   createGitCheckpoint: 'qwen-desktop:workspace:create-git-checkpoint',
   createManagedWorktree: 'qwen-desktop:workspace:create-managed-worktree',
   getWorkspaceSnapshot: 'qwen-desktop:workspace:get',
+  selectProjectDirectory: 'qwen-desktop:workspace:select-project-directory',
   restoreGitCheckpoint: 'qwen-desktop:workspace:restore-git-checkpoint',
 } as const

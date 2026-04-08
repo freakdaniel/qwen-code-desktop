@@ -1,5 +1,7 @@
+using Microsoft.Extensions.Options;
 using QwenCode.App.Config;
 using QwenCode.App.Models;
+using QwenCode.App.Options;
 
 namespace QwenCode.App.Runtime;
 
@@ -7,8 +9,16 @@ namespace QwenCode.App.Runtime;
 /// Represents the Model Registry Service
 /// </summary>
 /// <param name="configService">The config service</param>
-public sealed class ModelRegistryService(IConfigService configService) : IModelRegistry
+/// <param name="tokenLimitService">The token limit service</param>
+/// <param name="runtimeOptions">The runtime options</param>
+public sealed class ModelRegistryService(
+    IConfigService configService,
+    ITokenLimitService tokenLimitService,
+    IOptions<NativeAssistantRuntimeOptions> runtimeOptions) : IModelRegistry
 {
+    private readonly ITokenLimitService _tokenLimitService = tokenLimitService;
+    private readonly NativeAssistantRuntimeOptions _runtimeOptions = runtimeOptions.Value;
+
     /// <summary>
     /// Executes inspect
     /// </summary>
@@ -28,11 +38,22 @@ public sealed class ModelRegistryService(IConfigService configService) : IModelR
         };
     }
 
-    private static IReadOnlyList<AvailableModel> BuildAvailableModels(RuntimeConfigSnapshot snapshot)
+    private IReadOnlyList<AvailableModel> BuildAvailableModels(RuntimeConfigSnapshot snapshot)
+    {
+        return BuildAvailableModels(snapshot, _tokenLimitService, _runtimeOptions);
+    }
+
+    private static IReadOnlyList<AvailableModel> BuildAvailableModels(
+        RuntimeConfigSnapshot snapshot,
+        ITokenLimitService tokenLimitService,
+        NativeAssistantRuntimeOptions runtimeOptions)
     {
         var models = new List<AvailableModel>();
         foreach (var provider in snapshot.ModelProviders)
         {
+            var limits = tokenLimitService.Resolve(provider.Id, runtimeOptions);
+            var contextWindowSize = provider.ContextWindowSize.GetValueOrDefault(limits.InputTokenLimit);
+            var maxOutputTokens = provider.MaxOutputTokens.GetValueOrDefault(limits.OutputTokenLimit);
             models.Add(new AvailableModel
             {
                 Id = provider.Id,
@@ -40,14 +61,16 @@ public sealed class ModelRegistryService(IConfigService configService) : IModelR
                 BaseUrl = provider.BaseUrl,
                 ApiKeyEnvironmentVariable = provider.EnvironmentVariableName,
                 Source = "model-provider",
+                ContextWindowSize = contextWindowSize,
+                MaxOutputTokens = maxOutputTokens,
                 IsDefaultModel = string.Equals(provider.Id, snapshot.ModelName, StringComparison.OrdinalIgnoreCase),
                 IsEmbeddingModel = string.Equals(provider.Id, snapshot.EmbeddingModel, StringComparison.OrdinalIgnoreCase),
                 Capabilities = InferCapabilities(provider.Id, embedding: string.Equals(provider.Id, snapshot.EmbeddingModel, StringComparison.OrdinalIgnoreCase))
             });
         }
 
-        EnsureSyntheticModel(models, snapshot.ModelName, snapshot.SelectedAuthType, isDefault: true, isEmbedding: false);
-        EnsureSyntheticModel(models, snapshot.EmbeddingModel, snapshot.SelectedAuthType, isDefault: false, isEmbedding: true);
+        EnsureSyntheticModel(models, snapshot.ModelName, snapshot.SelectedAuthType, isDefault: true, isEmbedding: false, tokenLimitService, runtimeOptions);
+        EnsureSyntheticModel(models, snapshot.EmbeddingModel, snapshot.SelectedAuthType, isDefault: false, isEmbedding: true, tokenLimitService, runtimeOptions);
 
         return models
             .OrderByDescending(static item => item.IsDefaultModel)
@@ -61,7 +84,9 @@ public sealed class ModelRegistryService(IConfigService configService) : IModelR
         string modelId,
         string authType,
         bool isDefault,
-        bool isEmbedding)
+        bool isEmbedding,
+        ITokenLimitService tokenLimitService,
+        NativeAssistantRuntimeOptions runtimeOptions)
     {
         if (string.IsNullOrWhiteSpace(modelId))
         {
@@ -76,6 +101,7 @@ public sealed class ModelRegistryService(IConfigService configService) : IModelR
             return;
         }
 
+        var limits = tokenLimitService.Resolve(modelId, runtimeOptions);
         models.Add(new AvailableModel
         {
             Id = modelId,
@@ -83,6 +109,8 @@ public sealed class ModelRegistryService(IConfigService configService) : IModelR
             BaseUrl = string.Empty,
             ApiKeyEnvironmentVariable = string.Empty,
             Source = isEmbedding ? "embedding-model" : "default-model",
+            ContextWindowSize = limits.InputTokenLimit,
+            MaxOutputTokens = limits.OutputTokenLimit,
             IsDefaultModel = isDefault,
             IsEmbeddingModel = isEmbedding,
             Capabilities = InferCapabilities(modelId, isEmbedding)

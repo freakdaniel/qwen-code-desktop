@@ -111,6 +111,10 @@ internal static class TestServiceFactory
                 workspaceInspectionService,
                 authFlowService,
                 mcpConnectionManager,
+                new ModelRegistryService(
+                    new RuntimeConfigService(environmentPaths),
+                    new TokenLimitService(),
+                    Options.Create(new NativeAssistantRuntimeOptions())),
                 transcriptStore,
                 activeTurnRegistry,
                 arenaSessionRegistry,
@@ -217,7 +221,11 @@ internal static class TestServiceFactory
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
         var configService = new RuntimeConfigService(environmentPaths);
-        var modelConfigResolver = new ModelConfigResolver(new ModelRegistryService(configService));
+        var modelConfigResolver = new ModelConfigResolver(
+            new ModelRegistryService(
+                configService,
+                new TokenLimitService(),
+                Options.Create(new NativeAssistantRuntimeOptions())));
 
         var providers = primaryProvider is null
             ? new IAssistantResponseProvider[]

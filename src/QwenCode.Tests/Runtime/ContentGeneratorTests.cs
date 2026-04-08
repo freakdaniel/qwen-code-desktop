@@ -68,6 +68,10 @@ public sealed class ContentGeneratorTests
 
             var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
             var configService = new RuntimeConfigService(environmentPaths);
+            var modelRegistry = new ModelRegistryService(
+                configService,
+                new TokenLimitService(),
+                Options.Create(new NativeAssistantRuntimeOptions()));
             var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
             var client = new OpenAiCompatibleBaseLlmClient(
@@ -75,8 +79,8 @@ public sealed class ContentGeneratorTests
                 new ProviderConfigurationResolver(
                     environmentPaths,
                     configService: configService,
-                    modelConfigResolver: new ModelConfigResolver(new ModelRegistryService(configService))),
-                new ModelConfigResolver(new ModelRegistryService(configService)),
+                    modelConfigResolver: new ModelConfigResolver(modelRegistry)),
+                new ModelConfigResolver(modelRegistry),
                 new TokenLimitService(),
                 Options.Create(new NativeAssistantRuntimeOptions
                 {
@@ -187,6 +191,10 @@ public sealed class ContentGeneratorTests
 
             var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
             var configService = new RuntimeConfigService(environmentPaths);
+            var modelRegistry = new ModelRegistryService(
+                configService,
+                new TokenLimitService(),
+                Options.Create(new NativeAssistantRuntimeOptions()));
             var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
             var client = new OpenAiCompatibleBaseLlmClient(
@@ -194,8 +202,8 @@ public sealed class ContentGeneratorTests
                 new ProviderConfigurationResolver(
                     environmentPaths,
                     configService: configService,
-                    modelConfigResolver: new ModelConfigResolver(new ModelRegistryService(configService))),
-                new ModelConfigResolver(new ModelRegistryService(configService)),
+                    modelConfigResolver: new ModelConfigResolver(modelRegistry)),
+                new ModelConfigResolver(modelRegistry),
                 new TokenLimitService(),
                 Options.Create(new NativeAssistantRuntimeOptions
                 {

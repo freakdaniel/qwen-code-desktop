@@ -1,6 +1,7 @@
 using QwenCode.App.Ipc.Attributes;
 using QwenCode.App.Desktop;
 using QwenCode.App.Models;
+using ElectronNET.API.Entities;
 using ElectronApi = ElectronNET.API.Electron;
 
 namespace QwenCode.App.Ipc;
@@ -377,6 +378,34 @@ public sealed class DesktopIpcService(
     [IpcInvoke("qwen-desktop:sessions:dismiss-interrupted")]
     public Task<DismissInterruptedTurnResult> DismissInterruptedTurn(DismissInterruptedTurnRequest request)
         => desktopProjectionService.DismissInterruptedTurnAsync(request);
+
+    /// <summary>
+    /// Opens a native directory picker for selecting a project folder.
+    /// </summary>
+    /// <returns>A task that resolves to the selected project directory result.</returns>
+    [IpcInvoke("qwen-desktop:workspace:select-project-directory")]
+    public async Task<SelectProjectDirectoryResult> SelectProjectDirectory()
+    {
+        var window = ElectronApi.WindowManager.BrowserWindows.LastOrDefault();
+        var selectedPaths = await ElectronApi.Dialog.ShowOpenDialogAsync(
+            window,
+            new OpenDialogOptions
+            {
+                Title = "Select project directory",
+                ButtonLabel = "Use project",
+                Properties =
+                [
+                    OpenDialogProperty.openDirectory
+                ]
+            });
+
+        var selectedPath = selectedPaths?.FirstOrDefault() ?? string.Empty;
+        return new SelectProjectDirectoryResult
+        {
+            Cancelled = string.IsNullOrWhiteSpace(selectedPath),
+            SelectedPath = selectedPath
+        };
+    }
 
     /// <summary>
     /// Gets followup suggestions

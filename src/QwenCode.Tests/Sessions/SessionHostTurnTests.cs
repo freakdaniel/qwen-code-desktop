@@ -69,6 +69,46 @@ public sealed class SessionHostTurnTests
     }
 
     [Fact]
+    public async Task DesktopSessionHostService_StartTurnAsync_AllowsRuntimeTempWorkingDirectoryForProjectlessChats()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-projectless-session-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService);
+            var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            var projectlessDirectory = Path.Combine(runtimeProfile.RuntimeBaseDirectory, "tmp", "no-project");
+
+            var result = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Continue without a project and just chat.",
+                    WorkingDirectory = projectlessDirectory
+                });
+
+            Assert.True(result.CreatedNewSession);
+            Assert.Equal(projectlessDirectory, result.Session.WorkingDirectory);
+            Assert.True(Directory.Exists(projectlessDirectory));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DesktopSessionHostService_StartTurnAsync_ResolvesSlashCommandIntoTranscript()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-command-session-{Guid.NewGuid():N}");

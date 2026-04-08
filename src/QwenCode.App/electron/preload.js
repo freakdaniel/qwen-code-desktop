@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('qwenDesktop', {
   restoreGitCheckpoint: (request) => invoke('qwen-desktop:workspace:restore-git-checkpoint', request),
   createManagedWorktree: (request) => invoke('qwen-desktop:workspace:create-managed-worktree', request),
   cleanupManagedSession: (request) => invoke('qwen-desktop:workspace:cleanup-managed-session', request),
+  selectProjectDirectory: () => invoke('qwen-desktop:workspace:select-project-directory', {}),
   getExtensionSettings: (request) => invoke('qwen-desktop:extensions:get-settings', request),
   installExtension: (request) => invoke('qwen-desktop:extensions:install', request),
   setExtensionEnabled: (request) => invoke('qwen-desktop:extensions:set-enabled', request),

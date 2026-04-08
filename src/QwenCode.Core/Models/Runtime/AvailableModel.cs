@@ -31,6 +31,16 @@ public sealed class AvailableModel
     public string Source { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the context window size
+    /// </summary>
+    public int ContextWindowSize { get; init; }
+
+    /// <summary>
+    /// Gets or sets the maximum output token count
+    /// </summary>
+    public int MaxOutputTokens { get; init; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether is default model
     /// </summary>
     public bool IsDefaultModel { get; init; }

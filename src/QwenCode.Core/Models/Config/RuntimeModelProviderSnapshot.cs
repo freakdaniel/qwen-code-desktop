@@ -24,4 +24,14 @@ public sealed class RuntimeModelProviderSnapshot
     /// Gets or sets the environment variable name
     /// </summary>
     public string EnvironmentVariableName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the explicit context window size override from generation config
+    /// </summary>
+    public int? ContextWindowSize { get; init; }
+
+    /// <summary>
+    /// Gets or sets the explicit output token limit override from generation config
+    /// </summary>
+    public int? MaxOutputTokens { get; init; }
 }

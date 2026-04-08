@@ -391,7 +391,9 @@ public sealed class RuntimeConfigService(IDesktopEnvironmentPaths environmentPat
                     AuthType = authTypeEntry.Key,
                     Id = providerNode["id"]?.GetValue<string?>() ?? string.Empty,
                     BaseUrl = providerNode["baseUrl"]?.GetValue<string?>() ?? string.Empty,
-                    EnvironmentVariableName = providerNode["envKey"]?.GetValue<string?>() ?? string.Empty
+                    EnvironmentVariableName = providerNode["envKey"]?.GetValue<string?>() ?? string.Empty,
+                    ContextWindowSize = ReadInt(providerNode, "generationConfig", "contextWindowSize"),
+                    MaxOutputTokens = ReadInt(providerNode, "generationConfig", "maxOutputTokens")
                 });
             }
         }
@@ -634,6 +636,24 @@ public sealed class RuntimeConfigService(IDesktopEnvironmentPaths environmentPat
         }
 
         return current?.GetValue<string?>() ?? string.Empty;
+    }
+
+    private static int? ReadInt(JsonObject root, params string[] path)
+    {
+        JsonNode? current = root;
+        foreach (var segment in path)
+        {
+            if (current is not JsonObject currentObject || currentObject[segment] is not JsonNode next)
+            {
+                return null;
+            }
+
+            current = next;
+        }
+
+        return current is JsonValue value && value.TryGetValue<int>(out var result)
+            ? result
+            : null;
     }
 
     private static string FirstNonEmpty(params string?[] values) =>

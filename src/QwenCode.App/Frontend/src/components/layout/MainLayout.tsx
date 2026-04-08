@@ -115,6 +115,7 @@ export default function MainLayout() {
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={() => setIsSidebarOpen(true)}
           selectedSessionId={selectedSessionId}
+          onSelectSession={handleSelectSession}
         />
       </Box>
 
@@ -200,6 +201,7 @@ export default function MainLayout() {
                   overflowY="auto"
                   p={3}
                   sx={{
+                    scrollbarGutter: 'stable',
                     '&::-webkit-scrollbar': { width: '6px' },
                     '&::-webkit-scrollbar-track': { background: 'transparent' },
                     '&::-webkit-scrollbar-thumb': { background: '#5b5b67', borderRadius: '3px' },

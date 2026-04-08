@@ -442,6 +442,7 @@ public sealed class DesktopSessionCatalogService(
             },
             Body = body,
             ThinkingBody = thinkingBody,
+            ThinkingDurationMs = TryGetLong(root, "durationMs") ?? TryGetNestedLong(root, "message", "durationMs") ?? 0,
             Status = status,
             ToolName = toolName,
             ApprovalState = approvalState,
@@ -515,6 +516,7 @@ public sealed class DesktopSessionCatalogService(
             Title = entry.Title,
             Body = Truncate(entry.Body, MaximumBodyLength),
             ThinkingBody = Truncate(entry.ThinkingBody, MaximumBodyLength),
+            ThinkingDurationMs = entry.ThinkingDurationMs,
             Status = entry.Status,
             ToolName = entry.ToolName,
             ApprovalState = entry.ApprovalState,
@@ -703,6 +705,21 @@ public sealed class DesktopSessionCatalogService(
         TryGetProperty(root, propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var result)
             ? result
             : null;
+
+    private static long? TryGetLong(JsonElement root, string propertyName) =>
+        TryGetProperty(root, propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var result)
+            ? result
+            : null;
+
+    private static long? TryGetNestedLong(JsonElement root, string objectPropertyName, string nestedPropertyName)
+    {
+        if (!TryGetProperty(root, objectPropertyName, out var nestedRoot) || nestedRoot.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return TryGetLong(nestedRoot, nestedPropertyName);
+    }
 
     private static string NormalizeSessionStatus(string status) =>
         status switch

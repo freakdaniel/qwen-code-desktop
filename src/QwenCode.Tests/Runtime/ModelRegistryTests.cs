@@ -45,7 +45,10 @@ public sealed class ModelRegistryTests
                 }
                 """);
 
-            var registry = new ModelRegistryService(new RuntimeConfigService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)));
+            var registry = new ModelRegistryService(
+                new RuntimeConfigService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                new TokenLimitService(),
+                Microsoft.Extensions.Options.Options.Create(new NativeAssistantRuntimeOptions()));
             var snapshot = registry.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
 
             Assert.Equal("qwen-max", snapshot.DefaultModelId);
@@ -55,6 +58,7 @@ public sealed class ModelRegistryTests
             var defaultModel = Assert.Single(snapshot.AvailableModels, static model => model.IsDefaultModel);
             Assert.Equal("qwen-max", defaultModel.Id);
             Assert.Equal("model-provider", defaultModel.Source);
+            Assert.Equal(262_144, defaultModel.ContextWindowSize);
             Assert.True(defaultModel.Capabilities.SupportsToolCalls);
 
             var embeddingModel = Assert.Single(snapshot.AvailableModels, static model => model.IsEmbeddingModel);
@@ -101,7 +105,11 @@ public sealed class ModelRegistryTests
                 """);
 
             var configService = new RuntimeConfigService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
-            var resolver = new ModelConfigResolver(new ModelRegistryService(configService));
+            var resolver = new ModelConfigResolver(
+                new ModelRegistryService(
+                    configService,
+                    new TokenLimitService(),
+                    Microsoft.Extensions.Options.Options.Create(new NativeAssistantRuntimeOptions())));
             var workspace = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
 
             var defaultModel = resolver.Resolve(workspace);
