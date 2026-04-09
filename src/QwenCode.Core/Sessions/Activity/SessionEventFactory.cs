@@ -77,7 +77,12 @@ public sealed class SessionEventFactory : ISessionEventFactory
             WorkingDirectory = toolExecution.WorkingDirectory,
             GitBranch = gitBranch,
             ToolName = toolExecution.ToolName,
-            Status = toolExecution.Status
+            Status = toolExecution.Status,
+            ToolOutput = string.IsNullOrWhiteSpace(toolExecution.Output) ? toolExecution.ErrorMessage : toolExecution.Output,
+            ApprovalState = toolExecution.ApprovalState,
+            ChangedFiles = toolExecution.ChangedFiles,
+            Questions = toolExecution.Questions,
+            Answers = toolExecution.Answers
         };
 
     /// <summary>
@@ -113,7 +118,12 @@ public sealed class SessionEventFactory : ISessionEventFactory
             Status = string.IsNullOrWhiteSpace(runtimeEvent.Status) ? runtimeEvent.Stage : runtimeEvent.Status,
             ContentDelta = runtimeEvent.ContentDelta,
             ContentSnapshot = runtimeEvent.ContentSnapshot,
-            AgentName = runtimeEvent.AgentName
+            AgentName = runtimeEvent.AgentName,
+            ToolOutput = runtimeEvent.ToolOutput,
+            ApprovalState = runtimeEvent.ApprovalState,
+            ChangedFiles = runtimeEvent.ChangedFiles,
+            Questions = runtimeEvent.Questions,
+            Answers = runtimeEvent.Answers
         };
 
     /// <summary>

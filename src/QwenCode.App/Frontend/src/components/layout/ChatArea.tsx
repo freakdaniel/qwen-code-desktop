@@ -112,6 +112,7 @@ function getToolInfo(toolName: string): ToolDisplayInfo {
   if (name.includes('web_search') || name.includes('websearch') || name.includes('browse')) return { labelKey: 'tools.webSearch', Icon: Globe };
   if (name.includes('web_fetch') || name.includes('fetch')) return { labelKey: 'tools.webFetch', Icon: Download };
   if (name.includes('todo')) return { labelKey: 'tools.todo', Icon: CheckSquare };
+  if (name.includes('task_')) return { labelKey: 'tools.todo', Icon: CheckSquare };
   if (name.includes('ask_user') || name.includes('ask_question')) return { labelKey: 'tools.askUser', Icon: MessageCircle };
   if (name.includes('exit_plan') || name.includes('plan_mode')) return { labelKey: 'tools.planMode', Icon: ScrollText };
   return { labelKey: 'tools.tool', Icon: Wrench };
@@ -222,6 +223,21 @@ interface TodoSummary {
   totalCount: number;
 }
 
+interface TaskItemSummary {
+  id: string;
+  subject: string;
+  status: string;
+  description: string;
+  owner: string;
+  blockedBy: string[];
+}
+
+interface TaskSummary {
+  items: TaskItemSummary[];
+  completedCount: number;
+  totalCount: number;
+}
+
 function parseTodoSummary(argumentsJson: string): TodoSummary | null {
   const parsed = parseObjectArguments(argumentsJson);
   if (!parsed || !Array.isArray(parsed.todos)) {
@@ -246,6 +262,181 @@ function parseTodoSummary(argumentsJson: string): TodoSummary | null {
     completedCount: items.filter((item) => item.status === 'completed').length,
     totalCount: items.length,
   };
+}
+
+function normalizeTaskStatus(status: string): string {
+  return status.trim().toLowerCase().replace(/-/g, '_');
+}
+
+function finalizeTaskSummary(items: TaskItemSummary[]): TaskSummary | null {
+  const normalizedItems = items.filter((item) => item.subject.trim().length > 0);
+  if (normalizedItems.length === 0) {
+    return null;
+  }
+
+  return {
+    items: normalizedItems,
+    completedCount: normalizedItems.filter((item) => normalizeTaskStatus(item.status) === 'completed').length,
+    totalCount: normalizedItems.length,
+  };
+}
+
+function parseTaskListBody(body: string): TaskSummary | null {
+  if (!body || /no tasks found\./i.test(body)) {
+    return null;
+  }
+
+  const items = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- #'))
+    .map((line) => {
+      const match = /^- #(?<id>[^\s]+)\s+\[(?<status>[^\]]+)\]\s+(?<subject>.*?)(?:\s+\((?<owner>[^)]+)\))?(?:\s+blocked by \[(?<blocked>[^\]]+)\])?$/i.exec(line);
+      if (!match?.groups) {
+        return null;
+      }
+
+      return {
+        id: match.groups.id,
+        subject: match.groups.subject.trim(),
+        status: match.groups.status.trim(),
+        description: '',
+        owner: match.groups.owner?.trim() ?? '',
+        blockedBy: (match.groups.blocked ?? '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+      } satisfies TaskItemSummary;
+    })
+    .filter((item): item is TaskItemSummary => item !== null);
+
+  return finalizeTaskSummary(items);
+}
+
+function parseTaskDetailBody(body: string): TaskSummary | null {
+  if (!body || /task not found\./i.test(body)) {
+    return null;
+  }
+
+  const lines = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const titleLine = lines.find((line) => /^task #/i.test(line));
+  if (!titleLine) {
+    return null;
+  }
+
+  const titleMatch = /^Task #(?<id>[^:]+):\s*(?<subject>.+)$/i.exec(titleLine);
+  if (!titleMatch?.groups) {
+    return null;
+  }
+
+  const fields = new Map<string, string>();
+  for (const line of lines.slice(1)) {
+    const separatorIndex = line.indexOf(':');
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim().toLowerCase();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (value) {
+      fields.set(key, value);
+    }
+  }
+
+  return finalizeTaskSummary([
+    {
+      id: titleMatch.groups.id.trim(),
+      subject: titleMatch.groups.subject.trim(),
+      status: fields.get('status') ?? 'pending',
+      description: fields.get('description') ?? '',
+      owner: fields.get('owner') ?? '',
+      blockedBy: (fields.get('blocked by') ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    },
+  ]);
+}
+
+function parseTaskMutationBody(body: string): TaskSummary | null {
+  if (!body || /task not found\./i.test(body)) {
+    return null;
+  }
+
+  const match = /^(?:Created|Updated|Stopped) task #(?<id>[^:]+):\s*(?<subject>.+?)\s+\[(?<status>[^\]]+)\]\./i.exec(body.trim());
+  if (!match?.groups) {
+    return null;
+  }
+
+  return finalizeTaskSummary([
+    {
+      id: match.groups.id.trim(),
+      subject: match.groups.subject.trim(),
+      status: match.groups.status.trim(),
+      description: '',
+      owner: '',
+      blockedBy: [],
+    },
+  ]);
+}
+
+function parseTaskSummary(entry: DesktopSessionEntry): TaskSummary | null {
+  const toolKey = (entry.toolName || entry.title || '').toLowerCase();
+  if (!toolKey.includes('task_')) {
+    return null;
+  }
+
+  if (toolKey.includes('task_list')) {
+    return parseTaskListBody(entry.body || '');
+  }
+
+  if (toolKey.includes('task_get')) {
+    return parseTaskDetailBody(entry.body || '');
+  }
+
+  if (
+    toolKey.includes('task_create') ||
+    toolKey.includes('task_update') ||
+    toolKey.includes('task_stop')
+  ) {
+    const fromBody = parseTaskMutationBody(entry.body || '');
+    if (fromBody) {
+      return fromBody;
+    }
+  }
+
+  const parsed = parseObjectArguments(entry.arguments);
+  if (!parsed) {
+    return null;
+  }
+
+  const subject = typeof parsed.subject === 'string' ? parsed.subject.trim() : '';
+  const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
+  const taskId = typeof parsed.task_id === 'string'
+    ? parsed.task_id.trim()
+    : typeof parsed.taskId === 'string'
+      ? parsed.taskId.trim()
+      : '';
+  const status = typeof parsed.status === 'string' ? parsed.status.trim() : 'pending';
+  const owner = typeof parsed.owner === 'string' ? parsed.owner.trim() : '';
+
+  if (!subject && !taskId) {
+    return null;
+  }
+
+  return finalizeTaskSummary([
+    {
+      id: taskId || 'task',
+      subject: subject || `#${taskId}`,
+      status,
+      description,
+      owner,
+      blockedBy: [],
+    },
+  ]);
 }
 
 function formatShellArgumentLines(argumentsJson: string): string[] {
@@ -377,7 +568,7 @@ function createUserEntry(
 function createOptimisticSessionPreview(
   sessionId: string,
   workingDirectory: string,
-  title: string,
+  title: string | null,
   timestamp: string,
   gitBranch: string,
 ): SessionPreview {
@@ -425,6 +616,60 @@ function createOptimisticSessionDetail(
   };
 }
 
+const ASSISTANT_MARKDOWN_SX = {
+  'p': { mb: '0.75em' },
+  'p:last-child': { mb: 0 },
+  'h1,h2,h3,h4,h5,h6': { fontWeight: 'semibold', mt: '1.2em', mb: '0.4em', color: 'white', lineHeight: 1.3 },
+  'h1': { fontSize: 'xl' },
+  'h2': { fontSize: 'lg' },
+  'h3': { fontSize: 'md' },
+  'ul,ol': { pl: 5, mb: '0.75em' },
+  'li': { mb: '0.2em' },
+  'strong': { color: 'white', fontWeight: 'semibold' },
+  'em': { fontStyle: 'italic' },
+  'a': { color: 'blue.400', textDecoration: 'underline' },
+  'blockquote': { borderLeft: '3px solid', borderColor: 'gray.600', pl: 3, color: 'gray.400', fontStyle: 'italic', my: '0.75em' },
+  'code': { fontFamily: 'mono', fontSize: '0.85em', bg: 'gray.800', px: '0.3em', py: '0.15em', borderRadius: '4px', color: 'gray.200' },
+  'pre': {
+    bg: 'gray.900',
+    border: '1px solid',
+    borderColor: 'gray.700',
+    borderRadius: 'md',
+    p: 3,
+    overflowX: 'auto',
+    my: '0.75em',
+    '& code': { bg: 'transparent', px: 0, py: 0, color: 'gray.200', fontSize: 'xs' },
+  },
+  'table': { width: '100%', borderCollapse: 'collapse', my: '0.75em' },
+  'th,td': { border: '1px solid', borderColor: 'gray.700', px: 2, py: 1 },
+  'th': { bg: 'gray.800', fontWeight: 'semibold' },
+  'hr': { borderColor: 'gray.700', my: '1em' },
+} as const;
+
+function AssistantMarkdownBody({ text }: { text: string }) {
+  return (
+    <Box
+      color="gray.100"
+      fontSize="sm"
+      lineHeight="1.75"
+      sx={ASSISTANT_MARKDOWN_SX}
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </Box>
+  );
+}
+
+function StreamingAssistantBody({
+  text,
+  isStreaming,
+}: {
+  text: string;
+  isStreaming: boolean;
+}) {
+  void isStreaming;
+  return <AssistantMarkdownBody text={text} />;
+}
+
 function upsertOptimisticUserEntry(
   detail: DesktopSessionDetail,
   userEntry: DesktopSessionEntry,
@@ -465,10 +710,15 @@ interface LiveToolCallSnapshot {
   toolName: string;
   argumentsJson: string;
   status: string;
+  body: string;
+  approvalState: string;
   timestamp: string;
   updatedAt: string;
   workingDirectory: string;
   gitBranch: string;
+  changedFiles: string[];
+  questions: import('@/types/desktop').DesktopQuestionPrompt[];
+  answers: import('@/types/desktop').DesktopQuestionAnswer[];
 }
 
 function normalizeToolLifecycleStatus(kind: string, status: string): string {
@@ -547,10 +797,15 @@ function buildLiveToolEntries(
         toolName: event.toolName,
         argumentsJson: event.toolArgumentsJson || '{}',
         status: normalizedStatus,
+        body: event.toolOutput || event.message || '',
+        approvalState: event.approvalState || '',
         timestamp: event.timestampUtc,
         updatedAt: event.timestampUtc,
         workingDirectory: event.workingDirectory || workingDirectory,
         gitBranch: event.gitBranch || gitBranch,
+        changedFiles: event.changedFiles ?? [],
+        questions: event.questions ?? [],
+        answers: event.answers ?? [],
       };
       calls.push(call);
     }
@@ -559,9 +814,14 @@ function buildLiveToolEntries(
     call.groupId = event.toolCallGroupId || call.groupId;
     call.argumentsJson = event.toolArgumentsJson || call.argumentsJson || '{}';
     call.status = normalizedStatus;
+    call.body = event.toolOutput || event.message || call.body || '';
+    call.approvalState = event.approvalState || call.approvalState || '';
     call.updatedAt = event.timestampUtc;
     call.workingDirectory = event.workingDirectory || call.workingDirectory || workingDirectory;
     call.gitBranch = event.gitBranch || call.gitBranch || gitBranch;
+    call.changedFiles = event.changedFiles ?? call.changedFiles ?? [];
+    call.questions = event.questions ?? call.questions ?? [];
+    call.answers = event.answers ?? call.answers ?? [];
   }
 
   return calls.map((call) => ({
@@ -571,20 +831,20 @@ function buildLiveToolEntries(
     workingDirectory: call.workingDirectory || workingDirectory,
     gitBranch: call.gitBranch || gitBranch,
     title: call.toolName,
-    body: '',
+    body: call.body || '',
     thinkingBody: '',
     status: call.status,
     toolName: call.toolName,
-    approvalState: '',
+    approvalState: call.approvalState || '',
     exitCode: null,
     arguments: call.argumentsJson || '{}',
     scope: call.groupId,
     sourcePath: LIVE_TOOL_SOURCE,
     resolutionStatus: 'live',
     resolvedAt: '',
-    changedFiles: [],
-    questions: [],
-    answers: [],
+    changedFiles: call.changedFiles ?? [],
+    questions: call.questions ?? [],
+    answers: call.answers ?? [],
   }));
 }
 
@@ -674,6 +934,82 @@ function getTodoStatusLabel(locale: string, status: string): string {
   }
 
   return locale.startsWith('ru') ? 'Ожидает' : 'Pending';
+}
+
+function getTaskStatusLabel(locale: string, status: string): string {
+  const normalized = normalizeTaskStatus(status);
+  if (normalized === 'completed' || normalized === 'done') {
+    return locale.startsWith('ru') ? 'Выполнено' : 'Completed';
+  }
+
+  if (normalized === 'in_progress') {
+    return locale.startsWith('ru') ? 'В работе' : 'In progress';
+  }
+
+  if (normalized === 'cancelled') {
+    return locale.startsWith('ru') ? 'Остановлено' : 'Stopped';
+  }
+
+  return locale.startsWith('ru') ? 'Ожидает' : 'Pending';
+}
+
+function getTaskProgressLabel(locale: string, completedCount: number, totalCount: number): string {
+  return locale.startsWith('ru')
+    ? `Выполнено ${completedCount} из ${totalCount}`
+    : `${completedCount} of ${totalCount} completed`;
+}
+
+function renderTaskSummaryContent(taskSummary: TaskSummary, locale: string) {
+  return (
+    <VStack spacing={1.5} align="stretch">
+      <Text fontSize="xs" color="gray.400">
+        {getTaskProgressLabel(locale, taskSummary.completedCount, taskSummary.totalCount)}
+      </Text>
+      {taskSummary.items.map((item) => {
+        const normalizedStatus = normalizeTaskStatus(item.status);
+        const isCompleted = normalizedStatus === 'completed' || normalizedStatus === 'done';
+        const isCancelled = normalizedStatus === 'cancelled';
+        const supportingBits = [
+          getTaskStatusLabel(locale, item.status),
+          item.owner ? (locale.startsWith('ru') ? `Ответственный: ${item.owner}` : `Owner: ${item.owner}`) : '',
+          item.blockedBy.length > 0
+            ? locale.startsWith('ru')
+              ? `Блокирует: ${item.blockedBy.join(', ')}`
+              : `Blocked by: ${item.blockedBy.join(', ')}`
+            : '',
+        ].filter(Boolean);
+
+        return (
+          <HStack key={item.id} spacing={2} align="start">
+            <Box mt="2px" color={isCompleted ? 'green.400' : isCancelled ? 'gray.600' : 'gray.500'}>
+              <CheckSquare size={12} />
+            </Box>
+            <Box flex={1} minW={0}>
+              <Text
+                fontSize="xs"
+                color={isCompleted ? 'gray.200' : 'gray.300'}
+                textDecoration={isCompleted || isCancelled ? 'line-through' : 'none'}
+                whiteSpace="pre-wrap"
+                wordBreak="break-word"
+              >
+                {item.subject}
+              </Text>
+              {item.description && (
+                <Text fontSize="10px" color="gray.500" whiteSpace="pre-wrap" wordBreak="break-word">
+                  {item.description}
+                </Text>
+              )}
+              {supportingBits.length > 0 && (
+                <Text fontSize="10px" color="gray.500" whiteSpace="pre-wrap" wordBreak="break-word">
+                  {supportingBits.join(' • ')}
+                </Text>
+              )}
+            </Box>
+          </HStack>
+        );
+      })}
+    </VStack>
+  );
 }
 
 function AnimatedThinkingLabel({
@@ -782,6 +1118,20 @@ function getToolArgSummary(entry: DesktopSessionEntry): string {
       const todoSummary = parseTodoSummary(entry.arguments);
       return todoSummary ? `${todoSummary.completedCount}/${todoSummary.totalCount}` : '';
     }
+    if (toolKey.includes('task_')) {
+      const subject = str('subject');
+      if (subject) {
+        return trunc(subject);
+      }
+
+      const taskId = str('task_id') || str('taskId');
+      if (taskId) {
+        return `#${taskId}`;
+      }
+
+      const status = str('status');
+      return status ? trunc(status) : '';
+    }
     if (toolKey.includes('bash') || toolKey.includes('execute') || toolKey.includes('shell') || toolKey.includes('run')) {
       return getShellSummary(entry.arguments);
     }
@@ -791,14 +1141,6 @@ function getToolArgSummary(entry: DesktopSessionEntry): string {
   } catch {
     return trunc(entry.arguments);
   }
-}
-
-function getLiveToolLabel(locale: string): string {
-  if (locale.startsWith('ru')) {
-    return 'Сейчас';
-  }
-
-  return 'Live';
 }
 
 export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAreaProps) {
@@ -834,6 +1176,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
   const [selectedProjectPath, setSelectedProjectPath] = useState('');
   const [customProjectPaths, setCustomProjectPaths] = useState<string[]>([]);
   const [loadingPhrase, setLoadingPhrase] = useState('');
+  const [retainedStreamingSnapshot, setRetainedStreamingSnapshot] = useState('');
   const [projectPickerPosition, setProjectPickerPosition] = useState({ top: 0, left: 0, width: 320, maxHeight: 320 });
 
   // Session data from IPC
@@ -864,10 +1207,11 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
   const currentModeOption = AGENT_MODES.find((m) => m.value === mode) ?? AGENT_MODES[0];
   const hasSession = !!selectedSessionId;
   const streamingSnapshot = selectedSessionId ? streamingSnapshots[selectedSessionId] ?? '' : '';
+  const effectiveStreamingSnapshot = streamingSnapshot.trim() || retainedStreamingSnapshot.trim();
   const isSessionStreaming = !!selectedSessionId && !!activeTurnSessions[selectedSessionId];
   const isPendingSelectedSession = !!selectedSessionId && !!pendingTurnSessionIds[selectedSessionId];
   const isComposerBusy = isPendingSelectedSession || isSessionStreaming;
-  const isAwaitingAssistantText = hasSession && isComposerBusy && !streamingSnapshot.trim();
+  const isAwaitingAssistantText = hasSession && isComposerBusy && !effectiveStreamingSnapshot;
   const defaultThinkingLabel = t('tools.thinking');
   const plainThinkingLabel = getThinkingStatusLabel(locale, 0);
   const wittyLoadingPhrases = useMemo(
@@ -987,20 +1331,50 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     }
   }, []);
 
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setRetainedStreamingSnapshot('');
+      return;
+    }
+
+    if (streamingSnapshot.trim()) {
+      setRetainedStreamingSnapshot(streamingSnapshot);
+      return;
+    }
+
+    if (isSessionStreaming) {
+      return;
+    }
+
+    const lastAssistantBody = [...(sessionDetail?.entries ?? [])]
+      .reverse()
+      .find((entry) => entry.type === 'assistant' && !!entry.body?.trim())
+      ?.body
+      ?.trim() ?? '';
+
+    if (!retainedStreamingSnapshot.trim()) {
+      return;
+    }
+
+    if (lastAssistantBody === retainedStreamingSnapshot.trim()) {
+      setRetainedStreamingSnapshot('');
+    }
+  }, [isSessionStreaming, retainedStreamingSnapshot, selectedSessionId, sessionDetail, streamingSnapshot]);
+
   const displaySessionDetail = useMemo(() => {
-    if (!sessionDetail || !selectedSessionId || !isSessionStreaming) {
+    if (!sessionDetail || !selectedSessionId) {
       return sessionDetail;
     }
 
-    const syntheticEntries: DesktopSessionEntry[] = [...liveToolEntries];
-    const hasStreamingAssistant = streamingSnapshot.trim().length > 0;
+    const syntheticEntries: DesktopSessionEntry[] = isSessionStreaming ? [...liveToolEntries] : [];
+    const hasStreamingAssistant = effectiveStreamingSnapshot.length > 0;
     const lastNonSystemEntry = [...sessionDetail.entries]
       .reverse()
       .find((entry) => entry.type !== 'system' && entry.type !== 'tool_result');
 
     if (
       hasStreamingAssistant &&
-      !(lastNonSystemEntry?.type === 'assistant' && (lastNonSystemEntry.body ?? '') === streamingSnapshot)
+      !(lastNonSystemEntry?.type === 'assistant' && (lastNonSystemEntry.body ?? '') === effectiveStreamingSnapshot)
     ) {
       const timestamp = latestSessionEvent?.sessionId === selectedSessionId
         ? latestSessionEvent.timestampUtc
@@ -1010,7 +1384,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
           selectedSessionId,
           selectedSession?.workingDirectory ?? sessionDetail.session.workingDirectory,
           selectedSession?.gitBranch ?? sessionDetail.session.gitBranch,
-          streamingSnapshot,
+          effectiveStreamingSnapshot,
           timestamp,
         ),
       );
@@ -1044,7 +1418,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     selectedSession?.workingDirectory,
     selectedSessionId,
     sessionDetail,
-    streamingSnapshot,
+    effectiveStreamingSnapshot,
   ]);
 
   const updateStickToBottomState = useCallback(() => {
@@ -1088,7 +1462,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
   useEffect(() => {
     scrollToBottom();
-  }, [displaySessionDetail?.entries.length, isAwaitingAssistantText, scrollToBottom, streamingSnapshot]);
+  }, [displaySessionDetail?.entries.length, effectiveStreamingSnapshot, isAwaitingAssistantText, scrollToBottom]);
 
   useEffect(() => {
     setUsedTokens(estimateSessionTokens(displaySessionDetail));
@@ -1275,7 +1649,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     const optimisticPreview = createOptimisticSessionPreview(
       targetSessionId,
       workingDirectory,
-      trimmedPrompt,
+      selectedSession?.title ?? null,
       requestTimestamp,
       gitBranch,
     );
@@ -1317,7 +1691,14 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
         setBootstrap((current) => ({
           ...current,
-          recentSessions: [result.session, ...current.recentSessions.filter((session) => session.sessionId !== result.session.sessionId)]
+          recentSessions: [{
+            ...result.session,
+            title:
+              result.createdNewSession &&
+              current.recentSessions.find((session) => session.sessionId === result.session.sessionId)?.title === null
+                ? null
+                : result.session.title,
+          }, ...current.recentSessions.filter((session) => session.sessionId !== result.session.sessionId)]
             .sort((left, right) => Date.parse(right.lastActivity) - Date.parse(left.lastActivity)),
         }));
         await loadSessionDetail(result.session.sessionId, { force: true, limit: 200 });
@@ -1482,23 +1863,29 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                         if (!text) return null;
                         return (
                           <Flex key={entry.id} justify="flex-end" py={2}>
-                            <Box
-                              maxW="80%"
-                              px={4}
-                              py={2.5}
-                              borderRadius="20px"
-                              borderTopRightRadius="4px"
-                              bg={ACCENT}
+                            <motion.div
+                              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              transition={{ duration: 0.18, ease: 'easeOut' }}
+                              style={{ maxWidth: '80%' }}
                             >
-                              <Text color="white" fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="relaxed">
-                                {text}
-                              </Text>
-                              {entry.timestamp && (
-                                <Text fontSize="10px" color="whiteAlpha.600" mt={1} textAlign="right">
-                                  {formatTimestamp(entry.timestamp)}
+                              <Box
+                                px={4}
+                                py={2.5}
+                                borderRadius="20px"
+                                borderTopRightRadius="4px"
+                                bg={ACCENT}
+                              >
+                                <Text color="white" fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="relaxed">
+                                  {text}
                                 </Text>
-                              )}
-                            </Box>
+                                {entry.timestamp && (
+                                  <Text fontSize="10px" color="whiteAlpha.600" mt={1} textAlign="right">
+                                    {formatTimestamp(entry.timestamp)}
+                                  </Text>
+                                )}
+                              </Box>
+                            </motion.div>
                           </Flex>
                         );
                       });
@@ -1512,15 +1899,16 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                       // ── Single tool: show inline, no expand needed ──
                       if (count === 1) {
                         const entry = block.entries[0];
-                        const isLiveEntry = isLiveToolEntry(entry);
                         const info = getToolInfo(entry.toolName || entry.title || '');
                         const ToolIcon = info.Icon;
                         const label = t(info.labelKey);
                         const todoSummary = parseTodoSummary(entry.arguments);
+                        const taskSummary = parseTaskSummary(entry);
                         const summary = getToolArgSummary(entry);
                         const isCollapsed = collapsedBlocks[blockKey] !== false;
                         const hasTodoDetail = !!todoSummary;
-                        const canExpand = hasTodoDetail;
+                        const hasTaskDetail = !!taskSummary;
+                        const canExpand = hasTodoDetail || hasTaskDetail;
                         const files = entry.changedFiles ?? [];
 
                         return (
@@ -1542,33 +1930,6 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                               )}
                               <Box color="gray.500" flexShrink={0}><ToolIcon size={12} /></Box>
                               <Text fontSize="xs" color="gray.400" fontWeight="medium" flexShrink={0}>{label}</Text>
-                              {isLiveEntry && isToolPendingStatus(entry.status) && (
-                                <HStack
-                                  spacing={1.5}
-                                  px={1.5}
-                                  py="2px"
-                                  borderRadius="full"
-                                  bg="rgba(97,92,237,0.10)"
-                                  border="1px solid rgba(97,92,237,0.22)"
-                                  flexShrink={0}
-                                >
-                                  <motion.span
-                                    animate={{ scale: [0.92, 1.18, 0.92], opacity: [0.45, 1, 0.45] }}
-                                    transition={{ duration: 1.1, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' }}
-                                    style={{
-                                      display: 'inline-flex',
-                                      width: '6px',
-                                      height: '6px',
-                                      borderRadius: '9999px',
-                                      background: '#a5b4fc',
-                                      boxShadow: '0 0 12px rgba(165,180,252,0.7)',
-                                    }}
-                                  />
-                                  <Text fontSize="10px" color="#c7d2fe" fontWeight="semibold" letterSpacing="0.04em" textTransform="uppercase">
-                                    {getLiveToolLabel(locale)}
-                                  </Text>
-                                </HStack>
-                              )}
                               {summary && (
                                 <HStack spacing={2} flex={1} minW={0}>
                                   <Box
@@ -1625,6 +1986,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                         })}
                                       </VStack>
                                     )}
+                                    {hasTaskDetail && taskSummary && renderTaskSummaryContent(taskSummary, locale)}
                                   </Box>
                                 </motion.div>
                               )}
@@ -1712,6 +2074,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                     const label = t(info.labelKey);
                                     const isShell = info.labelKey === 'tools.shell';
                                     const todoSummary = parseTodoSummary(entry.arguments);
+                                    const taskSummary = parseTaskSummary(entry);
                                     const summary = getToolArgSummary(entry);
                                     const files = entry.changedFiles ?? [];
 
@@ -1745,21 +2108,6 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                         <HStack spacing={2} minH="22px">
                                           <Box color={isLiveEntry && isToolPendingStatus(entry.status) ? '#a5b4fc' : 'gray.500'} flexShrink={0}><ToolIcon size={12} /></Box>
                                           <Text fontSize="xs" color="gray.300" fontWeight="medium" flexShrink={0}>{label}</Text>
-                                          {isLiveEntry && isToolPendingStatus(entry.status) && (
-                                            <motion.span
-                                              animate={{ scale: [0.92, 1.18, 0.92], opacity: [0.45, 1, 0.45] }}
-                                              transition={{ duration: 1.1, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' }}
-                                              style={{
-                                                display: 'inline-flex',
-                                                width: '6px',
-                                                height: '6px',
-                                                borderRadius: '9999px',
-                                                background: '#a5b4fc',
-                                                boxShadow: '0 0 12px rgba(165,180,252,0.7)',
-                                                flexShrink: 0,
-                                              }}
-                                            />
-                                          )}
                                           {summary && (
                                             <HStack spacing={2} flex={1} minW={0}>
                                               <Box
@@ -1803,6 +2151,11 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                                 );
                                               })}
                                             </VStack>
+                                          </Box>
+                                        )}
+                                        {!isShell && taskSummary && (
+                                          <Box ml={5} mt={0.5} px={2} py={1.5} bg="gray.900" borderRadius="md">
+                                            {renderTaskSummaryContent(taskSummary, locale)}
                                           </Box>
                                         )}
                                         {/* Changed files */}
@@ -1881,6 +2234,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                       // Use body directly — never fall through to title ("Assistant")
                       const text = entry.body ?? '';
                       const thinking = entry.thinkingBody ?? '';
+                      const isStreamingEntry = entry.status === 'streaming';
                       // Skip assistant entries that have no content (e.g. pure orchestrator turns)
                       if (!text && !thinking) return null;
                       // Show timestamp only on the last entry of the final assistant block in each AI turn
@@ -1891,7 +2245,12 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                       const isThinkCollapsed = collapsedBlocks[thinkKey] !== false;
 
                       return (
-                        <Box key={entry.id} py={2}>
+                        <motion.div
+                          key={entry.id}
+                          layout="position"
+                          transition={{ duration: 0.16, ease: 'easeOut' }}
+                        >
+                          <Box py={2}>
                           {/* Per-entry collapsible thinking */}
                           {thinking && (
                             <Box mb={text ? 2 : 0}>
@@ -1934,49 +2293,14 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
                           {/* Response body with full markdown */}
                           {text && (
-                            <Box
-                              color="gray.100"
-                              fontSize="sm"
-                              lineHeight="1.75"
-                              sx={{
-                                'p': { mb: '0.75em' },
-                                'p:last-child': { mb: 0 },
-                                'h1,h2,h3,h4,h5,h6': { fontWeight: 'semibold', mt: '1.2em', mb: '0.4em', color: 'white', lineHeight: 1.3 },
-                                'h1': { fontSize: 'xl' },
-                                'h2': { fontSize: 'lg' },
-                                'h3': { fontSize: 'md' },
-                                'ul,ol': { pl: 5, mb: '0.75em' },
-                                'li': { mb: '0.2em' },
-                                'strong': { color: 'white', fontWeight: 'semibold' },
-                                'em': { fontStyle: 'italic' },
-                                'a': { color: 'blue.400', textDecoration: 'underline' },
-                                'blockquote': { borderLeft: '3px solid', borderColor: 'gray.600', pl: 3, color: 'gray.400', fontStyle: 'italic', my: '0.75em' },
-                                // Issue 2: inline code bg matches input field bg (gray.800)
-                                'code': { fontFamily: 'mono', fontSize: '0.85em', bg: 'gray.800', px: '0.3em', py: '0.15em', borderRadius: '4px', color: 'gray.200' },
-                                'pre': {
-                                  bg: 'gray.900',
-                                  border: '1px solid',
-                                  borderColor: 'gray.700',
-                                  borderRadius: 'md',
-                                  p: 3,
-                                  overflowX: 'auto',
-                                  my: '0.75em',
-                                  '& code': { bg: 'transparent', px: 0, py: 0, color: 'gray.200', fontSize: 'xs' },
-                                },
-                                'table': { width: '100%', borderCollapse: 'collapse', my: '0.75em' },
-                                'th,td': { border: '1px solid', borderColor: 'gray.700', px: 2, py: 1 },
-                                'th': { bg: 'gray.800', fontWeight: 'semibold' },
-                                'hr': { borderColor: 'gray.700', my: '1em' },
-                              }}
-                            >
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-                            </Box>
+                            <StreamingAssistantBody text={text} isStreaming={isStreamingEntry} />
                           )}
 
                           {showTime && (
                             <Text fontSize="10px" color="gray.700" mt={1}>{formatTimestamp(entry.timestamp)}</Text>
                           )}
-                        </Box>
+                          </Box>
+                        </motion.div>
                       );
                     });
                   })}
@@ -2232,10 +2556,10 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
         {/* Fade gradient mask above input */}
         <Box
           position="absolute"
-          top="-48px"
+          top="-24px"
           left={0}
           right={0}
-          h="48px"
+          h="24px"
           pointerEvents="none"
           zIndex={5}
           sx={{

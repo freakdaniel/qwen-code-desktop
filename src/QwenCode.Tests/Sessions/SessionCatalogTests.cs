@@ -40,7 +40,7 @@ public sealed class SessionCatalogTests
             var session = Assert.Single(sessions);
 
             Assert.Equal("12345678-1234-1234-1234-1234567890ab", session.SessionId);
-            Assert.Contains("Audit the renderer parity", session.Title);
+            Assert.Null(session.Title);
             Assert.Equal("main", session.Category);
             Assert.Equal(DesktopMode.Code, session.Mode);
             Assert.Equal(2, session.MessageCount);
@@ -135,6 +135,84 @@ public sealed class SessionCatalogTests
                     Assert.Equal("Assistant", entry.Title);
                     Assert.Contains("Transcript detail is available.", entry.Body);
                 });
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DesktopSessionCatalogService_GetSession_UsesPreviewTranscriptPathWhenMetadataSessionIdDiffersFromFileName()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-session-mismatch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var recordingService = new ChatRecordingService();
+            var profile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            Directory.CreateDirectory(profile.ChatsDirectory);
+
+            var visibleTranscriptPath = Path.Combine(profile.ChatsDirectory, "visible-chat.jsonl");
+            File.WriteAllText(
+                visibleTranscriptPath,
+                """
+                {"uuid":"u-1","parentUuid":null,"sessionId":"visible-chat","timestamp":"2026-04-01T12:00:00Z","type":"user","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"role":"user","parts":[{"text":"This is the visible transcript body"}]}}
+                """ + Environment.NewLine);
+            File.WriteAllText(
+                recordingService.GetMetadataPath(visibleTranscriptPath),
+                """
+                {
+                  "sessionId": "alias-session",
+                  "transcriptPath": "TRANSCRIPT_PATH",
+                  "metadataPath": "METADATA_PATH",
+                  "title": "Visible chat title",
+                  "workingDirectory": "D:\\demo",
+                  "gitBranch": "main",
+                  "status": "resume-ready",
+                  "startedAt": "2026-04-01T12:00:00Z",
+                  "lastUpdatedAt": "2026-04-01T12:05:00Z",
+                  "lastCompletedUuid": "u-1",
+                  "messageCount": 1,
+                  "entryCount": 1
+                }
+                """
+                    .Replace("TRANSCRIPT_PATH", visibleTranscriptPath.Replace("\\", "\\\\"))
+                    .Replace("METADATA_PATH", recordingService.GetMetadataPath(visibleTranscriptPath).Replace("\\", "\\\\")));
+            File.SetLastWriteTimeUtc(visibleTranscriptPath, DateTime.UtcNow);
+
+            var aliasTranscriptPath = Path.Combine(profile.ChatsDirectory, "alias-session.jsonl");
+            File.WriteAllText(
+                aliasTranscriptPath,
+                """
+                {"uuid":"u-1","parentUuid":null,"sessionId":"alias-session","timestamp":"2026-04-01T11:00:00Z","type":"user","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"role":"user","parts":[{"text":"Wrong random transcript"}]}}
+                """ + Environment.NewLine);
+            File.SetLastWriteTimeUtc(aliasTranscriptPath, DateTime.UtcNow.AddMinutes(-10));
+
+            var catalog = new DesktopSessionCatalogService(runtimeProfileService, recordingService);
+            var detail = catalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = "alias-session"
+                });
+
+            Assert.NotNull(detail);
+            Assert.Equal("alias-session", detail!.Session.SessionId);
+            Assert.Equal(visibleTranscriptPath, detail.TranscriptPath);
+            Assert.Equal("Visible chat title", detail.Session.Title);
+            Assert.Contains("This is the visible transcript body", detail.Entries[0].Body);
+            Assert.DoesNotContain("Wrong random transcript", detail.Entries[0].Body);
         }
         finally
         {

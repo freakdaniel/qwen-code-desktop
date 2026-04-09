@@ -304,10 +304,16 @@ public sealed class NativeToolHostService(
                 "write_file" => ExecuteWriteFileAsync(runtimeProfile, arguments, approvalState, cancellationToken),
                 "edit" => ExecuteEditAsync(runtimeProfile, arguments, approvalState, cancellationToken),
                 "todo_write" => ExecuteTodoWriteAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "task_create" => ExecuteTaskCreateAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "task_list" => ExecuteTaskListAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "task_get" => ExecuteTaskGetAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "task_update" => ExecuteTaskUpdateAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "task_stop" => ExecuteTaskStopAsync(runtimeProfile, arguments, approvalState, cancellationToken),
                 "save_memory" => ExecuteSaveMemoryAsync(runtimeProfile, arguments, approvalState, cancellationToken),
                 "agent" => agents.ExecuteAsync(paths, runtimeProfile, arguments, approvalState, eventSink, cancellationToken),
                 "arena" => ExecuteArenaAsync(paths, runtimeProfile, arguments, approvalState, eventSink, cancellationToken),
                 "skill" => ExecuteSkillAsync(runtimeProfile, arguments, approvalState, cancellationToken),
+                "tool_search" => Task.FromResult(ExecuteToolSearch(paths, runtimeProfile, arguments, approvalState)),
                 "exit_plan_mode" => Task.FromResult(ExecuteExitPlanMode(runtimeProfile, approvalState)),
                 "web_fetch" => ExecuteWebFetchAsync(runtimeProfile, arguments, approvalState, cancellationToken),
                 "web_search" => ExecuteWebSearchAsync(runtimeProfile, arguments, approvalState, cancellationToken),
@@ -538,6 +544,9 @@ public sealed class NativeToolHostService(
         {
             "save_memory" => MemoryStore.ResolveMemoryFilePath(runtimeProfile, TryGetOptionalString(arguments, "scope")),
             "todo_write" => TodoStore.ResolveTodoFilePath(
+                runtimeProfile,
+                TryGetOptionalString(arguments, "session_id") ?? TryGetOptionalString(arguments, "sessionId")),
+            "task_create" or "task_list" or "task_get" or "task_update" or "task_stop" => TaskStore.ResolveTaskFilePath(
                 runtimeProfile,
                 TryGetOptionalString(arguments, "session_id") ?? TryGetOptionalString(arguments, "sessionId")),
             _ => TryExtractFilePath(arguments, runtimeProfile.ProjectRoot)
@@ -987,6 +996,223 @@ public sealed class NativeToolHostService(
         }
     }
 
+    private static async Task<NativeToolExecutionResult> ExecuteTaskCreateAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await TaskStore.CreateTaskAsync(runtimeProfile, arguments, cancellationToken);
+            return Success(
+                "task_create",
+                approvalState,
+                runtimeProfile.RuntimeBaseDirectory,
+                $"Created task #{result.Task.Id}: {result.Task.Subject} [{result.Task.Status}].",
+                [result.FilePath]);
+        }
+        catch (Exception exception)
+        {
+            return Error("task_create", exception.Message, runtimeProfile.RuntimeBaseDirectory, approvalState);
+        }
+    }
+
+    private static async Task<NativeToolExecutionResult> ExecuteTaskListAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await TaskStore.ListTasksAsync(runtimeProfile, arguments, cancellationToken);
+            var statusFilter = TryGetOptionalString(arguments, "status");
+            var tasks = string.IsNullOrWhiteSpace(statusFilter)
+                ? result.Tasks
+                : result.Tasks.Where(task => string.Equals(task.Status, statusFilter, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+            if (tasks.Count == 0)
+            {
+                return Success("task_list", approvalState, runtimeProfile.RuntimeBaseDirectory, "No tasks found.", [result.FilePath]);
+            }
+
+            var lines = new List<string> { $"Task list: {tasks.Count} task(s)." };
+            lines.AddRange(tasks.Select(static task =>
+            {
+                var owner = string.IsNullOrWhiteSpace(task.Owner) ? string.Empty : $" ({task.Owner})";
+                var blocked = task.BlockedBy.Count == 0 ? string.Empty : $" blocked by [{string.Join(", ", task.BlockedBy)}]";
+                return $"- #{task.Id} [{task.Status}] {task.Subject}{owner}{blocked}";
+            }));
+            return Success("task_list", approvalState, runtimeProfile.RuntimeBaseDirectory, string.Join(Environment.NewLine, lines), [result.FilePath]);
+        }
+        catch (Exception exception)
+        {
+            return Error("task_list", exception.Message, runtimeProfile.RuntimeBaseDirectory, approvalState);
+        }
+    }
+
+    private static async Task<NativeToolExecutionResult> ExecuteTaskGetAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var task = await TaskStore.GetTaskAsync(runtimeProfile, arguments, cancellationToken);
+            var filePath = TaskStore.ResolveTaskFilePath(
+                runtimeProfile,
+                TryGetOptionalString(arguments, "session_id") ?? TryGetOptionalString(arguments, "sessionId"));
+
+            if (task is null)
+            {
+                return Success("task_get", approvalState, runtimeProfile.RuntimeBaseDirectory, "Task not found.", [filePath]);
+            }
+
+            var lines = new List<string>
+            {
+                $"Task #{task.Id}: {task.Subject}",
+                $"Status: {task.Status}",
+                $"Description: {task.Description}"
+            };
+
+            if (!string.IsNullOrWhiteSpace(task.ActiveForm))
+            {
+                lines.Add($"Active form: {task.ActiveForm}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(task.Owner))
+            {
+                lines.Add($"Owner: {task.Owner}");
+            }
+
+            if (task.BlockedBy.Count > 0)
+            {
+                lines.Add($"Blocked by: {string.Join(", ", task.BlockedBy)}");
+            }
+
+            if (task.Blocks.Count > 0)
+            {
+                lines.Add($"Blocks: {string.Join(", ", task.Blocks)}");
+            }
+
+            return Success("task_get", approvalState, runtimeProfile.RuntimeBaseDirectory, string.Join(Environment.NewLine, lines), [filePath]);
+        }
+        catch (Exception exception)
+        {
+            return Error("task_get", exception.Message, runtimeProfile.RuntimeBaseDirectory, approvalState);
+        }
+    }
+
+    private static async Task<NativeToolExecutionResult> ExecuteTaskUpdateAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await TaskStore.UpdateTaskAsync(runtimeProfile, arguments, cancellationToken);
+            if (result.Task is null)
+            {
+                return Success("task_update", approvalState, runtimeProfile.RuntimeBaseDirectory, "Task not found.", [result.FilePath]);
+            }
+
+            var updatedFields = result.UpdatedFields.Count == 0
+                ? "No fields changed."
+                : $"Updated fields: {string.Join(", ", result.UpdatedFields)}.";
+            return Success(
+                "task_update",
+                approvalState,
+                runtimeProfile.RuntimeBaseDirectory,
+                $"Updated task #{result.Task.Id}: {result.Task.Subject} [{result.Task.Status}]. {updatedFields}",
+                [result.FilePath]);
+        }
+        catch (Exception exception)
+        {
+            return Error("task_update", exception.Message, runtimeProfile.RuntimeBaseDirectory, approvalState);
+        }
+    }
+
+    private static async Task<NativeToolExecutionResult> ExecuteTaskStopAsync(
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await TaskStore.StopTaskAsync(runtimeProfile, arguments, cancellationToken);
+            if (result.Task is null)
+            {
+                return Success("task_stop", approvalState, runtimeProfile.RuntimeBaseDirectory, "Task not found.", [result.FilePath]);
+            }
+
+            return Success(
+                "task_stop",
+                approvalState,
+                runtimeProfile.RuntimeBaseDirectory,
+                $"Stopped task #{result.Task.Id}: {result.Task.Subject} [{result.Task.Status}].",
+                [result.FilePath]);
+        }
+        catch (Exception exception)
+        {
+            return Error("task_stop", exception.Message, runtimeProfile.RuntimeBaseDirectory, approvalState);
+        }
+    }
+
+    private NativeToolExecutionResult ExecuteToolSearch(
+        WorkspacePaths paths,
+        QwenRuntimeProfile runtimeProfile,
+        JsonElement arguments,
+        string approvalState)
+    {
+        var query = TryGetOptionalString(arguments, "query")?.Trim() ?? string.Empty;
+        var kindFilter = TryGetOptionalString(arguments, "kind")?.Trim();
+        var approvalFilter = TryGetOptionalString(arguments, "approval_state")?.Trim();
+        var limit = Math.Clamp(TryGetInt(arguments, "limit") ?? 8, 1, 20);
+
+        var rankedTools = Inspect(paths).Tools
+            .Where(tool =>
+                string.IsNullOrWhiteSpace(kindFilter) ||
+                string.Equals(tool.Kind, kindFilter, StringComparison.OrdinalIgnoreCase))
+            .Where(tool =>
+                string.IsNullOrWhiteSpace(approvalFilter) ||
+                string.Equals(tool.ApprovalState, approvalFilter, StringComparison.OrdinalIgnoreCase))
+            .Select(tool => new
+            {
+                Tool = tool,
+                Score = ScoreToolSearchMatch(tool, query)
+            })
+            .Where(item => string.IsNullOrWhiteSpace(query) || item.Score > 0)
+            .OrderByDescending(static item => item.Score)
+            .ThenBy(static item => item.Tool.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(limit)
+            .ToArray();
+
+        if (rankedTools.Length == 0)
+        {
+            var emptyReason = string.IsNullOrWhiteSpace(query)
+                ? "No tools matched the provided filters."
+                : $"No tools matched query '{query}'.";
+            return Success("tool_search", approvalState, runtimeProfile.ProjectRoot, emptyReason, []);
+        }
+
+        var lines = new List<string>
+        {
+            $"Tool search results: {rankedTools.Length} match(es)."
+        };
+
+        foreach (var item in rankedTools)
+        {
+            lines.Add(
+                $"- `{item.Tool.Name}` [{item.Tool.Kind}, {item.Tool.ApprovalState}]: {DescribeToolSearchCandidate(item.Tool.Name)}");
+        }
+
+        return Success("tool_search", approvalState, runtimeProfile.ProjectRoot, string.Join(Environment.NewLine, lines), []);
+    }
+
     private static NativeToolExecutionResult ExecuteExitPlanMode(
         QwenRuntimeProfile runtimeProfile,
         string approvalState) =>
@@ -1304,6 +1530,82 @@ public sealed class NativeToolHostService(
         arguments.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var value)
             ? value
             : null;
+
+    private static int ScoreToolSearchMatch(NativeToolRegistration tool, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return 1;
+        }
+
+        var normalizedQuery = query.Trim();
+        var description = DescribeToolSearchCandidate(tool.Name);
+        var score = 0;
+
+        if (tool.Name.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 10;
+        }
+
+        if (tool.DisplayName.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 8;
+        }
+
+        if (tool.Kind.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 6;
+        }
+
+        if (description.Contains(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 5;
+        }
+
+        foreach (var token in normalizedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (tool.Name.Contains(token, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 4;
+            }
+
+            if (description.Contains(token, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 2;
+            }
+        }
+
+        return score;
+    }
+
+    private static string DescribeToolSearchCandidate(string toolName) =>
+        toolName switch
+        {
+            "read_file" => "Read a file directly by absolute path.",
+            "list_directory" => "Inspect the contents of a directory.",
+            "glob" => "Find files by glob pattern.",
+            "grep_search" => "Search file contents by regex or text pattern.",
+            "run_shell_command" => "Run shell commands for build, test, git, or environment work.",
+            "write_file" => "Write a full file to disk.",
+            "edit" => "Apply targeted text edits inside an existing file.",
+            "todo_write" => "Create or update a structured task list for the current session.",
+            "save_memory" => "Persist durable user or project facts to memory files.",
+            "agent" => "Delegate work to a subagent for parallel or specialized execution.",
+            "arena" => "Run the same task across multiple models in an arena comparison.",
+            "skill" => "Load a predefined skill workflow or instructions bundle.",
+            "tool_search" => "Search the native tool catalog by intent, kind, or approval state.",
+            "exit_plan_mode" => "Exit plan mode after preparing a concrete plan.",
+            "web_fetch" => "Fetch and summarize a specific web page or URL.",
+            "web_search" => "Search the web for recent or external information.",
+            "mcp-client" => "Inspect connected MCP servers, discover prompts or resources, and invoke MCP prompts.",
+            "mcp-tool" => "Execute a concrete tool exposed by a connected MCP server.",
+            "lsp" => "Query semantic code intelligence such as symbols, definitions, references, implementations, diagnostics, or call hierarchy.",
+            "ask_user_question" => "Pause and ask the user one or more structured follow-up questions.",
+            "cron_create" => "Schedule a session-scoped recurring or one-shot automation.",
+            "cron_list" => "List active session-scoped automation jobs.",
+            "cron_delete" => "Cancel an active session-scoped automation job.",
+            _ => "Native tool available in this desktop runtime."
+        };
 
     private static bool? TryGetBool(JsonElement arguments, string propertyName) =>
         arguments.TryGetProperty(propertyName, out var property) &&

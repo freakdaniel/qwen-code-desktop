@@ -21,6 +21,11 @@ public sealed class ArenaSessionConfigFile
     public string Task { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the linked orchestration task id
+    /// </summary>
+    public string TaskId { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the round count
     /// </summary>
     public int RoundCount { get; init; }

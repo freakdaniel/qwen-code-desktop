@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using QwenCode.App.Models;
+using QwenCode.App.Runtime;
 
 namespace QwenCode.App.Sessions;
 
@@ -15,7 +16,8 @@ public static class SessionServiceCollectionExtensions
     /// <returns>The resulting i service collection</returns>
     public static IServiceCollection AddSessionServices(this IServiceCollection services)
     {
-        services.AddSingleton<IChatCompressionService, ChatCompressionService>();
+        services.AddSingleton<IChatCompressionService>(static provider =>
+            new ChatCompressionService(provider.GetService<IContentGenerator>()));
         services.AddSingleton<IChatRecordingService, ChatRecordingService>();
         services.AddSingleton<ITranscriptStore, DesktopSessionCatalogService>();
         services.AddSingleton<ISessionService>(static provider =>

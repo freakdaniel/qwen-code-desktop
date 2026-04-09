@@ -1,7 +1,10 @@
 using QwenCode.App.Auth;
 using QwenCode.App.Channels;
 using QwenCode.App.Config;
+using QwenCode.App.Desktop;
+using QwenCode.App.Desktop.Projection;
 using QwenCode.App.Extensions;
+using Microsoft.Extensions.DependencyInjection;
 using QwenCode.Tests.Shared.Fakes;
 
 namespace QwenCode.Tests.Desktop;
@@ -235,7 +238,12 @@ public sealed class DesktopProjectionServiceTests
                         transcriptStore,
                         activeTurnRegistry,
                         interruptedStore),
-                    activeTurnRegistry));
+                    activeTurnRegistry,
+                    runtimeProfileService,
+                    new ServiceCollection()
+                        .AddSingleton<ISessionTitleGenerationService>(new FakeSessionTitleGenerationService())
+                        .BuildServiceProvider(),
+                    new LocaleStateService(shellOptions)));
 
             var payload = await service.GetBootstrapAsync();
 
@@ -478,7 +486,12 @@ public sealed class DesktopProjectionServiceTests
                         transcriptStore,
                         activeTurnRegistry,
                         interruptedStore),
-                    activeTurnRegistry));
+                    activeTurnRegistry,
+                    runtimeProfileService,
+                    new ServiceCollection()
+                        .AddSingleton<ISessionTitleGenerationService>(new FakeSessionTitleGenerationService())
+                        .BuildServiceProvider(),
+                    new LocaleStateService(shellOptions)));
 
             ArenaSessionEvent? observedEvent = null;
             service.ArenaEvent += (_, arenaEvent) => observedEvent = arenaEvent;

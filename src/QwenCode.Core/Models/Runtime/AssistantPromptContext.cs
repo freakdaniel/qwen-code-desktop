@@ -63,6 +63,11 @@ public sealed class AssistantPromptContext
     public string McpServerSummary { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the mcp prompt registry summary
+    /// </summary>
+    public string McpPromptRegistrySummary { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the scratchpad summary
     /// </summary>
     public string ScratchpadSummary { get; init; } = string.Empty;

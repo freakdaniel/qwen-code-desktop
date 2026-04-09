@@ -1,3 +1,5 @@
+using QwenCode.App.Models;
+
 namespace QwenCode.App.Runtime;
 
 /// <summary>
@@ -59,4 +61,29 @@ public sealed class AssistantRuntimeEvent
     /// Gets or sets the agent name
     /// </summary>
     public string AgentName { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the tool output body
+    /// </summary>
+    public string ToolOutput { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the approval state
+    /// </summary>
+    public string ApprovalState { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the changed files
+    /// </summary>
+    public IReadOnlyList<string> ChangedFiles { get; init; } = [];
+
+    /// <summary>
+    /// Gets or sets the questions
+    /// </summary>
+    public IReadOnlyList<DesktopQuestionPrompt> Questions { get; init; } = [];
+
+    /// <summary>
+    /// Gets or sets the answers
+    /// </summary>
+    public IReadOnlyList<DesktopQuestionAnswer> Answers { get; init; } = [];
 }

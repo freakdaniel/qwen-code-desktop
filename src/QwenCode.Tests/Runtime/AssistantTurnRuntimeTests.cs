@@ -314,6 +314,74 @@ public sealed class AssistantTurnRuntimeTests
     }
 
     [Fact]
+    public async Task AssistantTurnRuntime_ContinuesAfterFailedToolAndLetsProviderRecover()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-tool-error-recovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var provider = new ToolErrorRecoveryAssistantResponseProvider();
+            var runtime = TestServiceFactory.CreateAssistantTurnRuntime(
+                provider,
+                new SequencedToolExecutor(
+                    new NativeToolExecutionResult
+                    {
+                        ToolName = "web_fetch",
+                        Status = "error",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        ErrorMessage = "404 Not Found",
+                        ChangedFiles = []
+                    }));
+
+            var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            var response = await runtime.GenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "tool-error-recovery-session",
+                    Prompt = "Find the latest Avalonia dev notes and summarize them.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "tool-error-recovery-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                });
+
+            Assert.Equal(2, provider.InvocationCount);
+            Assert.Equal("tool-error-recovery-provider", response.ProviderName);
+            Assert.Equal("completed", response.StopReason);
+            Assert.Equal("Recovered after analyzing the failed tool result and switching strategy.", response.Summary);
+            var toolExecution = Assert.Single(response.ToolExecutions);
+            Assert.Equal("web_fetch", toolExecution.Execution.ToolName);
+            Assert.Equal("error", toolExecution.Execution.Status);
+            Assert.Equal("404 Not Found", toolExecution.Execution.ErrorMessage);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task AssistantTurnRuntime_ReturnsProviderErrorInsteadOfFallbackPlaceholder()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-provider-error-{Guid.NewGuid():N}");
@@ -488,6 +556,56 @@ public sealed class AssistantTurnRuntimeTests
                 "https://portal.qwen.ai/v1/chat/completions",
                 401,
                 "{\"error\":\"invalid_token\"}");
+    }
+
+    private sealed class ToolErrorRecoveryAssistantResponseProvider : IAssistantResponseProvider
+    {
+        public int InvocationCount { get; private set; }
+
+        public string Name => "tool-error-recovery-provider";
+
+        public Task<AssistantTurnResponse?> TryGenerateAsync(
+            AssistantTurnRequest request,
+            AssistantPromptContext promptContext,
+            IReadOnlyList<AssistantToolCallResult> toolHistory,
+            NativeAssistantRuntimeOptions options,
+            Action<AssistantRuntimeEvent>? eventSink = null,
+            CancellationToken cancellationToken = default)
+        {
+            InvocationCount++;
+
+            if (InvocationCount == 1)
+            {
+                return Task.FromResult<AssistantTurnResponse?>(
+                    new AssistantTurnResponse
+                    {
+                        Summary = string.Empty,
+                        ProviderName = Name,
+                        Model = "tool-error-recovery-model",
+                        ToolCalls =
+                        [
+                            new AssistantToolCall
+                            {
+                                Id = "tool-error-recovery-call-1",
+                                ToolName = "web_fetch",
+                                ArgumentsJson = """{"url":"https://avaloniaui.net/blog/whats-new-in-avalonia-12","prompt":"Summarize the release notes"}"""
+                            }
+                        ]
+                    });
+            }
+
+            var failedResult = Assert.Single(toolHistory);
+            Assert.Equal("error", failedResult.Execution.Status);
+            Assert.Equal("web_fetch", failedResult.Execution.ToolName);
+
+            return Task.FromResult<AssistantTurnResponse?>(
+                new AssistantTurnResponse
+                {
+                    Summary = "Recovered after analyzing the failed tool result and switching strategy.",
+                    ProviderName = Name,
+                    Model = "tool-error-recovery-model"
+                });
+        }
     }
 
     private sealed class SequencedToolExecutor(params NativeToolExecutionResult[] results) : IToolExecutor

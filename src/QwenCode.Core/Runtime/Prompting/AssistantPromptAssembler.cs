@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Runtime.InteropServices;
 using QwenCode.App.Models;
 using QwenCode.App.Mcp;
+using QwenCode.App.Prompts;
 using QwenCode.App.Sessions;
 using QwenCode.App.Tools;
 
@@ -24,6 +25,7 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
     private readonly IProjectSummaryService _projectSummaryService;
     private readonly ISessionService? _sessionService;
     private readonly IMcpConnectionManager? _mcpConnectionManager;
+    private readonly IPromptRegistryService? _promptRegistryService;
 
     /// <summary>
     /// Initializes a new instance of the AssistantPromptAssembler class
@@ -31,14 +33,17 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
     /// <param name="projectSummaryService">The project summary service</param>
     /// <param name="sessionService">The session service</param>
     /// <param name="mcpConnectionManager">The mcp connection manager</param>
+    /// <param name="promptRegistryService">The prompt registry service</param>
     public AssistantPromptAssembler(
         IProjectSummaryService projectSummaryService,
         ISessionService? sessionService = null,
-        IMcpConnectionManager? mcpConnectionManager = null)
+        IMcpConnectionManager? mcpConnectionManager = null,
+        IPromptRegistryService? promptRegistryService = null)
     {
         _projectSummaryService = projectSummaryService;
         _sessionService = sessionService;
         _mcpConnectionManager = mcpConnectionManager;
+        _promptRegistryService = promptRegistryService;
     }
 
     /// <summary>
@@ -48,7 +53,7 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
     /// <param name="tokenLimits">The token limits</param>
     /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
     /// <returns>A task that resolves to assistant prompt context</returns>
-    public Task<AssistantPromptContext> AssembleAsync(
+    public async Task<AssistantPromptContext> AssembleAsync(
         AssistantTurnRequest request,
         ResolvedTokenLimits? tokenLimits = null,
         CancellationToken cancellationToken = default)
@@ -73,13 +78,14 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
         var workspaceInstructionSummary = BuildInstructionSummary(request.RuntimeProfile, request.WorkingDirectory, scope: "workspace");
         var durableMemorySummary = BuildDurableMemorySummary(request.RuntimeProfile);
         var mcpServerSummary = BuildMcpServerSummary(request);
+        var mcpPromptRegistrySummary = await BuildMcpPromptRegistrySummaryAsync(request, cancellationToken);
         var scratchpadSummary = BuildScratchpadSummary(request);
         var languageSummary = BuildLanguageSummary(request);
         var outputStyleSummary = BuildOutputStyleSummary(request);
         var trimmedTranscriptMessageCount = Math.Max(0, allTranscriptMessages.Count - transcriptMessages.Count);
         var trimmedContextFileCount = Math.Max(0, allContextFiles.Count - contextFiles.Count);
 
-        return Task.FromResult(new AssistantPromptContext
+        return new AssistantPromptContext
         {
             Messages = transcriptMessages,
             ContextFiles = contextFiles,
@@ -94,6 +100,7 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
             UserInstructionSummary = userInstructionSummary,
             WorkspaceInstructionSummary = workspaceInstructionSummary,
             McpServerSummary = mcpServerSummary,
+            McpPromptRegistrySummary = mcpPromptRegistrySummary,
             ScratchpadSummary = scratchpadSummary,
             LanguageSummary = languageSummary,
             OutputStyleSummary = outputStyleSummary,
@@ -110,7 +117,7 @@ Trimmed context files: {{trimmedContextFileCount}}
             ApproximateInputCharacterBudget = promptBudget.TotalCharacterBudget,
             TrimmedTranscriptMessageCount = trimmedTranscriptMessageCount,
             TrimmedContextFileCount = trimmedContextFileCount
-        });
+        };
     }
 
     private static PromptBudget ResolveBudget(ResolvedTokenLimits? tokenLimits, AssistantTurnRequest request)
@@ -508,6 +515,8 @@ Approval resolution: {{request.IsApprovalResolution}}
 Workspace root: {{runtimeProfile.ProjectRoot}}
 Working directory: {{request.WorkingDirectory}}
 Git branch: {{(string.IsNullOrWhiteSpace(request.GitBranch) ? "(none)" : request.GitBranch)}}
+Current local date: {{DateTimeOffset.Now:yyyy-MM-dd}}
+Current local time zone: {{TimeZoneInfo.Local.Id}}
 Platform: {{platform}}
 Shell: {{shellProgram}}
 Runtime source: {{runtimeProfile.RuntimeSource}}
@@ -630,6 +639,25 @@ Verification expectation: state clearly what was verified, what was inferred, an
                     var instructionSuffix = string.IsNullOrWhiteSpace(server.Instructions)
                         ? string.Empty
                         : $" Instructions: {server.Instructions.Trim()}";
+                    var capabilityHints = new List<string>();
+                    if (server.SupportsPrompts)
+                    {
+                        capabilityHints.Add("Use `mcp-client` with `server_name` + `prompt_name` to inspect or invoke MCP prompts.");
+                    }
+
+                    if (server.SupportsResources)
+                    {
+                        capabilityHints.Add("Use `mcp-client` with `server_name` + `uri` to read MCP resources when a resource URI is relevant.");
+                    }
+
+                    if (server.DiscoveredToolsCount > 0)
+                    {
+                        capabilityHints.Add("Use `mcp-tool` for concrete server-exposed actions after identifying the correct MCP tool and arguments.");
+                    }
+
+                    var capabilitySuffix = capabilityHints.Count == 0
+                        ? string.Empty
+                        : $" Guidance: {string.Join(" ", capabilityHints)}";
                     return $"- {server.Name} ({server.Scope}, {server.Transport}): " +
                            $"{server.DiscoveredToolsCount} tool(s), " +
                            $"{server.DiscoveredPromptsCount} prompt(s), " +
@@ -637,12 +665,108 @@ Verification expectation: state clearly what was verified, what was inferred, an
                            $"prompts {(server.SupportsPrompts ? "available" : "unavailable")}, " +
                            $"trust={server.Trust}, " +
                            $"status={server.Status}." +
-                           instructionSuffix;
+                           instructionSuffix +
+                           capabilitySuffix;
                 }));
         }
         catch
         {
             return string.Empty;
+        }
+    }
+
+    private async Task<string> BuildMcpPromptRegistrySummaryAsync(
+        AssistantTurnRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_promptRegistryService is null)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var snapshot = await _promptRegistryService.GetSnapshotAsync(
+                new WorkspacePaths
+                {
+                    WorkspaceRoot = request.RuntimeProfile.ProjectRoot
+                },
+                new GetPromptRegistryRequest(),
+                cancellationToken);
+            if (snapshot.TotalCount == 0 || snapshot.Prompts.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var lines = new List<string>
+            {
+                $"Discovered MCP prompts: {snapshot.TotalCount} across {snapshot.ServerCount} server(s).",
+                "Prefer these named MCP prompts when one directly matches the task instead of guessing lower-level MCP tool calls."
+            };
+
+            foreach (var prompt in snapshot.Prompts.Take(8))
+            {
+                var argumentNames = ExtractPromptArgumentNames(prompt.ArgumentsJson);
+                var argumentSuffix = argumentNames.Count == 0
+                    ? "Args: none."
+                    : $"Args: {string.Join(", ", argumentNames)}.";
+                var descriptionSuffix = string.IsNullOrWhiteSpace(prompt.Description)
+                    ? string.Empty
+                    : $" {Trim(prompt.Description.Trim(), 120)}";
+                lines.Add($"- `{prompt.QualifiedName}`.{descriptionSuffix} {argumentSuffix}".TrimEnd());
+            }
+
+            if (snapshot.Prompts.Count > 8)
+            {
+                lines.Add($"- {snapshot.Prompts.Count - 8} additional MCP prompt(s) omitted from this summary for brevity.");
+            }
+
+            return string.Join(Environment.NewLine, lines);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static IReadOnlyList<string> ExtractPromptArgumentNames(string argumentsJson)
+    {
+        if (string.IsNullOrWhiteSpace(argumentsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(argumentsJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            return document.RootElement
+                .EnumerateArray()
+                .Select(static item =>
+                {
+                    if (item.ValueKind != JsonValueKind.Object)
+                    {
+                        return string.Empty;
+                    }
+
+                    if (item.TryGetProperty("name", out var nameProperty) && nameProperty.ValueKind == JsonValueKind.String)
+                    {
+                        return nameProperty.GetString() ?? string.Empty;
+                    }
+
+                    return string.Empty;
+                })
+                .Where(static item => !string.IsNullOrWhiteSpace(item))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch
+        {
+            return [];
         }
     }
 

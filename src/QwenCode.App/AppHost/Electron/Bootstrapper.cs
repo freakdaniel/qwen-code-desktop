@@ -46,7 +46,9 @@ public static class Bootstrapper
         IConfiguration configuration)
     {
         _logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("QwenCode.App.Bootstrapper");
+        _logger.LogInformation("Registering Desktop IPC handlers");
         services.GetRequiredService<DesktopIpcService>().RegisterAll();
+        _logger.LogInformation("Desktop IPC handlers registered");
 
         var wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         var indexPath = Path.Combine(wwwroot, "index.html");
@@ -87,13 +89,6 @@ public static class Bootstrapper
         {
             _logger?.LogInformation("Electron app reported window-all-closed");
             RequestApplicationShutdown("window-all-closed");
-        };
-
-        ElectronApi.App.BeforeQuit += _ =>
-        {
-            _logger?.LogInformation("Electron app reported before-quit");
-            RequestApplicationShutdown("before-quit");
-            return Task.CompletedTask;
         };
 
         ElectronApi.App.WillQuit += _ =>

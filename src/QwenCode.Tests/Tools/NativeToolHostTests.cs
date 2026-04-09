@@ -241,6 +241,114 @@ public sealed class NativeToolHostTests
     }
 
     [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_ToolSearch_ReturnsRelevantMatches()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-tool-search-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), new InMemoryCronScheduler());
+
+            var result = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "tool_search",
+                ArgumentsJson = """{"query":"semantic code intelligence","kind":"read","limit":3}"""
+            });
+
+            Assert.Equal("completed", result.Status);
+            Assert.Contains("Tool search results:", result.Output);
+            Assert.Contains("`lsp`", result.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("`write_file`", result.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NativeToolHostService_ExecuteAsync_TaskLifecycle_WorksEndToEnd()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-task-tools-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var host = new NativeToolHostService(runtimeProfileService, new ApprovalPolicyService(), new InMemoryCronScheduler());
+
+            var createResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "task_create",
+                ApproveExecution = true,
+                ArgumentsJson = """{"session_id":"chat-1","subject":"Investigate release notes","description":"Find the latest Avalonia desktop release notes","owner":"planner"}"""
+            });
+            Assert.Equal("completed", createResult.Status);
+            Assert.Contains("Created task #1", createResult.Output);
+
+            var listResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "task_list",
+                ArgumentsJson = """{"session_id":"chat-1"}"""
+            });
+            Assert.Equal("completed", listResult.Status);
+            Assert.Contains("#1 [pending] Investigate release notes", listResult.Output);
+
+            var getResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "task_get",
+                ArgumentsJson = """{"session_id":"chat-1","task_id":"1"}"""
+            });
+            Assert.Equal("completed", getResult.Status);
+            Assert.Contains("Task #1: Investigate release notes", getResult.Output);
+            Assert.Contains("Owner: planner", getResult.Output);
+
+            var updateResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "task_update",
+                ApproveExecution = true,
+                ArgumentsJson = """{"session_id":"chat-1","task_id":"1","status":"in_progress","add_blocked_by":["0"]}"""
+            });
+            Assert.Equal("completed", updateResult.Status);
+            Assert.Contains("[in_progress]", updateResult.Output);
+            Assert.Contains("Updated fields:", updateResult.Output);
+
+            var stopResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "task_stop",
+                ApproveExecution = true,
+                ArgumentsJson = """{"session_id":"chat-1","task_id":"1"}"""
+            });
+            Assert.Equal("completed", stopResult.Status);
+            Assert.Contains("[cancelled]", stopResult.Output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task NativeToolHostService_ExecuteAsync_MapsTimedOutShellCommandIntoTimeoutStatus()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-shell-timeout-host-{Guid.NewGuid():N}");

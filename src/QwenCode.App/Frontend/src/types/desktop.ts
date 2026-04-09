@@ -1,7 +1,10 @@
 import type {
   AppBootstrapPayload as GeneratedAppBootstrapPayload,
   AuthStatusSnapshot as GeneratedAuthStatusSnapshot,
+  DesktopQuestionAnswer,
+  DesktopQuestionPrompt,
   DesktopStateChangedEvent,
+  DesktopSessionEvent as GeneratedDesktopSessionEvent,
   DesktopSessionEntry as GeneratedDesktopSessionEntry,
   DesktopSessionTurnResult as GeneratedDesktopSessionTurnResult,
   QwenDesktopBridge,
@@ -40,7 +43,6 @@ export type {
   GetDesktopSessionRequest,
   GetExtensionSettingsRequest,
   DesktopSessionDetail,
-  DesktopSessionEvent,
   DesktopMode,
   DesktopSessionEventKind,
   DesktopStateChangedEvent,
@@ -124,6 +126,15 @@ export interface RuntimeModelSnapshot {
 export type DesktopSessionEntry = GeneratedDesktopSessionEntry & {
   thinkingDurationMs?: number
 }
+
+export type DesktopSessionEvent =
+  GeneratedDesktopSessionEvent & {
+    toolOutput?: string
+    approvalState?: string
+    changedFiles?: string[]
+    questions?: DesktopQuestionPrompt[]
+    answers?: DesktopQuestionAnswer[]
+  }
 
 export type AppBootstrapPayload =
   Omit<GeneratedAppBootstrapPayload, 'qwenAuth'> & {

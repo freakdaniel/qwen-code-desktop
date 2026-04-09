@@ -178,6 +178,10 @@ internal static class ConsoleLogBridge
                 message.StartsWith("[StartInternal]: startCmd:", StringComparison.Ordinal) ||
                 message.StartsWith("[StartInternal]: args:", StringComparison.Ordinal) ||
                 message.StartsWith("[StartInternal]: after run:", StringComparison.Ordinal) ||
+                message.StartsWith("GatherBuildInfo:", StringComparison.Ordinal) ||
+                message.StartsWith("Probe scored for launch origin:", StringComparison.Ordinal) ||
+                message.StartsWith("Probe scored for package mode:", StringComparison.Ordinal) ||
+                message.StartsWith("Evaluated StartupMethod:", StringComparison.Ordinal) ||
                 message.StartsWith("Entry!!!:", StringComparison.Ordinal) ||
                 message.StartsWith("unpackedelectron! dir:", StringComparison.Ordinal) ||
                 message.StartsWith("Electron Socket IO", StringComparison.Ordinal) ||

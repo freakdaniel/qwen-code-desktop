@@ -1,18 +1,21 @@
 using System.Text.Json;
 using QwenCode.App.Models;
+using QwenCode.App.Runtime;
 
 namespace QwenCode.App.Sessions;
 
 /// <summary>
 /// Represents the Chat Compression Service
 /// </summary>
-public sealed class ChatCompressionService : IChatCompressionService
+/// <param name="contentGenerator">Optional content generator used to produce richer LLM-assisted checkpoints.</param>
+public sealed class ChatCompressionService(IContentGenerator? contentGenerator = null) : IChatCompressionService
 {
     private const int MinimumCompressionEntries = 12;
     private const int PreserveEntries = 8;
     private const int RecentCompressionWindow = 6;
     private const int MaxBulletCount = 12;
     private const int MaxBulletLength = 180;
+    private const int MaxLlmCompactionEntries = 18;
     private const double DefaultContextThreshold = 0.72d;
 
     /// <summary>
@@ -22,19 +25,19 @@ public sealed class ChatCompressionService : IChatCompressionService
     /// <param name="transcriptPath">The transcript path</param>
     /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
     /// <returns>A task that resolves to chat compression checkpoint?</returns>
-    public Task<ChatCompressionCheckpoint?> TryCreateCheckpointAsync(
+    public async Task<ChatCompressionCheckpoint?> TryCreateCheckpointAsync(
         QwenRuntimeProfile runtimeProfile,
         string transcriptPath,
         CancellationToken cancellationToken = default)
     {
         if (!runtimeProfile.Checkpointing)
         {
-            return Task.FromResult<ChatCompressionCheckpoint?>(null);
+            return null;
         }
 
         if (string.IsNullOrWhiteSpace(transcriptPath) || !File.Exists(transcriptPath))
         {
-            return Task.FromResult<ChatCompressionCheckpoint?>(null);
+            return null;
         }
 
         var entries = new List<CompressionEntry>();
@@ -64,14 +67,14 @@ public sealed class ChatCompressionService : IChatCompressionService
 
         if (entries.Count < MinimumCompressionEntries)
         {
-            return Task.FromResult<ChatCompressionCheckpoint?>(null);
+            return null;
         }
 
         if (entries.TakeLast(RecentCompressionWindow)
             .Any(static entry => entry.Type == "system" &&
                                  string.Equals(entry.Status, "chat-compression", StringComparison.OrdinalIgnoreCase)))
         {
-            return Task.FromResult<ChatCompressionCheckpoint?>(null);
+            return null;
         }
 
         var estimatedTokenCount = entries.Sum(static entry => EstimateTokens(entry.Body, entry.Name, entry.Status));
@@ -82,13 +85,13 @@ public sealed class ChatCompressionService : IChatCompressionService
         var thresholdPercentage = runtimeProfile.ChatCompression?.ContextPercentageThreshold ?? DefaultContextThreshold;
         if (estimatedContextPercentage < thresholdPercentage)
         {
-            return Task.FromResult<ChatCompressionCheckpoint?>(null);
+            return null;
         }
 
         var compressibleEntries = entries.Take(Math.Max(0, entries.Count - PreserveEntries)).ToArray();
         if (compressibleEntries.Length == 0)
         {
-            return Task.FromResult<ChatCompressionCheckpoint?>(null);
+            return null;
         }
 
         var bullets = compressibleEntries
@@ -98,16 +101,21 @@ public sealed class ChatCompressionService : IChatCompressionService
             .ToArray();
         if (bullets.Length == 0)
         {
-            return Task.FromResult<ChatCompressionCheckpoint?>(null);
+            return null;
         }
 
-        var summary =
+        var summaryHeader =
             $"Compression checkpoint: estimated {estimatedTokenCount} of {contextWindowTokens} tokens ({estimatedContextPercentage:P1}) " +
-            $"and summarized {compressibleEntries.Length} earlier transcript entries while preserving the latest {Math.Min(PreserveEntries, entries.Count)} entries." +
-            Environment.NewLine +
-            string.Join(Environment.NewLine, bullets);
+            $"and summarized {compressibleEntries.Length} earlier transcript entries while preserving the latest {Math.Min(PreserveEntries, entries.Count)} entries.";
+        var summaryBody = await TryBuildLlmSummaryAsync(
+            runtimeProfile,
+            transcriptPath,
+            compressibleEntries,
+            cancellationToken)
+            ?? string.Join(Environment.NewLine, bullets);
+        var summary = $"{summaryHeader}{Environment.NewLine}{summaryBody}";
 
-        return Task.FromResult<ChatCompressionCheckpoint?>(new ChatCompressionCheckpoint
+        return new ChatCompressionCheckpoint
         {
             Summary = summary,
             CompressedEntryCount = compressibleEntries.Length,
@@ -118,20 +126,75 @@ public sealed class ChatCompressionService : IChatCompressionService
             ThresholdPercentage = thresholdPercentage,
             Trigger = "context-threshold",
             CreatedAtUtc = DateTime.UtcNow
-        });
+        };
+    }
+
+    private async Task<string?> TryBuildLlmSummaryAsync(
+        QwenRuntimeProfile runtimeProfile,
+        string transcriptPath,
+        IReadOnlyList<CompressionEntry> compressibleEntries,
+        CancellationToken cancellationToken)
+    {
+        if (contentGenerator is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var locale = string.IsNullOrWhiteSpace(runtimeProfile.CurrentLocale)
+                ? RuntimeLocaleCatalog.DetectLocale()
+                : RuntimeLocaleCatalog.NormalizeLocale(runtimeProfile.CurrentLocale);
+            var language = string.IsNullOrWhiteSpace(runtimeProfile.CurrentLanguage)
+                ? RuntimeLocaleCatalog.ResolveLanguageName(locale)
+                : runtimeProfile.CurrentLanguage;
+
+            var digest = string.Join(
+                Environment.NewLine,
+                compressibleEntries
+                    .TakeLast(MaxLlmCompactionEntries)
+                    .Select(static entry => $"{ResolveEntryLabel(entry)}: {TrimForLlm(entry.Body, entry.Status)}")
+                    .Where(static line => !string.IsNullOrWhiteSpace(line)));
+            if (string.IsNullOrWhiteSpace(digest))
+            {
+                return null;
+            }
+
+            var response = await contentGenerator.GenerateContentAsync(
+                new LlmContentRequest
+                {
+                    SessionId = $"compaction-{Path.GetFileNameWithoutExtension(transcriptPath)}",
+                    Prompt = $$"""
+Summarize the following older session history into carry-forward checkpoint bullets.
+
+Older transcript digest:
+{{digest}}
+""",
+                    WorkingDirectory = runtimeProfile.ProjectRoot,
+                    TranscriptPath = transcriptPath,
+                    RuntimeProfile = runtimeProfile,
+                    PromptContext = new AssistantPromptContext
+                    {
+                        Messages = [],
+                        ContextFiles = [],
+                        HistoryHighlights = []
+                    },
+                    SystemPrompt = NativeAssistantUtilityPromptCatalog.BuildSessionCompactionPrompt(locale, language),
+                    DisableTools = true
+                },
+                cancellationToken);
+
+            return NormalizeLlmSummary(response?.Content);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string BuildBullet(CompressionEntry entry)
     {
-        var label = entry.Type switch
-        {
-            "user" => "User",
-            "assistant" => "Assistant",
-            "command" when !string.IsNullOrWhiteSpace(entry.Name) => $"/{entry.Name}",
-            "tool" when !string.IsNullOrWhiteSpace(entry.Name) => $"Tool {entry.Name}",
-            "system" => "System",
-            _ => "Entry"
-        };
+        var label = ResolveEntryLabel(entry);
 
         var body = string.IsNullOrWhiteSpace(entry.Body)
             ? entry.Status
@@ -144,6 +207,17 @@ public sealed class ChatCompressionService : IChatCompressionService
         var trimmed = body.Length <= MaxBulletLength ? body : $"{body[..MaxBulletLength]}...";
         return $"- {label}: {trimmed}";
     }
+
+    private static string ResolveEntryLabel(CompressionEntry entry) =>
+        entry.Type switch
+        {
+            "user" => "User",
+            "assistant" => "Assistant",
+            "command" when !string.IsNullOrWhiteSpace(entry.Name) => $"/{entry.Name}",
+            "tool" when !string.IsNullOrWhiteSpace(entry.Name) => $"Tool {entry.Name}",
+            "system" => "System",
+            _ => "Entry"
+        };
 
     private static string ExtractBody(JsonElement root)
     {
@@ -232,6 +306,48 @@ public sealed class ChatCompressionService : IChatCompressionService
         }
 
         return 32_000;
+    }
+
+    private static string TrimForLlm(string body, string status)
+    {
+        var text = string.IsNullOrWhiteSpace(body) ? status : body;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        return text.Length <= 280 ? text : $"{text[..280]}...";
+    }
+
+    private static string? NormalizeLlmSummary(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return null;
+        }
+
+        var bullets = content
+            .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(static line =>
+            {
+                var normalized = line.Trim();
+                while (normalized.StartsWith("-", StringComparison.Ordinal) ||
+                       normalized.StartsWith("*", StringComparison.Ordinal) ||
+                       normalized.StartsWith("•", StringComparison.Ordinal))
+                {
+                    normalized = normalized[1..].TrimStart();
+                }
+
+                return normalized;
+            })
+            .Where(static line => !string.IsNullOrWhiteSpace(line))
+            .Take(8)
+            .Select(static line => $"- {line}")
+            .ToArray();
+
+        return bullets.Length == 0
+            ? null
+            : string.Join(Environment.NewLine, bullets);
     }
 
     private sealed record CompressionEntry(string Type, string Status, string Name, string Body);

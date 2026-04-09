@@ -77,15 +77,14 @@ public sealed class ToolCallScheduler(
                     ToolCallGroupId = toolCallGroupId,
                     ToolArgumentsJson = NormalizeToolArguments(toolCall.ArgumentsJson),
                     Status = deniedExecution.Status,
-                    Message = BuildToolMessage(deniedExecution)
+                    Message = BuildToolMessage(deniedExecution),
+                    ToolOutput = string.IsNullOrWhiteSpace(deniedExecution.Output) ? deniedExecution.ErrorMessage : deniedExecution.Output,
+                    ApprovalState = deniedExecution.ApprovalState,
+                    ChangedFiles = deniedExecution.ChangedFiles,
+                    Questions = deniedExecution.Questions,
+                    Answers = deniedExecution.Answers
                 });
-
-                return new ToolSchedulingResult
-                {
-                    ContinueTurnLoop = false,
-                    TerminalSummary = $"Tool '{toolCall.ToolName}' is not available in this delegated runtime.",
-                    TerminalStopReason = "tool-blocked"
-                };
+                continue;
             }
 
             eventSink?.Invoke(new AssistantRuntimeEvent
@@ -122,10 +121,15 @@ public sealed class ToolCallScheduler(
                 ToolCallGroupId = toolCallGroupId,
                 ToolArgumentsJson = NormalizeToolArguments(toolCall.ArgumentsJson),
                 Status = execution.Status,
-                Message = BuildToolMessage(execution)
+                Message = BuildToolMessage(execution),
+                ToolOutput = string.IsNullOrWhiteSpace(execution.Output) ? execution.ErrorMessage : execution.Output,
+                ApprovalState = execution.ApprovalState,
+                ChangedFiles = execution.ChangedFiles,
+                Questions = execution.Questions,
+                Answers = execution.Answers
             });
 
-            if (!string.Equals(execution.Status, "completed", StringComparison.OrdinalIgnoreCase))
+            if (ShouldPauseTurnLoop(execution.Status))
             {
                 return new ToolSchedulingResult
                 {
@@ -141,6 +145,15 @@ public sealed class ToolCallScheduler(
             ContinueTurnLoop = true
         };
     }
+
+    private static bool ShouldPauseTurnLoop(string status) =>
+        status switch
+        {
+            "approval-required" => true,
+            "input-required" => true,
+            "cancelled" => true,
+            _ => false
+        };
 
     private static string BuildTerminalSummary(NativeToolExecutionResult execution) =>
         execution.Status switch
@@ -203,7 +216,12 @@ public sealed class ToolCallScheduler(
             Status = runtimeEvent.Status,
             ContentDelta = runtimeEvent.ContentDelta,
             ContentSnapshot = runtimeEvent.ContentSnapshot,
-            AgentName = runtimeEvent.AgentName
+            AgentName = runtimeEvent.AgentName,
+            ToolOutput = runtimeEvent.ToolOutput,
+            ApprovalState = runtimeEvent.ApprovalState,
+            ChangedFiles = runtimeEvent.ChangedFiles,
+            Questions = runtimeEvent.Questions,
+            Answers = runtimeEvent.Answers
         };
 
     private static string NormalizeToolArguments(string argumentsJson) =>

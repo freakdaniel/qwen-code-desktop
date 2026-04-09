@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using QwenCode.App.Auth;
 using QwenCode.App.Channels;
+using QwenCode.App.Desktop.Projection;
 using QwenCode.App.Extensions;
 using QwenCode.App.Followup;
 using QwenCode.App.Infrastructure;
@@ -161,7 +163,12 @@ internal static class TestServiceFactory
                 sessionService,
                 toolExecutor,
                 sessionHost,
-                activeTurnRegistry));
+                activeTurnRegistry,
+                runtimeProfileService,
+                new ServiceCollection()
+                    .AddSingleton<ISessionTitleGenerationService>(new FakeSessionTitleGenerationService())
+                    .BuildServiceProvider(),
+                new LocaleStateService(shellOptions)));
     }
 
     internal static DesktopSessionHostService CreateSessionHost(

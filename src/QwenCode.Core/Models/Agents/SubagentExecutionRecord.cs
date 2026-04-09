@@ -23,6 +23,11 @@ public sealed class SubagentExecutionRecord
     public string Description { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the linked orchestration task id
+    /// </summary>
+    public string TaskId { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the prompt
     /// </summary>
     public string Prompt { get; init; } = string.Empty;

@@ -35,11 +35,24 @@ public sealed class AgentArenaServiceTests
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
             var events = new List<AssistantRuntimeEvent>();
 
+            using (var taskArguments = JsonDocument.Parse(
+                       """
+                       {
+                         "subject":"Implement the strongest possible change",
+                         "description":"Track the arena comparison task"
+                       }
+                       """))
+            {
+                var createdTask = await TaskStore.CreateTaskAsync(runtimeProfile, taskArguments.RootElement, CancellationToken.None);
+                Assert.Equal("1", createdTask.Task.Id);
+            }
+
             using var arguments = JsonDocument.Parse(
                 """
                 {
                   "session_id": "arena-test-session",
                   "task": "Implement the strongest possible change",
+                  "task_id": "1",
                   "models": [
                     { "model": "model-alpha", "display_name": "Alpha" },
                     { "model": "model-beta", "display_name": "Beta" }
@@ -87,13 +100,21 @@ public sealed class AgentArenaServiceTests
             var persistedStatus = await File.ReadAllTextAsync(statusPath);
             Assert.Contains("\"ArenaSessionId\": \"arena-test-session\"", persistedConfig);
             Assert.Contains("\"Task\": \"Implement the strongest possible change\"", persistedConfig);
+            Assert.Contains("\"TaskId\": \"1\"", persistedConfig);
             Assert.Contains("\"RoundCount\": 1", persistedConfig);
+            Assert.Contains("\"TaskId\": \"1\"", persisted);
             Assert.Contains("\"Status\": \"idle\"", persistedStatus);
             Assert.Contains("\"AgentName\": \"Alpha\"", persistedStatus);
             Assert.Contains("\"StopReason\": \"completed\"", persistedStatus);
             Assert.Contains("\"ToolCallCount\": 0", persistedStatus);
             Assert.Contains("\"AgentCount\": 2", persistedStatus);
             Assert.Contains("\"RoundCount\": 1", persistedStatus);
+
+            var taskFilePath = TaskStore.ResolveTaskFilePath(runtimeProfile, null);
+            var taskFile = await File.ReadAllTextAsync(taskFilePath);
+            Assert.Contains("\"Id\": \"1\"", taskFile);
+            Assert.Contains("\"Status\": \"in_progress\"", taskFile);
+            Assert.Contains("\"Owner\": \"arena:arena-test-session\"", taskFile);
 
             using var statusArguments = JsonDocument.Parse(
                 """
@@ -531,11 +552,24 @@ public sealed class AgentArenaServiceTests
                 registry);
             var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
 
+            using (var taskArguments = JsonDocument.Parse(
+                       """
+                       {
+                         "subject":"Produce competing workspace edits",
+                         "description":"Track the arena apply-winner flow"
+                       }
+                       """))
+            {
+                var createdTask = await TaskStore.CreateTaskAsync(runtimeProfile, taskArguments.RootElement, CancellationToken.None);
+                Assert.Equal("1", createdTask.Task.Id);
+            }
+
             using var startArguments = JsonDocument.Parse(
                 """
                 {
                   "session_id": "arena-apply-session",
                   "task": "Produce competing workspace edits",
+                  "task_id": "1",
                   "models": ["model-a", "model-b"]
                 }
                 """);
@@ -588,6 +622,12 @@ public sealed class AgentArenaServiceTests
             Assert.Contains("\"AppliedWinner\": \"model-a\"", await File.ReadAllTextAsync(configPath));
             Assert.Contains("\"AppliedWinner\": \"model-a\"", await File.ReadAllTextAsync(statusPath));
             Assert.Contains("\"Status\": \"completed\"", await File.ReadAllTextAsync(statusPath));
+
+            var taskFilePath = TaskStore.ResolveTaskFilePath(runtimeProfile, null);
+            var taskFile = await File.ReadAllTextAsync(taskFilePath);
+            Assert.Contains("\"Id\": \"1\"", taskFile);
+            Assert.Contains("\"Status\": \"completed\"", taskFile);
+            Assert.Contains("\"Owner\": \"model-a\"", taskFile);
         }
         finally
         {

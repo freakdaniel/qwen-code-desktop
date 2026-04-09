@@ -56,6 +56,7 @@ public sealed class SubagentCoordinatorService(
         var description = TryGetRequiredString(arguments, "description");
         var prompt = TryGetRequiredString(arguments, "prompt");
         var subagentType = TryGetRequiredString(arguments, "subagent_type");
+        var taskId = TryGetRequiredString(arguments, "task_id") ?? TryGetRequiredString(arguments, "taskId") ?? string.Empty;
 
         if (string.IsNullOrWhiteSpace(description))
         {
@@ -121,6 +122,11 @@ public sealed class SubagentCoordinatorService(
         }
 
         var effectivePrompt = ApplyHookPrompt(startHook.AggregateOutput, prompt);
+        if (!string.IsNullOrWhiteSpace(taskId))
+        {
+            await TryUpdateLinkedTaskAsync(runtimeProfile, taskId, "in_progress", agent.Name, cancellationToken);
+        }
+
         var runtimeRequest = BuildAssistantTurnRequest(executionId, description, effectivePrompt, agent, runtimeProfile, transcriptPath, modelSelection);
         var runtime = ResolveRuntime();
         eventSink?.Invoke(CreateSubagentRuntimeEvent(
@@ -163,13 +169,14 @@ public sealed class SubagentCoordinatorService(
             response,
             cancellationToken);
 
-        var report = BuildReport(agent, description, effectivePrompt, runtimeProfile, response, resolvedStopReason, resolvedStats, stopHook.AggregateOutput);
+        var report = BuildReport(agent, description, taskId, effectivePrompt, runtimeProfile, response, resolvedStopReason, resolvedStats, stopHook.AggregateOutput);
         var reportApprovalState = ResolveApprovalState(response, approvalState);
         var record = new SubagentExecutionRecord
         {
             ExecutionId = executionId,
             AgentName = agent.Name,
             Description = description,
+            TaskId = taskId,
             Prompt = prompt,
             Scope = agent.Scope,
             FilePath = agent.FilePath,
@@ -212,6 +219,11 @@ public sealed class SubagentCoordinatorService(
                 response.Model,
                 resolvedStopReason,
                 cancellationToken);
+        }
+
+        if (!string.IsNullOrWhiteSpace(taskId))
+        {
+            await TryUpdateLinkedTaskAsync(runtimeProfile, taskId, MapTaskStatus(status), agent.Name, cancellationToken);
         }
 
         return new NativeToolExecutionResult
@@ -461,6 +473,7 @@ Operational rules:
     private string BuildReport(
         SubagentDescriptor agent,
         string description,
+        string taskId,
         string prompt,
         QwenRuntimeProfile runtimeProfile,
         AssistantTurnResponse response,
@@ -478,6 +491,10 @@ Operational rules:
         builder.AppendLine($"Subagent '{agent.Name}' finished with status '{ResolveOverallStatus(response)}'.");
         builder.AppendLine();
         builder.AppendLine($"Description: {description}");
+        if (!string.IsNullOrWhiteSpace(taskId))
+        {
+            builder.AppendLine($"Linked task: #{taskId}");
+        }
         builder.AppendLine($"Scope: {agent.Scope}");
         builder.AppendLine($"Source: {agent.FilePath}");
         builder.AppendLine($"Workspace: {runtimeProfile.ProjectRoot}");
@@ -599,6 +616,44 @@ Operational rules:
         arguments.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString()
             : null;
+
+    private static string MapTaskStatus(string subagentStatus) =>
+        subagentStatus switch
+        {
+            "completed" => "completed",
+            "cancelled" => "cancelled",
+            _ => "pending"
+        };
+
+    private static async Task TryUpdateLinkedTaskAsync(
+        QwenRuntimeProfile runtimeProfile,
+        string taskId,
+        string status,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(taskId))
+        {
+            return;
+        }
+
+        var payload = new JsonObject
+        {
+            ["task_id"] = taskId,
+            ["status"] = status,
+            ["owner"] = owner
+        };
+
+        using var document = JsonDocument.Parse(payload.ToJsonString());
+        try
+        {
+            _ = await TaskStore.UpdateTaskAsync(runtimeProfile, document.RootElement, cancellationToken);
+        }
+        catch
+        {
+            // Best effort synchronization between delegated agents and task state.
+        }
+    }
 
     private static NativeToolExecutionResult Error(string message, string workingDirectory, string approvalState) =>
         new()

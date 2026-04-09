@@ -1,9 +1,11 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using QwenCode.App.Compatibility;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
 using QwenCode.App.Runtime;
+using QwenCode.App.Tools;
 
 namespace QwenCode.App.Agents;
 
@@ -97,6 +99,7 @@ public sealed class AgentArenaService(
 
         var cleanup = TryGetBool(arguments, "cleanup") ?? false;
         var explicitSessionId = TryGetOptionalString(arguments, "session_id") ?? TryGetOptionalString(arguments, "sessionId");
+        var taskId = TryGetOptionalString(arguments, "task_id") ?? TryGetOptionalString(arguments, "taskId") ?? string.Empty;
         var sessionId = string.IsNullOrWhiteSpace(explicitSessionId)
             ? $"arena-{Guid.NewGuid():N}"
             : SanitizePathSegment(explicitSessionId);
@@ -169,9 +172,16 @@ public sealed class AgentArenaService(
                 created.Add(new CreatedArenaWorktree(model, worktree));
             }
 
+            if (!string.IsNullOrWhiteSpace(taskId))
+            {
+                await TryUpdateLinkedTaskAsync(runtimeProfile, taskId, "in_progress", $"arena:{sessionId}", cancellationToken);
+            }
+
             return await ExecutePreparedArenaSessionAsync(
+                runtimeProfile,
                 runtimeProfile.ProjectRoot,
                 task,
+                taskId,
                 sessionId,
                 baseBranch,
                 createdAtUtc,
@@ -264,6 +274,7 @@ public sealed class AgentArenaService(
         Directory.CreateDirectory(transcriptsDirectory);
         var statusLock = new SemaphoreSlim(1, 1);
         var allowedToolNames = ParseStringArray(arguments, "allowed_tools");
+        var taskId = TryGetOptionalString(arguments, "task_id") ?? TryGetOptionalString(arguments, "taskId") ?? config.TaskId;
 
         eventSink?.Invoke(new AssistantRuntimeEvent
         {
@@ -272,9 +283,16 @@ public sealed class AgentArenaService(
             Message = $"Continuing arena session '{sanitizedSessionId}' with follow-up round {config.RoundCount + 1}."
         });
 
+        if (!string.IsNullOrWhiteSpace(taskId))
+        {
+            await TryUpdateLinkedTaskAsync(runtimeProfile, taskId, "in_progress", $"arena:{config.ArenaSessionId}", cancellationToken);
+        }
+
         return await ExecutePreparedArenaSessionAsync(
+            runtimeProfile,
             config.SourceRepoPath,
             task,
+            taskId,
             config.ArenaSessionId,
             config.BaseBranch,
             config.CreatedAtUtc,
@@ -338,6 +356,7 @@ public sealed class AgentArenaService(
             ArenaSessionId = config.ArenaSessionId,
             SourceRepoPath = config.SourceRepoPath,
             Task = config.Task,
+            TaskId = config.TaskId,
             RoundCount = config.RoundCount,
             SelectedWinner = resolvedWinner,
             AppliedWinner = config.AppliedWinner,
@@ -392,6 +411,7 @@ public sealed class AgentArenaService(
                 {
                     SessionId = result.SessionId,
                     Task = result.Task,
+                    TaskId = result.TaskId,
                     Status = result.Status,
                     BaseBranch = result.BaseBranch,
                     ArtifactPath = result.ArtifactPath,
@@ -472,6 +492,7 @@ public sealed class AgentArenaService(
             ArenaSessionId = config.ArenaSessionId,
             SourceRepoPath = config.SourceRepoPath,
             Task = config.Task,
+            TaskId = config.TaskId,
             RoundCount = config.RoundCount,
             SelectedWinner = resolvedWinner,
             AppliedWinner = resolvedWinner,
@@ -516,6 +537,7 @@ public sealed class AgentArenaService(
                 {
                     SessionId = result.SessionId,
                     Task = result.Task,
+                    TaskId = result.TaskId,
                     Status = result.Status,
                     BaseBranch = result.BaseBranch,
                     ArtifactPath = result.ArtifactPath,
@@ -531,6 +553,11 @@ public sealed class AgentArenaService(
                 };
                 await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(updatedResult, JsonOptions), cancellationToken);
             }
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.TaskId))
+        {
+            await TryUpdateLinkedTaskAsync(runtimeProfile, config.TaskId, "completed", resolvedWinner, cancellationToken);
         }
 
         var lines = new List<string>
@@ -558,8 +585,10 @@ public sealed class AgentArenaService(
     }
 
     private async Task<NativeToolExecutionResult> ExecutePreparedArenaSessionAsync(
+        QwenRuntimeProfile runtimeProfile,
         string sourceRepoPath,
         string task,
+        string taskId,
         string sessionId,
         string baseBranch,
         DateTime createdAtUtc,
@@ -581,6 +610,7 @@ public sealed class AgentArenaService(
             sessionDirectory,
             sourceRepoPath,
             task,
+            taskId,
             sessionId,
             baseBranch,
             createdAtUtc,
@@ -645,6 +675,7 @@ public sealed class AgentArenaService(
             {
                 SessionId = sessionId,
                 Task = task,
+                TaskId = taskId,
                 Status = sessionStatus,
                 BaseBranch = baseBranch,
                 ArtifactPath = artifactPath,
@@ -671,6 +702,7 @@ public sealed class AgentArenaService(
                 sessionDirectory,
                 sourceRepoPath,
                 task,
+                taskId,
                 sessionResult,
                 statusLock,
                 cancellationToken);
@@ -742,6 +774,7 @@ public sealed class AgentArenaService(
             var cancelledResult = BuildCancelledArenaSessionResult(
                 sessionId,
                 task,
+                taskId,
                 baseBranch,
                 roundCount,
                 activeSession?.SelectedWinner ?? selectedWinner,
@@ -762,9 +795,15 @@ public sealed class AgentArenaService(
                 sessionDirectory,
                 sourceRepoPath,
                 task,
+                taskId,
                 cancelledResult,
                 statusLock,
                 cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(taskId))
+            {
+                await TryUpdateLinkedTaskAsync(runtimeProfile, taskId, "cancelled", $"arena:{sessionId}", cancellationToken);
+            }
 
             eventSink?.Invoke(new AssistantRuntimeEvent
             {
@@ -1214,6 +1253,7 @@ public sealed class AgentArenaService(
             ArenaSessionId = config.ArenaSessionId,
             SourceRepoPath = config.SourceRepoPath,
             Task = config.Task,
+            TaskId = config.TaskId,
             RoundCount = config.RoundCount,
             SelectedWinner = config.SelectedWinner,
             AppliedWinner = config.AppliedWinner,
@@ -1249,6 +1289,7 @@ public sealed class AgentArenaService(
             {
                 SessionId = result.SessionId,
                 Task = result.Task,
+                TaskId = result.TaskId,
                 Status = "discarded",
                 BaseBranch = result.BaseBranch,
                 ArtifactPath = result.ArtifactPath,
@@ -1263,6 +1304,11 @@ public sealed class AgentArenaService(
                 Agents = result.Agents
             };
             await File.WriteAllTextAsync(resultPath, JsonSerializer.Serialize(updatedResult, JsonOptions), cancellationToken);
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.TaskId))
+        {
+            await TryUpdateLinkedTaskAsync(runtimeProfile, config.TaskId, "cancelled", $"arena:{sanitizedSessionId}", cancellationToken);
         }
 
         return new NativeToolExecutionResult
@@ -1360,6 +1406,7 @@ public sealed class AgentArenaService(
     private ArenaSessionResult BuildCancelledArenaSessionResult(
         string sessionId,
         string task,
+        string taskId,
         string baseBranch,
         int roundCount,
         string selectedWinner,
@@ -1405,6 +1452,7 @@ public sealed class AgentArenaService(
         {
             SessionId = sessionId,
             Task = task,
+            TaskId = taskId,
             Status = "cancelled",
             BaseBranch = baseBranch,
             ArtifactPath = Path.Combine(sessionDirectory, "result.json"),
@@ -1596,6 +1644,7 @@ public sealed class AgentArenaService(
         string sessionDirectory,
         string sourceRepoPath,
         string task,
+        string taskId,
         string sessionId,
         string baseBranch,
         DateTime createdAtUtc,
@@ -1611,6 +1660,7 @@ public sealed class AgentArenaService(
             ArenaSessionId = sessionId,
             SourceRepoPath = sourceRepoPath,
             Task = task,
+            TaskId = taskId,
             RoundCount = roundCount,
             SelectedWinner = selectedWinner,
             AppliedWinner = string.Empty,
@@ -1653,6 +1703,7 @@ public sealed class AgentArenaService(
         string sessionDirectory,
         string sourceRepoPath,
         string task,
+        string taskId,
         ArenaSessionResult sessionResult,
         SemaphoreSlim statusLock,
         CancellationToken cancellationToken)
@@ -1662,6 +1713,7 @@ public sealed class AgentArenaService(
             ArenaSessionId = sessionResult.SessionId,
             SourceRepoPath = sourceRepoPath,
             Task = task,
+            TaskId = string.IsNullOrWhiteSpace(taskId) ? sessionResult.TaskId : taskId,
             RoundCount = sessionResult.RoundCount,
             SelectedWinner = sessionResult.SelectedWinner,
             AppliedWinner = sessionResult.AppliedWinner,
@@ -1742,6 +1794,7 @@ public sealed class AgentArenaService(
                     ArenaSessionId = Path.GetFileName(sessionDirectory),
                     SourceRepoPath = sourceRepoPath,
                     Task = task,
+                    TaskId = string.Empty,
                     RoundCount = 1,
                     CreatedAtUtc = sessionStartedAtUtc
                 };
@@ -1755,13 +1808,14 @@ public sealed class AgentArenaService(
             {
                 ArenaSessionId = existingConfig.ArenaSessionId,
                 SourceRepoPath = existingConfig.SourceRepoPath,
-                    Task = existingConfig.Task,
-                    RoundCount = existingConfig.RoundCount,
-                    SelectedWinner = existingConfig.SelectedWinner,
-                    AppliedWinner = existingConfig.AppliedWinner,
-                    Models = existingConfig.Models,
-                    WorktreeNames = existingConfig.WorktreeNames,
-                    BaseBranch = existingConfig.BaseBranch,
+                Task = existingConfig.Task,
+                TaskId = existingConfig.TaskId,
+                RoundCount = existingConfig.RoundCount,
+                SelectedWinner = existingConfig.SelectedWinner,
+                AppliedWinner = existingConfig.AppliedWinner,
+                Models = existingConfig.Models,
+                WorktreeNames = existingConfig.WorktreeNames,
+                BaseBranch = existingConfig.BaseBranch,
                 CreatedAtUtc = existingConfig.CreatedAtUtc,
                 UpdatedAtUtc = agentStatus.UpdatedAtUtc,
                 Agents = agents
@@ -1994,6 +2048,10 @@ public sealed class AgentArenaService(
         builder.AppendLine($"Arena session '{session.SessionId}' finished with status '{session.Status}'.");
         builder.AppendLine($"Round: {session.RoundCount}");
         builder.AppendLine($"Task: {session.Task}");
+        if (!string.IsNullOrWhiteSpace(session.TaskId))
+        {
+            builder.AppendLine($"Linked task: #{session.TaskId}");
+        }
         builder.AppendLine($"Base branch: {session.BaseBranch}");
         builder.AppendLine($"Session stats: agents={session.Stats.AgentCount}, completed={session.Stats.CompletedAgentCount}, failed={session.Stats.FailedAgentCount}, rounds={session.Stats.RoundCount}, toolCalls={session.Stats.ToolCallCount}, successful={session.Stats.SuccessfulToolCallCount}, failedTools={session.Stats.FailedToolCallCount}, durationMs={session.Stats.TotalDurationMs}");
         if (!string.IsNullOrWhiteSpace(session.SelectedWinner))
@@ -2188,6 +2246,28 @@ Success criteria:
         element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString()
             : null;
+
+    private static async Task TryUpdateLinkedTaskAsync(
+        QwenRuntimeProfile runtimeProfile,
+        string taskId,
+        string status,
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(taskId))
+        {
+            return;
+        }
+
+        using var document = JsonDocument.Parse(
+            new JsonObject
+            {
+                ["task_id"] = taskId,
+                ["status"] = status,
+                ["owner"] = owner
+            }.ToJsonString());
+        await TaskStore.UpdateTaskAsync(runtimeProfile, document.RootElement, cancellationToken);
+    }
 
     private static string SanitizePathSegment(string value)
     {

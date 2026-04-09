@@ -1585,7 +1585,7 @@ public sealed class DesktopSessionHostService(
         new()
         {
             SessionId = sessionId,
-            Title = prompt.Length > 140 ? $"{prompt[..140]}..." : prompt,
+            Title = null,
             LastActivity = DateTime.UtcNow.ToString("O"),
             StartedAt = DateTime.UtcNow.ToString("O"),
             LastUpdatedAt = DateTime.UtcNow.ToString("O"),

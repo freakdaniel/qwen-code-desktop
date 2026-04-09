@@ -24,6 +24,21 @@ public sealed class AgentToolTests
             var sourcePaths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
             var host = CreateToolExecutor(workspaceRoot, homeRoot, systemRoot);
 
+            var taskCreateResult = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
+            {
+                ToolName = "task_create",
+                ApproveExecution = true,
+                ArgumentsJson =
+                    """
+                    {
+                      "subject":"Explore runtime",
+                      "description":"Inspect the runtime module and prepare a concise execution brief",
+                      "owner":"planner"
+                    }
+                    """
+            });
+            Assert.Equal("completed", taskCreateResult.Status);
+
             var result = await host.ExecuteAsync(sourcePaths, new ExecuteNativeToolRequest
             {
                 ToolName = "agent",
@@ -33,7 +48,8 @@ public sealed class AgentToolTests
                     {
                       "description":"Explore runtime",
                       "prompt":"Inspect the runtime module and prepare a concise execution brief",
-                      "subagent_type":"Explore"
+                      "subagent_type":"Explore",
+                      "task_id":"1"
                     }
                     """
             });
@@ -56,6 +72,13 @@ public sealed class AgentToolTests
             Assert.Contains("\"StopReason\": \"completed\"", persisted);
             Assert.Contains("\"RoundCount\": 1", persisted);
             Assert.Contains("\"TranscriptPath\":", persisted);
+            Assert.Contains("\"TaskId\": \"1\"", persisted);
+
+            var taskFilePath = taskCreateResult.ChangedFiles.Single();
+            var taskFile = await File.ReadAllTextAsync(taskFilePath);
+            Assert.Contains("\"Id\": \"1\"", taskFile);
+            Assert.Contains("\"Status\": \"completed\"", taskFile);
+            Assert.Contains("\"Owner\": \"Explore\"", taskFile);
         }
         finally
         {

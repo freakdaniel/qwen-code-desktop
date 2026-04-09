@@ -17,6 +17,7 @@ public sealed class DesktopPromptAndToolLoopTests
             WorkspaceInstructionSummary = "From QWEN.md:\n- Keep reconnect flow stable.",
             DurableMemorySummary = "Project durable memory (QWEN.md):\n- Remember reconnect state.",
             McpServerSummary = "- docs (project): 3 tool(s), 2 prompt(s), resources available",
+            McpPromptRegistrySummary = "Discovered MCP prompts: 2 across 1 server(s).\n- `docs/workspace-summary`. Summarizes the workspace. Args: scope.\n- `docs/release-notes`. Reads release notes. Args: version.",
             ScratchpadSummary = "Use `D:\\runtime\\tmp\\scratchpad\\desktop-prompt-session` for temporary files.",
             LanguageSummary = "Preferred locale: en\nPreferred language: English",
             OutputStyleSummary = "Mode-specific expectation: Prefer concise, action-oriented answers.",
@@ -51,10 +52,21 @@ public sealed class DesktopPromptAndToolLoopTests
         Assert.Contains("# Task Management", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Tool Loop Rules", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Tool Result Persistence", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# System Reminders", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Tool Call Format", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Tool Call Examples", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Using Tools", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Context And Memory Management", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Long-Session Maintenance", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Memory Hygiene", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Advanced Tool Workflows", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Research And Uncertainty", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Web Research Workflow", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Available Tools This Turn", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Tool Playbooks", systemContent, StringComparison.Ordinal);
         Assert.Contains("# MCP Server Instructions", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# MCP Prompt Registry", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Delegation And Handoffs", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Scratchpad Directory", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Environment", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Session Guidance", systemContent, StringComparison.Ordinal);
@@ -65,10 +77,27 @@ public sealed class DesktopPromptAndToolLoopTests
         Assert.Contains("# Output Expectations", systemContent, StringComparison.Ordinal);
         Assert.Contains("OpenAI-compatible function calling", systemContent, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("docs (project): 3 tool(s), 2 prompt(s), resources available", systemContent, StringComparison.Ordinal);
+        Assert.Contains("Discovered MCP prompts: 2 across 1 server(s).", systemContent, StringComparison.Ordinal);
         Assert.Contains("scratchpad", systemContent, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("old raw tool output", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("conversation may be summarized or compressed automatically", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("include the current year", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("compact working memory", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("high-signal store", systemContent, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("todo_write", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("task_create", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("task_update", systemContent, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("run_shell_command", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("web_search", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tool_search", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Use `lsp` for semantic code intelligence", systemContent, StringComparison.Ordinal);
+        Assert.Contains("Use `mcp-client` to inspect connected MCP servers", systemContent, StringComparison.Ordinal);
+        Assert.Contains("Use `arena` for compare-and-choose tasks", systemContent, StringComparison.Ordinal);
+        Assert.Contains("use `tool_search` to discover the most relevant tools", systemContent, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not delegate understanding", systemContent, StringComparison.Ordinal);
+        Assert.Contains("## `web_search`", systemContent, StringComparison.Ordinal);
+        Assert.Contains("## `agent`", systemContent, StringComparison.Ordinal);
+        Assert.Contains("## `mcp-client`", systemContent, StringComparison.Ordinal);
 
         var userMessage = Assert.IsType<JsonObject>(messages[2]);
         var userContent = userMessage["content"]?.GetValue<string>() ?? string.Empty;
@@ -144,8 +173,92 @@ public sealed class DesktopPromptAndToolLoopTests
         var systemContent = systemMessage["content"]?.GetValue<string>() ?? string.Empty;
         Assert.Contains("# Tool Availability", systemContent, StringComparison.Ordinal);
         Assert.Contains("web_search, web_fetch", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Tool Playbooks", systemContent, StringComparison.Ordinal);
+        Assert.Contains("## `web_search`", systemContent, StringComparison.Ordinal);
+        Assert.Contains("## `web_fetch`", systemContent, StringComparison.Ordinal);
+        Assert.DoesNotContain("## `agent`", systemContent, StringComparison.Ordinal);
         Assert.DoesNotContain("todo_write", systemContent, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("save_memory", systemContent, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void OpenAiCompatibleProtocol_BuildPayload_ExposesDetailedSchemasForAgenticTools()
+    {
+        var payload = OpenAiCompatibleProtocol.BuildPayload(
+            "qwen3-coder-plus",
+            0.2d,
+            4096,
+            NativeAssistantRuntimePromptBuilder.DefaultSystemPrompt,
+            CreateTurnRequest(),
+            CreatePromptContext(),
+            [],
+            null,
+            null);
+
+        var tools = Assert.IsType<JsonArray>(payload["tools"]);
+        var toolsByName = tools
+            .OfType<JsonObject>()
+            .ToDictionary(
+                static item => item["function"]?["name"]?.GetValue<string>() ?? string.Empty,
+                StringComparer.OrdinalIgnoreCase);
+
+        var webSearch = toolsByName["web_search"];
+        Assert.Contains("facts may have changed", webSearch["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("query", Assert.IsType<JsonArray>(webSearch["function"]?["parameters"]?["required"])[0]?.GetValue<string>());
+        Assert.Contains("Include a concrete year", webSearch["function"]?["parameters"]?["properties"]?["query"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+
+        var todoWrite = toolsByName["todo_write"];
+        Assert.Contains("update it as you work", todoWrite["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("array", todoWrite["function"]?["parameters"]?["properties"]?["todos"]?["type"]?.GetValue<string>());
+
+        var askUser = toolsByName["ask_user_question"];
+        Assert.Equal("questions", Assert.IsType<JsonArray>(askUser["function"]?["parameters"]?["required"])[0]?.GetValue<string>());
+        Assert.Equal("array", askUser["function"]?["parameters"]?["properties"]?["questions"]?["type"]?.GetValue<string>());
+
+        var taskCreate = toolsByName["task_create"];
+        Assert.Contains("ownership", taskCreate["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        var taskCreateRequired = Assert.IsType<JsonArray>(taskCreate["function"]?["parameters"]?["required"]);
+        Assert.Contains(taskCreateRequired, static item => string.Equals(item?.GetValue<string>(), "subject", StringComparison.Ordinal));
+        Assert.Contains(taskCreateRequired, static item => string.Equals(item?.GetValue<string>(), "description", StringComparison.Ordinal));
+
+        var taskUpdate = toolsByName["task_update"];
+        Assert.Equal("task_id", Assert.IsType<JsonArray>(taskUpdate["function"]?["parameters"]?["required"])[0]?.GetValue<string>());
+
+        var taskList = toolsByName["task_list"];
+        Assert.Contains("orchestration tasks", taskList["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+
+        var agent = toolsByName["agent"];
+        Assert.Contains("final synthesis", agent["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        var agentRequired = Assert.IsType<JsonArray>(agent["function"]?["parameters"]?["required"]);
+        Assert.Contains(agentRequired, static item => string.Equals(item?.GetValue<string>(), "subagent_type", StringComparison.Ordinal));
+        Assert.Contains("goal, relevant files, constraints", agent["function"]?["parameters"]?["properties"]?["prompt"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+
+        var arena = toolsByName["arena"];
+        Assert.Contains("arena session", arena["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("array", arena["function"]?["parameters"]?["properties"]?["models"]?["type"]?.GetValue<string>());
+
+        var mcpClient = toolsByName["mcp-client"];
+        Assert.Contains("MCP server", mcpClient["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("object", mcpClient["function"]?["parameters"]?["properties"]?["arguments"]?["type"]?.GetValue<string>());
+
+        var mcpTool = toolsByName["mcp-tool"];
+        var mcpToolRequired = Assert.IsType<JsonArray>(mcpTool["function"]?["parameters"]?["required"]);
+        Assert.Contains(mcpToolRequired, static item => string.Equals(item?.GetValue<string>(), "server_name", StringComparison.Ordinal));
+        Assert.Contains(mcpToolRequired, static item => string.Equals(item?.GetValue<string>(), "tool_name", StringComparison.Ordinal));
+
+        var lsp = toolsByName["lsp"];
+        Assert.Contains("Roslyn code intelligence", lsp["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("operation", Assert.IsType<JsonArray>(lsp["function"]?["parameters"]?["required"])[0]?.GetValue<string>());
+        Assert.Equal("string", lsp["function"]?["parameters"]?["properties"]?["operation"]?["type"]?.GetValue<string>());
+
+        var toolSearch = toolsByName["tool_search"];
+        Assert.Contains("before guessing", toolSearch["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("string", toolSearch["function"]?["parameters"]?["properties"]?["query"]?["type"]?.GetValue<string>());
+        Assert.Equal("string", toolSearch["function"]?["parameters"]?["properties"]?["kind"]?["type"]?.GetValue<string>());
+
+        var webFetch = toolsByName["web_fetch"];
+        Assert.Contains("likely source", webFetch["function"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("specific facts", webFetch["function"]?["parameters"]?["properties"]?["prompt"]?["description"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -242,6 +355,9 @@ public sealed class DesktopPromptAndToolLoopTests
         Assert.DoesNotContain("# Environment", staticPrefix, StringComparison.Ordinal);
         Assert.DoesNotContain("# Runtime Instructions", staticPrefix, StringComparison.Ordinal);
         Assert.Contains("# Environment", dynamicTail, StringComparison.Ordinal);
+        Assert.Contains("# Long-Session Maintenance", dynamicTail, StringComparison.Ordinal);
+        Assert.Contains("# Memory Hygiene", dynamicTail, StringComparison.Ordinal);
+        Assert.Contains("# Tool Playbooks", dynamicTail, StringComparison.Ordinal);
         Assert.Contains("# Runtime Instructions", dynamicTail, StringComparison.Ordinal);
         Assert.Contains("# Request-Specific Instructions", dynamicTail, StringComparison.Ordinal);
         Assert.Equal($"{staticPrefix}{Environment.NewLine}{Environment.NewLine}{dynamicTail}", fullPrompt);
@@ -301,6 +417,62 @@ public sealed class DesktopPromptAndToolLoopTests
             Assert.Equal(requestedEvent.ToolCallGroupId, completedEvent.ToolCallGroupId);
             Assert.Equal("""{"query":"weather minsk"}""", requestedEvent.ToolArgumentsJson);
             Assert.Equal("""{"query":"weather minsk"}""", completedEvent.ToolArgumentsJson);
+        }
+        finally
+        {
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ToolCallScheduler_ErrorResult_KeepsTurnLoopRunning()
+    {
+        var workspaceRoot = Path.Combine(Path.GetTempPath(), $"qwen-tool-error-loop-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workspaceRoot);
+
+        try
+        {
+            var request = CreateTurnRequest(workspaceRoot);
+            var scheduler = new ToolCallScheduler(
+                new NonInteractiveToolExecutor(
+                    new StubToolExecutor(
+                        new NativeToolExecutionResult
+                        {
+                            ToolName = "web_fetch",
+                            Status = "error",
+                            ApprovalState = "allow",
+                            WorkingDirectory = workspaceRoot,
+                            ErrorMessage = "404 Not Found",
+                            ChangedFiles = []
+                        })),
+                new LoopDetectionService());
+
+            var toolHistory = new List<AssistantToolCallResult>();
+            var events = new List<AssistantRuntimeEvent>();
+            AssistantToolCall[] toolCalls =
+            [
+                new AssistantToolCall
+                {
+                    Id = "call-web-fetch-1",
+                    ToolName = "web_fetch",
+                    ArgumentsJson = """{"url":"https://example.com/missing","prompt":"Summarize it"}"""
+                }
+            ];
+
+            var result = await scheduler.ScheduleAsync(
+                request,
+                "qwen-compatible",
+                "qwen3-coder-plus",
+                toolCalls,
+                toolHistory,
+                events.Add);
+
+            Assert.True(result.ContinueTurnLoop);
+            var toolResult = Assert.Single(toolHistory);
+            Assert.Equal("error", toolResult.Execution.Status);
+            Assert.Equal("404 Not Found", toolResult.Execution.ErrorMessage);
+            var failedEvent = Assert.Single(events, static item => item.Stage == "tool-failed");
+            Assert.Equal("call-web-fetch-1", failedEvent.ToolCallId);
         }
         finally
         {

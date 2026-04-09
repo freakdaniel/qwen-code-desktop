@@ -117,6 +117,11 @@ function useBootstrapState(): BootstrapState {
       status: activeTurn.status,
       contentDelta: '',
       contentSnapshot: activeTurn.contentSnapshot,
+      toolOutput: '',
+      approvalState: '',
+      changedFiles: [],
+      questions: [],
+      answers: [],
       title: '',
     })
   }
@@ -234,6 +239,23 @@ function useBootstrapState(): BootstrapState {
                   : s,
               ),
             }))
+            setSessionCache((current) => {
+              const detail = current[event.sessionId]
+              if (!detail) {
+                return current
+              }
+
+              return {
+                ...current,
+                [event.sessionId]: {
+                  ...detail,
+                  session: {
+                    ...detail.session,
+                    title: event.title,
+                  },
+                },
+              }
+            })
             return
           }
 
@@ -283,7 +305,6 @@ function useBootstrapState(): BootstrapState {
               return { ...current, [event.sessionId]: event.contentSnapshot }
             }
             if (
-              event.kind === 'assistantCompleted' ||
               event.kind === 'turnCompleted' ||
               event.kind === 'turnCancelled'
             ) {
@@ -299,7 +320,12 @@ function useBootstrapState(): BootstrapState {
             event.kind === 'assistantCompleted' ||
             event.kind === 'turnCompleted' ||
             event.kind === 'turnCancelled' ||
-            event.kind === 'turnReattached'
+            event.kind === 'turnReattached' ||
+            event.kind === 'toolCompleted' ||
+            event.kind === 'toolFailed' ||
+            event.kind === 'toolBlocked' ||
+            event.kind === 'toolApprovalRequired' ||
+            event.kind === 'userInputRequired'
           ) {
             void loadSessionDetail(event.sessionId, { force: true, limit: 200 })
           }

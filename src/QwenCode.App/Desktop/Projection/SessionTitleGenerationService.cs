@@ -24,17 +24,27 @@ public sealed class SessionTitleGenerationService(
 {
     private static readonly Dictionary<string, string> LocaleLanguageMap = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["ru"] = "Russian",
         ["ru-RU"] = "Russian",
+        ["zh"] = "Chinese",
         ["zh-CN"] = "Chinese",
         ["zh-TW"] = "Chinese",
+        ["ja"] = "Japanese",
         ["ja-JP"] = "Japanese",
+        ["ko"] = "Korean",
         ["ko-KR"] = "Korean",
+        ["pt"] = "Portuguese",
         ["pt-BR"] = "Portuguese",
         ["pt-PT"] = "Portuguese",
+        ["de"] = "German",
         ["de-DE"] = "German",
+        ["fr"] = "French",
         ["fr-FR"] = "French",
+        ["es"] = "Spanish",
         ["es-ES"] = "Spanish",
+        ["it"] = "Italian",
         ["it-IT"] = "Italian",
+        ["en"] = "English",
         ["en-US"] = "English",
         ["en-GB"] = "English"
     };
@@ -49,9 +59,20 @@ public sealed class SessionTitleGenerationService(
     /// <returns>The language name</returns>
     public static string ResolveLanguageName(string locale)
     {
-        if (!string.IsNullOrEmpty(locale) && LocaleLanguageMap.TryGetValue(locale, out var name))
+        if (string.IsNullOrWhiteSpace(locale))
         {
-            return name;
+            return "English";
+        }
+
+        if (LocaleLanguageMap.TryGetValue(locale, out var exactName))
+        {
+            return exactName;
+        }
+
+        var languageCode = locale.Split('-', StringSplitOptions.RemoveEmptyEntries)[0];
+        if (!string.IsNullOrWhiteSpace(languageCode) && LocaleLanguageMap.TryGetValue(languageCode, out var shortName))
+        {
+            return shortName;
         }
 
         return "English";
@@ -71,6 +92,51 @@ public sealed class SessionTitleGenerationService(
         }
 
         return text[..60] + "...";
+    }
+
+    /// <summary>
+    /// Builds the utility system prompt used to generate chat titles.
+    /// </summary>
+    /// <param name="locale">The UI locale code</param>
+    /// <returns>The title generation system prompt</returns>
+    public static string BuildTitleSystemPrompt(string locale)
+    {
+        var normalizedLocale = string.IsNullOrWhiteSpace(locale) ? "en-US" : locale;
+        var language = ResolveLanguageName(normalizedLocale);
+        return NativeAssistantUtilityPromptCatalog.BuildSessionTitlePrompt(normalizedLocale, language);
+    }
+
+    /// <summary>
+    /// Normalizes a model-generated title into a compact single-line label.
+    /// </summary>
+    /// <param name="rawTitle">The raw title output</param>
+    /// <returns>The normalized title or an empty string</returns>
+    public static string NormalizeGeneratedTitle(string? rawTitle)
+    {
+        if (string.IsNullOrWhiteSpace(rawTitle))
+        {
+            return string.Empty;
+        }
+
+        var normalized = rawTitle
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+
+        normalized = normalized.Trim('"', '\'', '«', '»', '“', '”', '`', ' ', '\t');
+        normalized = normalized.TrimEnd('.', '!', '?', ';', ':', ',', '…');
+
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        var words = normalized
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Take(7)
+            .ToArray();
+
+        return string.Join(' ', words).Trim();
     }
 
     /// <inheritdoc/>
@@ -132,9 +198,7 @@ public sealed class SessionTitleGenerationService(
     {
         try
         {
-            var language = ResolveLanguageName(locale);
-            var systemPrompt =
-                $"Generate a concise 5-7 word title for a coding session.\nReply in {language}.\nReply with ONLY the title. No quotes, no punctuation at the end.";
+            var systemPrompt = BuildTitleSystemPrompt(locale);
 
             var truncatedPrompt = firstMessageText.Length > 500
                 ? firstMessageText[..500]
@@ -170,7 +234,10 @@ public sealed class SessionTitleGenerationService(
                 return null;
             }
 
-            return response.Content.Trim();
+            var normalizedTitle = NormalizeGeneratedTitle(response.Content);
+            return string.IsNullOrWhiteSpace(normalizedTitle)
+                ? null
+                : normalizedTitle;
         }
         catch (Exception ex)
         {

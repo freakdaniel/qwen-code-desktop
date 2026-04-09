@@ -9,10 +9,12 @@ namespace QwenCode.App.Runtime;
 
 internal static class OpenAiCompatibleProtocol
 {
-    private static readonly string[] SupportedQwenCompatibleTools =
+    private static readonly string[] PreferredQwenCompatibleToolOrder =
     [
         "agent",
+        "arena",
         "skill",
+        "tool_search",
         "list_directory",
         "read_file",
         "grep_search",
@@ -22,8 +24,19 @@ internal static class OpenAiCompatibleProtocol
         "run_shell_command",
         "save_memory",
         "todo_write",
+        "task_create",
+        "task_list",
+        "task_get",
+        "task_update",
+        "task_stop",
         "ask_user_question",
         "exit_plan_mode",
+        "mcp-client",
+        "mcp-tool",
+        "lsp",
+        "cron_create",
+        "cron_list",
+        "cron_delete",
         "web_fetch",
         "web_search"
     ];
@@ -355,7 +368,7 @@ internal static class OpenAiCompatibleProtocol
             .ToDictionary(item => item.Name!, item => item.Tool, StringComparer.OrdinalIgnoreCase);
 
         tools.Clear();
-        foreach (var toolName in SupportedQwenCompatibleTools)
+        foreach (var toolName in ResolveQwenCompatibleToolOrder(byName.Keys))
         {
             if (byName.TryGetValue(toolName, out var tool))
             {
@@ -556,152 +569,168 @@ Pending questions:
     private static JsonObject BuildToolParameters(string toolName) =>
         toolName switch
         {
-            "read_file" => new JsonObject
-            {
-                ["type"] = "object",
-                ["properties"] = new JsonObject
-                {
-                    ["file_path"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Absolute path to the file inside the workspace."
-                    },
-                    ["offset"] = new JsonObject
-                    {
-                        ["type"] = "integer",
-                        ["description"] = "Zero-based line offset."
-                    },
-                    ["limit"] = new JsonObject
-                    {
-                        ["type"] = "integer",
-                        ["description"] = "Maximum number of lines to read."
-                    }
-                },
-                ["required"] = new JsonArray("file_path")
-            },
-            "list_directory" => new JsonObject
-            {
-                ["type"] = "object",
-                ["properties"] = new JsonObject
-                {
-                    ["path"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Absolute directory path inside the workspace."
-                    }
-                },
-                ["required"] = new JsonArray("path")
-            },
-            "glob" => new JsonObject
-            {
-                ["type"] = "object",
-                ["properties"] = new JsonObject
-                {
-                    ["path"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Optional absolute search root inside the workspace."
-                    },
-                    ["pattern"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Glob pattern to match."
-                    }
-                },
-                ["required"] = new JsonArray("pattern")
-            },
-            "grep_search" => new JsonObject
-            {
-                ["type"] = "object",
-                ["properties"] = new JsonObject
-                {
-                    ["path"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Optional absolute search root inside the workspace."
-                    },
-                    ["pattern"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Regex pattern to search for."
-                    },
-                    ["glob"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Optional glob filter for matching files."
-                    },
-                    ["limit"] = new JsonObject
-                    {
-                        ["type"] = "integer",
-                        ["description"] = "Maximum number of matches to return."
-                    }
-                },
-                ["required"] = new JsonArray("pattern")
-            },
-            "run_shell_command" => new JsonObject
-            {
-                ["type"] = "object",
-                ["properties"] = new JsonObject
-                {
-                    ["command"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Shell command to execute."
-                    },
-                    ["directory"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Optional working directory inside the workspace."
-                    }
-                },
-                ["required"] = new JsonArray("command")
-            },
-            "write_file" => new JsonObject
-            {
-                ["type"] = "object",
-                ["properties"] = new JsonObject
-                {
-                    ["file_path"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Absolute path to the file inside the workspace."
-                    },
-                    ["content"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Full file content to write."
-                    }
-                },
-                ["required"] = new JsonArray("file_path", "content")
-            },
-            "edit" => new JsonObject
-            {
-                ["type"] = "object",
-                ["properties"] = new JsonObject
-                {
-                    ["file_path"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Absolute path to the file inside the workspace."
-                    },
-                    ["old_string"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Existing text to replace."
-                    },
-                    ["new_string"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "Replacement text."
-                    },
-                    ["replace_all"] = new JsonObject
-                    {
-                        ["type"] = "boolean",
-                        ["description"] = "Replace all matches instead of just the first one."
-                    }
-                },
-                ["required"] = new JsonArray("file_path", "old_string", "new_string")
-            },
+            "read_file" => BuildObjectSchema(
+                [("file_path", BuildStringSchema("Absolute path to the file inside the workspace.")),
+                 ("offset", BuildIntegerSchema("Zero-based line offset.")),
+                 ("limit", BuildIntegerSchema("Maximum number of lines to read."))],
+                "file_path"),
+            "list_directory" => BuildObjectSchema(
+                [("path", BuildStringSchema("Absolute directory path inside the workspace."))],
+                "path"),
+            "glob" => BuildObjectSchema(
+                [("path", BuildStringSchema("Optional absolute search root inside the workspace.")),
+                 ("pattern", BuildStringSchema("Glob pattern to match."))],
+                "pattern"),
+            "grep_search" => BuildObjectSchema(
+                [("path", BuildStringSchema("Optional absolute search root inside the workspace.")),
+                 ("pattern", BuildStringSchema("Regex pattern to search for.")),
+                 ("glob", BuildStringSchema("Optional glob filter for matching files.")),
+                 ("limit", BuildIntegerSchema("Maximum number of matches to return."))],
+                "pattern"),
+            "run_shell_command" => BuildObjectSchema(
+                [("command", BuildStringSchema("Shell command to execute.")),
+                 ("directory", BuildStringSchema("Optional working directory inside the workspace."))],
+                "command"),
+            "write_file" => BuildObjectSchema(
+                [("file_path", BuildStringSchema("Absolute path to the file inside the workspace.")),
+                 ("content", BuildStringSchema("Full file content to write."))],
+                "file_path",
+                "content"),
+            "edit" => BuildObjectSchema(
+                [("file_path", BuildStringSchema("Absolute path to the file inside the workspace.")),
+                 ("old_string", BuildStringSchema("Existing text to replace.")),
+                 ("new_string", BuildStringSchema("Replacement text.")),
+                 ("replace_all", BuildBooleanSchema("Replace all matches instead of just the first one."))],
+                "file_path",
+                "old_string",
+                "new_string"),
+            "todo_write" => BuildObjectSchema(
+                [("todos", BuildTodoArraySchema()),
+                 ("session_id", BuildStringSchema("Optional session id used to associate the todo list with a chat session. Keep exactly one task in progress when the work is active."))],
+                "todos"),
+            "task_create" => BuildObjectSchema(
+                [("subject", BuildStringSchema("Short title for the task.")),
+                 ("description", BuildStringSchema("Detailed description of the task.")),
+                 ("active_form", BuildStringSchema("Present-continuous progress label such as 'Running tests'.")),
+                 ("owner", BuildStringSchema("Optional owner or responsible agent name.")),
+                 ("metadata", BuildJsonObjectSchema("Optional task metadata object.")),
+                 ("session_id", BuildStringSchema("Optional session id used to scope the task list. Use task records for multi-step or multi-agent work that should stay visible across turns."))],
+                "subject",
+                "description"),
+            "task_list" => BuildObjectSchema(
+                [("session_id", BuildStringSchema("Optional session id used to scope the task list.")),
+                 ("status", BuildEnumStringSchema("Optional status filter.", "pending", "in_progress", "completed", "cancelled"))],
+                Array.Empty<string>()),
+            "task_get" => BuildObjectSchema(
+                [("task_id", BuildStringSchema("Task identifier to retrieve.")),
+                 ("session_id", BuildStringSchema("Optional session id used to scope the task list."))],
+                "task_id"),
+            "task_update" => BuildObjectSchema(
+                [("task_id", BuildStringSchema("Task identifier to update.")),
+                 ("subject", BuildStringSchema("Updated task subject.")),
+                 ("description", BuildStringSchema("Updated task description.")),
+                 ("active_form", BuildStringSchema("Updated present-continuous progress label.")),
+                 ("status", BuildEnumStringSchema("Updated task status.", "pending", "in_progress", "completed", "cancelled")),
+                 ("owner", BuildStringSchema("Updated owner or responsible agent name.")),
+                 ("add_blocks", BuildStringArraySchema("Task ids that this task blocks.")),
+                 ("add_blocked_by", BuildStringArraySchema("Task ids that block this task.")),
+                 ("metadata", BuildJsonObjectSchema("Task metadata object that replaces the previous metadata when supplied.")),
+                 ("session_id", BuildStringSchema("Optional session id used to scope the task list."))],
+                "task_id"),
+            "task_stop" => BuildObjectSchema(
+                [("task_id", BuildStringSchema("Task identifier to cancel or stop.")),
+                 ("session_id", BuildStringSchema("Optional session id used to scope the task list."))],
+                "task_id"),
+            "save_memory" => BuildObjectSchema(
+                [("fact", BuildStringSchema("Specific durable fact or preference to remember.")),
+                 ("scope", BuildEnumStringSchema("Where to save the memory. Use only for durable facts, not transient task state.", "global", "project"))],
+                "fact"),
+            "agent" => BuildObjectSchema(
+                [("description", BuildStringSchema("Short 3-5 word summary of the delegated task.")),
+                 ("prompt", BuildStringSchema("Detailed instructions for the subagent. Include goal, relevant files, constraints, and what success looks like.")),
+                 ("subagent_type", BuildStringSchema("Registered subagent type to launch. Choose a type that already matches the delegated workflow.")),
+                 ("task_id", BuildStringSchema("Optional linked orchestration task id to claim, update, and complete automatically around the delegated run."))],
+                "description",
+                "prompt",
+                "subagent_type"),
+            "arena" => BuildObjectSchema(
+                [("task", BuildStringSchema("Task prompt to run across multiple competing arena agents.")),
+                 ("models", BuildArenaModelsSchema()),
+                 ("action", BuildStringSchema("Optional arena control action such as status, continue, cancel, cleanup, discard, select_winner, or apply_winner.")),
+                 ("session_id", BuildStringSchema("Optional existing arena session id for follow-up arena actions.")),
+                 ("task_id", BuildStringSchema("Optional linked orchestration task id. Arena claims it while comparison is running and completes it when a winner is applied.")),
+                 ("cleanup", BuildBooleanSchema("Whether arena worktrees should be cleaned up after completion.")),
+                 ("base_branch", BuildStringSchema("Optional git base branch for arena worktrees.")),
+                 ("allowed_tools", BuildStringArraySchema("Optional allowlist of tools arena agents may use.")),
+                 ("winner", BuildStringSchema("Optional winning agent name for select/apply actions.")),
+                 ("agent_name", BuildStringSchema("Alias for the winning agent name when selecting or applying a winner."))],
+                "task"),
+            "skill" => BuildObjectSchema(
+                [("skill", BuildStringSchema("Name of the skill to load.")),
+                 ("skill_name", BuildStringSchema("Alias for the skill name when the caller uses skill_name instead of skill."))],
+                "skill"),
+            "tool_search" => BuildObjectSchema(
+                [("query", BuildStringSchema("Free-text query describing the kind of tool you need. Use this before guessing when the best tool is unclear.")),
+                 ("kind", BuildEnumStringSchema("Optional tool kind filter.", "read", "modify", "execute", "coordination", "automation", "control")),
+                 ("approval_state", BuildEnumStringSchema("Optional approval filter.", "allow", "ask", "deny")),
+                 ("limit", BuildIntegerSchema("Maximum number of matching tools to return."))],
+                Array.Empty<string>()),
+            "exit_plan_mode" => BuildObjectSchema([], Array.Empty<string>()),
+            "web_fetch" => BuildObjectSchema(
+                [("url", BuildStringSchema("Absolute http:// or https:// URL to fetch.")),
+                 ("prompt", BuildStringSchema("Optional extraction or analysis prompt for the fetched content. Ask for the specific facts you need from that page."))],
+                "url"),
+            "web_search" => BuildObjectSchema(
+                [("query", BuildStringSchema("Search query to send to the configured web search provider. Include a concrete year for recent releases, docs, or news when relevant.")),
+                 ("provider", BuildStringSchema("Optional provider override when multiple web search providers are configured."))],
+                "query"),
+            "mcp-client" => BuildObjectSchema(
+                [("server_name", BuildStringSchema("Connected MCP server name.")),
+                 ("prompt_name", BuildStringSchema("Prompt name to invoke from that MCP server.")),
+                 ("uri", BuildStringSchema("Resource URI to read from that MCP server.")),
+                 ("arguments", BuildJsonObjectSchema("Optional structured arguments for MCP prompt invocation or describe requests."))],
+                Array.Empty<string>()),
+            "mcp-tool" => BuildObjectSchema(
+                [("server_name", BuildStringSchema("Connected MCP server name that owns the tool.")),
+                 ("tool_name", BuildStringSchema("Exact MCP tool name to invoke.")),
+                 ("arguments", BuildJsonObjectSchema("Tool-specific JSON object passed through to the MCP tool."))],
+                "server_name",
+                "tool_name"),
+            "lsp" => BuildObjectSchema(
+                [("operation", BuildEnumStringSchema(
+                    "LSP operation to execute.",
+                    "documentSymbol",
+                    "workspaceSymbol",
+                    "hover",
+                    "goToDefinition",
+                    "goToImplementation",
+                    "findReferences",
+                    "diagnostics",
+                    "workspaceDiagnostics",
+                    "prepareCallHierarchy",
+                    "incomingCalls",
+                    "outgoingCalls",
+                    "codeActions")),
+                 ("file_path", BuildStringSchema("Absolute source file path for file-scoped LSP operations.")),
+                 ("line", BuildIntegerSchema("Zero-based line number for symbol lookup operations.")),
+                 ("character", BuildIntegerSchema("Zero-based character offset for symbol lookup operations.")),
+                 ("query", BuildStringSchema("Workspace symbol query string.")),
+                 ("limit", BuildIntegerSchema("Maximum number of results to return.")),
+                 ("includeDeclaration", BuildBooleanSchema("Whether reference lookups should include declaration locations."))],
+                "operation"),
+            "ask_user_question" => BuildObjectSchema(
+                [("questions", BuildQuestionArraySchema())],
+                "questions"),
+            "cron_create" => BuildObjectSchema(
+                [("cron", BuildStringSchema("Cron expression describing when to run the task.")),
+                 ("prompt", BuildStringSchema("Prompt to execute when the schedule fires.")),
+                 ("recurring", BuildBooleanSchema("Whether the schedule should repeat. Defaults to true."))],
+                "cron",
+                "prompt"),
+            "cron_list" => BuildObjectSchema([], Array.Empty<string>()),
+            "cron_delete" => BuildObjectSchema(
+                [("id", BuildStringSchema("Identifier of the cron job to cancel."))],
+                "id"),
             _ => new JsonObject
             {
                 ["type"] = "object",
@@ -716,10 +745,166 @@ Pending questions:
             "list_directory" => "List files and directories inside the workspace.",
             "glob" => "Find workspace files using a glob pattern.",
             "grep_search" => "Search workspace files using a regex pattern.",
-            "run_shell_command" => "Run a shell command inside the workspace.",
+            "run_shell_command" => "Run a shell command inside the workspace for build, test, git, or environment tasks.",
             "write_file" => "Write a full file inside the workspace.",
-            "edit" => "Replace text inside a workspace file.",
-            _ => "Native workspace tool."
+            "edit" => "Replace text inside a workspace file with a targeted edit.",
+            "todo_write" => "Create or update a structured todo list for the current coding task. Keep progress visible and update it as you work.",
+            "task_create" => "Create a richer session-scoped task record for multi-step orchestration, ownership, and progress tracking.",
+            "task_list" => "List session-scoped orchestration tasks and their current status.",
+            "task_get" => "Read the full details for a specific session-scoped task.",
+            "task_update" => "Update a session-scoped task's status, ownership, dependencies, description, or active execution state.",
+            "task_stop" => "Stop or cancel a session-scoped task that should no longer continue.",
+            "save_memory" => "Persist a durable fact or preference to global or project memory. Do not use it for transient task state.",
+            "agent" => "Launch a specialized subagent for delegated or parallel work, while keeping final synthesis in the parent agent.",
+            "arena" => "Run the same task across multiple arena agents or manage an existing arena session.",
+            "skill" => "Load a predefined skill workflow or instructions bundle by name.",
+            "tool_search" => "Search the native desktop tool catalog by intent, kind, or approval state before guessing at the best tool.",
+            "exit_plan_mode" => "Exit plan mode after preparing a concrete plan for the user.",
+            "web_fetch" => "Fetch a specific URL and return the page contents or prompt-focused extraction once you know the likely source.",
+            "web_search" => "Search the web for current or external information and return sourced results, especially when facts may have changed.",
+            "mcp-client" => "Inspect connected MCP servers, invoke MCP prompts, or read MCP resources.",
+            "mcp-tool" => "Execute a concrete tool exposed by a connected MCP server.",
+            "lsp" => "Query Roslyn code intelligence such as symbols, definitions, references, diagnostics, or call hierarchy.",
+            "ask_user_question" => "Pause execution and ask the user one or more structured follow-up questions.",
+            "cron_create" => "Create a session-scoped recurring or one-shot automation job.",
+            "cron_list" => "List active session-scoped automation jobs.",
+            "cron_delete" => "Cancel a session-scoped automation job.",
+            _ => "Native tool available in this desktop runtime."
+        };
+
+    private static IReadOnlyList<string> ResolveQwenCompatibleToolOrder(IEnumerable<string> availableToolNames)
+    {
+        var available = new HashSet<string>(availableToolNames, StringComparer.OrdinalIgnoreCase);
+        var ordered = new List<string>();
+
+        foreach (var toolName in PreferredQwenCompatibleToolOrder)
+        {
+            if (available.Remove(toolName))
+            {
+                ordered.Add(toolName);
+            }
+        }
+
+        ordered.AddRange(available.OrderBy(static item => item, StringComparer.OrdinalIgnoreCase));
+        return ordered;
+    }
+
+    private static JsonObject BuildObjectSchema(
+        IEnumerable<(string Name, JsonNode Schema)> properties,
+        params string[] requiredProperties)
+    {
+        var propertyObject = new JsonObject();
+        foreach (var (name, schema) in properties)
+        {
+            propertyObject[name] = schema;
+        }
+
+        var result = new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = propertyObject
+        };
+
+        if (requiredProperties.Length > 0)
+        {
+            result["required"] = new JsonArray(requiredProperties.Select(static property => (JsonNode)JsonValue.Create(property)!).ToArray());
+        }
+
+        return result;
+    }
+
+    private static JsonObject BuildStringSchema(string description) =>
+        new()
+        {
+            ["type"] = "string",
+            ["description"] = description
+        };
+
+    private static JsonObject BuildStringArraySchema(string description) =>
+        new()
+        {
+            ["type"] = "array",
+            ["description"] = description,
+            ["items"] = BuildStringSchema("String item.")
+        };
+
+    private static JsonObject BuildIntegerSchema(string description) =>
+        new()
+        {
+            ["type"] = "integer",
+            ["description"] = description
+        };
+
+    private static JsonObject BuildBooleanSchema(string description) =>
+        new()
+        {
+            ["type"] = "boolean",
+            ["description"] = description
+        };
+
+    private static JsonObject BuildJsonObjectSchema(string description) =>
+        new()
+        {
+            ["type"] = "object",
+            ["description"] = description
+        };
+
+    private static JsonObject BuildEnumStringSchema(string description, params string[] values) =>
+        new()
+        {
+            ["type"] = "string",
+            ["description"] = description,
+            ["enum"] = new JsonArray(values.Select(static value => (JsonNode)JsonValue.Create(value)!).ToArray())
+        };
+
+    private static JsonObject BuildTodoArraySchema() =>
+        new()
+        {
+            ["type"] = "array",
+            ["description"] = "Full updated todo list for the session.",
+            ["items"] = BuildObjectSchema(
+                [("id", BuildStringSchema("Stable todo identifier.")),
+                 ("content", BuildStringSchema("Short description of the task.")),
+                 ("status", BuildEnumStringSchema("Current task state.", "pending", "in_progress", "completed"))],
+                "id",
+                "content",
+                "status")
+        };
+
+    private static JsonObject BuildQuestionArraySchema() =>
+        new()
+        {
+            ["type"] = "array",
+            ["description"] = "Questions to present to the user for clarification or a decision.",
+            ["items"] = BuildObjectSchema(
+                [("header", BuildStringSchema("Short UI label for the question.")),
+                 ("question", BuildStringSchema("Prompt shown to the user.")),
+                 ("multiSelect", BuildBooleanSchema("Whether the user may choose multiple options.")),
+                 ("options", new JsonObject
+                 {
+                     ["type"] = "array",
+                     ["description"] = "Available answer options.",
+                     ["items"] = BuildObjectSchema(
+                         [("label", BuildStringSchema("Visible option label.")),
+                          ("description", BuildStringSchema("Short explanation of the option."))],
+                         "label",
+                         "description")
+                 })],
+                "header",
+                "question",
+                "options")
+        };
+
+    private static JsonObject BuildArenaModelsSchema() =>
+        new()
+        {
+            ["type"] = "array",
+            ["description"] = "Arena competitor model descriptors.",
+            ["items"] = BuildObjectSchema(
+                [("model", BuildStringSchema("Model identifier for the arena competitor.")),
+                 ("agent_name", BuildStringSchema("Optional display name for this arena competitor.")),
+                 ("prompt", BuildStringSchema("Optional extra prompt or strategy instructions for this competitor."))],
+                "model")
         };
 
     internal sealed record ProviderResponse(string Summary, IReadOnlyList<AssistantToolCall> ToolCalls);

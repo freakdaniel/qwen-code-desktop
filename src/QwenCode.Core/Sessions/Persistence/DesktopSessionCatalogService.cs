@@ -61,17 +61,22 @@ public sealed class DesktopSessionCatalogService(
         }
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, $"{request.SessionId}.jsonl");
+        var preview = FindSessionPreview(paths, request.SessionId);
+        var transcriptPath = !string.IsNullOrWhiteSpace(preview?.TranscriptPath)
+            ? preview!.TranscriptPath
+            : Path.Combine(runtimeProfile.ChatsDirectory, $"{request.SessionId}.jsonl");
         if (!File.Exists(transcriptPath))
         {
             return null;
         }
 
-        var preview = ListSessions(paths, 128).FirstOrDefault(item =>
-            string.Equals(item.SessionId, request.SessionId, StringComparison.Ordinal));
         if (preview is null)
         {
-            return null;
+            preview = TryReadSession(new FileInfo(transcriptPath), runtimeProfile, chatRecordingService);
+            if (preview is null)
+            {
+                return null;
+            }
         }
 
         var entries = new List<DesktopSessionEntry>();
@@ -134,7 +139,8 @@ public sealed class DesktopSessionCatalogService(
         }
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        return File.Exists(Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl"));
+        var transcriptPath = ResolveTranscriptPath(paths, runtimeProfile, sessionId);
+        return File.Exists(transcriptPath);
     }
 
     /// <summary>
@@ -159,7 +165,7 @@ public sealed class DesktopSessionCatalogService(
         }
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
+        var transcriptPath = ResolveTranscriptPath(paths, runtimeProfile, sessionId);
         if (!File.Exists(transcriptPath))
         {
             return null;
@@ -262,7 +268,7 @@ public sealed class DesktopSessionCatalogService(
         }
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
+        var transcriptPath = ResolveTranscriptPath(paths, runtimeProfile, sessionId);
         if (!File.Exists(transcriptPath))
         {
             return false;
@@ -276,6 +282,21 @@ public sealed class DesktopSessionCatalogService(
         }
 
         return true;
+    }
+
+    private SessionPreview? FindSessionPreview(WorkspacePaths paths, string sessionId) =>
+        ListSessions(paths, int.MaxValue).FirstOrDefault(item =>
+            string.Equals(item.SessionId, sessionId, StringComparison.Ordinal));
+
+    private string ResolveTranscriptPath(WorkspacePaths paths, QwenRuntimeProfile runtimeProfile, string sessionId)
+    {
+        var preview = FindSessionPreview(paths, sessionId);
+        if (!string.IsNullOrWhiteSpace(preview?.TranscriptPath))
+        {
+            return preview!.TranscriptPath;
+        }
+
+        return Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
     }
 
     private static SessionPreview? TryReadSession(
@@ -366,13 +387,10 @@ public sealed class DesktopSessionCatalogService(
             var effectiveWorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
                 ? runtimeProfile.ProjectRoot
                 : workingDirectory;
-            var title = string.IsNullOrWhiteSpace(firstUserPrompt)
-                ? $"Session {effectiveSessionId[..Math.Min(8, effectiveSessionId.Length)]}"
-                : firstUserPrompt;
             return new SessionPreview
             {
                 SessionId = effectiveSessionId,
-                Title = title,
+                Title = null,
                 LastActivity = file.LastWriteTimeUtc.ToString("O"),
                 StartedAt = file.CreationTimeUtc.ToString("O"),
                 LastUpdatedAt = file.LastWriteTimeUtc.ToString("O"),

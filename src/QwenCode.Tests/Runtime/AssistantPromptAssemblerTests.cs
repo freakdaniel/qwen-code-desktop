@@ -1,4 +1,5 @@
 using QwenCode.App.Mcp;
+using QwenCode.App.Prompts;
 
 namespace QwenCode.Tests.Runtime;
 
@@ -90,6 +91,33 @@ public sealed class AssistantPromptAssemblerTests
                         DiscoveredPromptsCount = 2,
                         SupportsPrompts = true,
                         SupportsResources = true
+                    }),
+                new FakePromptRegistryService(
+                    new PromptRegistrySnapshot
+                    {
+                        TotalCount = 2,
+                        ServerCount = 1,
+                        Prompts =
+                        [
+                            new PromptRegistryEntry
+                            {
+                                Name = "workspace-summary",
+                                PromptName = "workspace-summary",
+                                QualifiedName = "docs/workspace-summary",
+                                ServerName = "docs",
+                                Description = "Summarize the workspace using repository-specific knowledge.",
+                                ArgumentsJson = """[{"name":"scope"},{"name":"format"}]"""
+                            },
+                            new PromptRegistryEntry
+                            {
+                                Name = "release-notes",
+                                PromptName = "release-notes",
+                                QualifiedName = "docs/release-notes",
+                                ServerName = "docs",
+                                Description = "Read the release notes for a given version.",
+                                ArgumentsJson = """[{"name":"version"}]"""
+                            }
+                        ]
                     }));
             var promptContext = await assembler.AssembleAsync(
                 new AssistantTurnRequest
@@ -163,6 +191,11 @@ public sealed class AssistantPromptAssemblerTests
             Assert.Contains("docs (project, http): 3 tool(s), 2 prompt(s), resources available", promptContext.McpServerSummary);
             Assert.Contains("prompts available", promptContext.McpServerSummary, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("repo-specific docs and prompts", promptContext.McpServerSummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Use `mcp-client` with `server_name` + `prompt_name`", promptContext.McpServerSummary, StringComparison.Ordinal);
+            Assert.Contains("Use `mcp-tool` for concrete server-exposed actions", promptContext.McpServerSummary, StringComparison.Ordinal);
+            Assert.Contains("Discovered MCP prompts: 2 across 1 server(s).", promptContext.McpPromptRegistrySummary);
+            Assert.Contains("`docs/workspace-summary`", promptContext.McpPromptRegistrySummary, StringComparison.Ordinal);
+            Assert.Contains("Args: scope, format.", promptContext.McpPromptRegistrySummary, StringComparison.Ordinal);
             Assert.Contains("scratchpad", promptContext.ScratchpadSummary, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("session-1", promptContext.ScratchpadSummary, StringComparison.Ordinal);
             Assert.Contains("Preferred locale: en", promptContext.LanguageSummary);
@@ -501,5 +534,20 @@ public sealed class AssistantPromptAssemblerTests
             WorkspacePaths paths,
             string name,
             CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakePromptRegistryService(PromptRegistrySnapshot snapshot) : IPromptRegistryService
+    {
+        public Task<PromptRegistrySnapshot> GetSnapshotAsync(
+            WorkspacePaths paths,
+            GetPromptRegistryRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(snapshot);
+
+        public Task<McpPromptInvocationResult> InvokeAsync(
+            WorkspacePaths paths,
+            InvokePromptRegistryEntryRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

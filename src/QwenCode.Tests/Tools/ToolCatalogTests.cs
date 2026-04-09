@@ -45,9 +45,15 @@ public sealed class ToolCatalogTests
             Assert.Contains(snapshot.Tools, tool => tool.Name == "run_shell_command" && tool.ApprovalState == "deny");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "read_file" && tool.SourcePath == "native://tools/read_file");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "todo_write" && tool.SourcePath == "native://tools/todo_write");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "task_create" && tool.SourcePath == "native://tools/task_create");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "task_list" && tool.SourcePath == "native://tools/task_list");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "task_get" && tool.SourcePath == "native://tools/task_get");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "task_update" && tool.SourcePath == "native://tools/task_update");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "task_stop" && tool.SourcePath == "native://tools/task_stop");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "save_memory" && tool.SourcePath == "native://tools/save_memory");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "agent" && tool.SourcePath == "native://tools/agent");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "skill" && tool.SourcePath == "native://tools/skill");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "tool_search" && tool.SourcePath == "native://tools/tool_search");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "exit_plan_mode" && tool.SourcePath == "native://tools/exit_plan_mode");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "web_fetch" && tool.SourcePath == "native://tools/web_fetch");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "web_search" && tool.SourcePath == "native://tools/web_search");

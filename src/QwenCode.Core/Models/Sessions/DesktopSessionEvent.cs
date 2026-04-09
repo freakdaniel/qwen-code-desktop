@@ -83,6 +83,31 @@ public sealed class DesktopSessionEvent
     public string AgentName { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the tool output body
+    /// </summary>
+    public string ToolOutput { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the approval state
+    /// </summary>
+    public string ApprovalState { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the changed files
+    /// </summary>
+    public IReadOnlyList<string> ChangedFiles { get; init; } = [];
+
+    /// <summary>
+    /// Gets or sets the questions
+    /// </summary>
+    public IReadOnlyList<DesktopQuestionPrompt> Questions { get; init; } = [];
+
+    /// <summary>
+    /// Gets or sets the answers
+    /// </summary>
+    public IReadOnlyList<DesktopQuestionAnswer> Answers { get; init; } = [];
+
+    /// <summary>
     /// Gets or sets the title
     /// </summary>
     public string Title { get; init; } = string.Empty;

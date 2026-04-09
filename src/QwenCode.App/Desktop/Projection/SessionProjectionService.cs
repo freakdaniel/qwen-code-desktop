@@ -1,4 +1,7 @@
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
+using QwenCode.App.Desktop.Projection;
+using QwenCode.App.Compatibility;
 using QwenCode.App.Infrastructure;
 using QwenCode.App.Models;
 using QwenCode.App.Options;
@@ -19,6 +22,9 @@ public sealed class SessionProjectionService : IDesktopSessionProjectionService,
     private readonly IToolExecutor _toolExecutor;
     private readonly ISessionHost _sessionHost;
     private readonly IActiveTurnRegistry _activeTurnRegistry;
+    private readonly QwenRuntimeProfileService _runtimeProfileService;
+    private readonly IServiceProvider _services;
+    private readonly ILocaleStateService _localeStateService;
     private EventHandler<DesktopSessionEvent>? _sessionEvent;
 
     /// <summary>
@@ -31,6 +37,9 @@ public sealed class SessionProjectionService : IDesktopSessionProjectionService,
     /// <param name="toolExecutor">The tool executor</param>
     /// <param name="sessionHost">The session host</param>
     /// <param name="activeTurnRegistry">The active turn registry</param>
+    /// <param name="runtimeProfileService">The runtime profile service</param>
+    /// <param name="services">The services</param>
+    /// <param name="localeStateService">The locale state service</param>
     public SessionProjectionService(
         IOptions<DesktopShellOptions> options,
         IWorkspacePathResolver workspacePathResolver,
@@ -38,7 +47,10 @@ public sealed class SessionProjectionService : IDesktopSessionProjectionService,
         ISessionService sessionService,
         IToolExecutor toolExecutor,
         ISessionHost sessionHost,
-        IActiveTurnRegistry activeTurnRegistry)
+        IActiveTurnRegistry activeTurnRegistry,
+        QwenRuntimeProfileService runtimeProfileService,
+        IServiceProvider services,
+        ILocaleStateService localeStateService)
     {
         _options = options.Value;
         _workspacePathResolver = workspacePathResolver;
@@ -47,6 +59,9 @@ public sealed class SessionProjectionService : IDesktopSessionProjectionService,
         _toolExecutor = toolExecutor;
         _sessionHost = sessionHost;
         _activeTurnRegistry = activeTurnRegistry;
+        _runtimeProfileService = runtimeProfileService;
+        _services = services;
+        _localeStateService = localeStateService;
 
         _sessionHost.SessionEvent += (s, e) => _sessionEvent?.Invoke(s, e);
     }
@@ -109,8 +124,37 @@ public sealed class SessionProjectionService : IDesktopSessionProjectionService,
     /// </summary>
     /// <param name="request">The request payload</param>
     /// <returns>A task that resolves to desktop session turn result</returns>
-    public Task<DesktopSessionTurnResult> StartSessionTurnAsync(StartDesktopSessionTurnRequest request) =>
-        _sessionHost.StartTurnAsync(ResolveWorkspace(), request);
+    public async Task<DesktopSessionTurnResult> StartSessionTurnAsync(StartDesktopSessionTurnRequest request)
+    {
+        var workspace = ResolveWorkspace();
+        var runtimeProfile = _runtimeProfileService.Inspect(workspace);
+        var sessionId = string.IsNullOrWhiteSpace(request.SessionId) ? Guid.NewGuid().ToString() : request.SessionId;
+        var transcriptPath = Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
+        var workingDirectory = ResolveWorkingDirectory(runtimeProfile, request.WorkingDirectory);
+        var createdNewSession = !_sessionService.SessionExists(workspace, sessionId);
+        var normalizedRequest = new StartDesktopSessionTurnRequest
+        {
+            SessionId = sessionId,
+            Prompt = request.Prompt,
+            WorkingDirectory = request.WorkingDirectory,
+            ToolName = request.ToolName,
+            ToolArgumentsJson = request.ToolArgumentsJson,
+            ApproveToolExecution = request.ApproveToolExecution
+        };
+
+        if (createdNewSession && !string.IsNullOrWhiteSpace(normalizedRequest.Prompt))
+        {
+            var sessionTitleGenerationService = _services.GetRequiredService<ISessionTitleGenerationService>();
+            sessionTitleGenerationService.EnqueueTitleGeneration(
+                sessionId,
+                normalizedRequest.Prompt,
+                transcriptPath,
+                workingDirectory,
+                _localeStateService.CurrentLocale);
+        }
+
+        return await _sessionHost.StartTurnAsync(workspace, normalizedRequest);
+    }
 
     /// <summary>
     /// Approves pending tool async
@@ -153,4 +197,38 @@ public sealed class SessionProjectionService : IDesktopSessionProjectionService,
         _sessionHost.DismissInterruptedTurnAsync(ResolveWorkspace(), request);
 
     private WorkspacePaths ResolveWorkspace() => _workspacePathResolver.Resolve(_options.Workspace);
+
+    private static string ResolveWorkingDirectory(QwenRuntimeProfile runtimeProfile, string requestedWorkingDirectory)
+    {
+        var workspaceRoot = runtimeProfile.ProjectRoot;
+        var runtimeTempRoot = Path.Combine(runtimeProfile.RuntimeBaseDirectory, "tmp");
+        var resolved = string.IsNullOrWhiteSpace(requestedWorkingDirectory)
+            ? workspaceRoot
+            : Path.IsPathRooted(requestedWorkingDirectory)
+                ? Path.GetFullPath(requestedWorkingDirectory)
+                : Path.GetFullPath(Path.Combine(workspaceRoot, requestedWorkingDirectory));
+
+        if (IsPathWithinRoot(resolved, workspaceRoot) || IsPathWithinRoot(resolved, runtimeTempRoot))
+        {
+            return resolved;
+        }
+
+        return Path.GetFullPath(resolved);
+    }
+
+    private static bool IsPathWithinRoot(string path, string root)
+    {
+        static string NormalizeRoot(string value) =>
+            Path.GetFullPath(value)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        var normalizedPath = NormalizeRoot(path);
+        var normalizedRoot = NormalizeRoot(root);
+        return normalizedPath.StartsWith(normalizedRoot, comparison);
+    }
 }

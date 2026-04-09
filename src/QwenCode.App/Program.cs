@@ -19,6 +19,7 @@ internal static class Program
     private static int _shutdownInitiated;
     private static int _runtimeStopped;
     private static int _processExitCleanupCompleted;
+    private static int _consoleCancelCount;
 
     private static async Task Main(string[] args)
     {
@@ -46,9 +47,9 @@ internal static class Program
         services.AddDesktopShellServices(configuration);
 
         using var serviceProvider = services.BuildServiceProvider();
-        var runtimeController = ElectronNetRuntime.RuntimeController;
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         ConsoleLogBridge.Install(loggerFactory);
+        var runtimeController = ElectronNetRuntime.RuntimeController;
         var logger = loggerFactory.CreateLogger("QwenCode.App");
         Bootstrapper.ShutdownRequested += reason => _ = RequestShutdownAsync(runtimeController, logger, reason);
         RegisterShutdownHandlers(runtimeController, logger);
@@ -102,8 +103,17 @@ internal static class Program
     {
         Console.CancelKeyPress += async (_, eventArgs) =>
         {
-            logger.LogWarning("Console cancel requested. Shutting down Electron host");
             eventArgs.Cancel = true;
+            var cancelCount = Interlocked.Increment(ref _consoleCancelCount);
+
+            if (Volatile.Read(ref _shutdownInitiated) != 0 || cancelCount > 1)
+            {
+                logger.LogWarning("Console cancel requested again during shutdown. Force terminating Electron host");
+                ForceTerminateCurrentProcess(logger, "console-cancel-repeat");
+                return;
+            }
+
+            logger.LogWarning("Console cancel requested. Shutting down Electron host");
             await RequestShutdownAsync(runtimeController, logger, "console-cancel");
         };
 
