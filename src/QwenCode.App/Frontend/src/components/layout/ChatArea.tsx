@@ -36,6 +36,7 @@ import {
   MessageCircle,
   CheckSquare,
   Download,
+  Square,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
@@ -670,6 +671,527 @@ function StreamingAssistantBody({
   return <AssistantMarkdownBody text={text} />;
 }
 
+type PendingApprovalDecision = 'allow-once' | 'always-allow' | 'deny';
+
+interface PendingApprovalPresentation {
+  pendingEntry: DesktopSessionEntry;
+  suggestedRule: string;
+  signature: string;
+}
+
+function isApprovalPlaceholderText(text: string): boolean {
+  return /tool '([^']+)' is waiting for approval(?:[^.]*)\.?$/i.test(text.trim());
+}
+
+function splitFirstCommandSegment(command: string): string {
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (let index = 0; index < command.length; index++) {
+    const character = command[index];
+
+    if (character === '\'' && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+
+    if (character === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (inSingleQuote || inDoubleQuote) {
+      continue;
+    }
+
+    for (const token of ['&&', '||', ';;', '|&', '|', ';']) {
+      if (command.slice(index, index + token.length) === token) {
+        return command.slice(0, index).trim();
+      }
+    }
+  }
+
+  return command.trim();
+}
+
+function extractExecutableFromCommandSegment(segment: string): string {
+  const trimmed = segment.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  let token = trimmed;
+  if (trimmed[0] === '"' || trimmed[0] === '\'') {
+    const quote = trimmed[0];
+    const endQuote = trimmed.indexOf(quote, 1);
+    token = endQuote > 0 ? trimmed.slice(1, endQuote) : trimmed.slice(1);
+  } else {
+    const whitespaceIndex = trimmed.search(/\s/);
+    token = whitespaceIndex < 0 ? trimmed : trimmed.slice(0, whitespaceIndex);
+  }
+
+  if (!token) {
+    return '';
+  }
+
+  if (token.includes('/') || token.includes('\\')) {
+    const lastSlash = Math.max(token.lastIndexOf('/'), token.lastIndexOf('\\'));
+    token = token.slice(lastSlash + 1);
+    token = token.replace(/\.(cmd|exe|bat|ps1)$/i, '');
+  }
+
+  return token.trim();
+}
+
+function stripMatchingQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === '"' && last === '"') || (first === '\'' && last === '\'')) {
+      return trimmed.slice(1, -1);
+    }
+  }
+
+  return trimmed;
+}
+
+function tokenizeShellSegment(segment: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let escaped = false;
+
+  for (const character of segment) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+
+    if (character === '\\' && !inSingleQuote) {
+      escaped = true;
+      continue;
+    }
+
+    if (character === '\'' && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+
+    if (character === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && /\s/.test(character)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+
+      continue;
+    }
+
+    current += character;
+  }
+
+  if (current) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+function extractFirstHttpUrl(tokens: string[]): string {
+  for (const token of tokens) {
+    const candidate = stripMatchingQuotes(token);
+    if (/^https?:\/\//i.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  return '';
+}
+
+function extractPrimaryShellPath(tokens: string[]): string {
+  for (const token of tokens.slice(1)) {
+    const candidate = stripMatchingQuotes(token);
+    if (!candidate || candidate === '--') {
+      continue;
+    }
+
+    if (candidate.startsWith('-')) {
+      continue;
+    }
+
+    if (/^https?:\/\//i.test(candidate)) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return '';
+}
+
+function suggestVirtualShellRule(command: string, projectRoot: string): string {
+  const firstSegment = splitFirstCommandSegment(command);
+  const executable = extractExecutableFromCommandSegment(firstSegment).toLowerCase();
+  if (!executable) {
+    return '';
+  }
+
+  const tokens = tokenizeShellSegment(firstSegment);
+  if (tokens.length === 0) {
+    return '';
+  }
+
+  if (['curl', 'wget', 'fetch'].includes(executable)) {
+    const url = extractFirstHttpUrl(tokens);
+    if (!url) {
+      return '';
+    }
+
+    try {
+      const host = new URL(url).hostname.trim();
+      return host ? `WebFetch(domain:${host})` : '';
+    } catch {
+      return '';
+    }
+  }
+
+  if (['cat', 'tac', 'nl', 'head', 'tail', 'less', 'more', 'type'].includes(executable)) {
+    const filePath = extractPrimaryShellPath(tokens);
+    return filePath ? `Read(${resolveApprovalRulePath(filePath, projectRoot)})` : '';
+  }
+
+  if (['ls', 'dir', 'tree', 'find'].includes(executable)) {
+    const directoryPath = extractPrimaryShellPath(tokens) || '.';
+    return `Read(${resolveApprovalRulePath(directoryPath, projectRoot).replace(/\/?$/, '/**')})`;
+  }
+
+  return '';
+}
+
+function resolveApprovalRulePath(candidatePath: string, projectRoot: string): string {
+  if (!candidatePath) {
+    return '';
+  }
+
+  const normalizedProjectRoot = normalizePathKey(projectRoot);
+  const normalizedCandidate = normalizePathKey(candidatePath);
+  const resolvedPath = normalizedCandidate.startsWith(normalizedProjectRoot)
+    ? normalizedCandidate
+    : normalizePathKey(joinDesktopPath(projectRoot || '', candidatePath));
+
+  if (normalizedProjectRoot && (resolvedPath === normalizedProjectRoot || resolvedPath.startsWith(`${normalizedProjectRoot}/`))) {
+    const relative = resolvedPath.slice(normalizedProjectRoot.length).replace(/^\/+/, '');
+    return relative ? `/${relative}` : '/';
+  }
+
+  return `//${resolvedPath}`;
+}
+
+function suggestProjectAllowRule(entry: DesktopSessionEntry, projectRoot: string): string {
+  const parsed = parseObjectArguments(entry.arguments) ?? {};
+  const toolName = (entry.toolName || '').trim().toLowerCase();
+
+  if (toolName.includes('shell') || toolName.includes('bash') || toolName.includes('run_command') || toolName.includes('terminal') || toolName.includes('execute')) {
+    const command = typeof parsed.command === 'string' ? parsed.command.trim() : '';
+    if (!command) {
+      return 'Bash';
+    }
+
+    const virtualRule = suggestVirtualShellRule(command, projectRoot);
+    if (virtualRule) {
+      return virtualRule;
+    }
+
+    const firstSegment = splitFirstCommandSegment(command);
+    const executable = extractExecutableFromCommandSegment(firstSegment);
+    if (!executable) {
+      return `Bash(${firstSegment || command})`;
+    }
+
+    return firstSegment === executable ? `Bash(${executable})` : `Bash(${executable} *)`;
+  }
+
+  const rawPath =
+    (typeof parsed.file_path === 'string' && parsed.file_path.trim()) ||
+    (typeof parsed.path === 'string' && parsed.path.trim()) ||
+    (typeof parsed.directory === 'string' && parsed.directory.trim()) ||
+    '';
+
+  if (toolName.includes('edit')) {
+    return rawPath ? `Edit(${resolveApprovalRulePath(rawPath, projectRoot)})` : 'Edit';
+  }
+
+  if (toolName.includes('write') || toolName.includes('create_file')) {
+    return rawPath ? `Write(${resolveApprovalRulePath(rawPath, projectRoot)})` : 'Write';
+  }
+
+  if (
+    toolName.includes('read') ||
+    toolName.includes('grep') ||
+    toolName.includes('search_files') ||
+    toolName.includes('glob') ||
+    toolName.includes('find_files')
+  ) {
+    return rawPath ? `Read(${resolveApprovalRulePath(rawPath, projectRoot)})` : 'Read';
+  }
+
+  if (toolName.includes('list') || toolName.includes('directory')) {
+    const pathRule = rawPath ? resolveApprovalRulePath(rawPath, projectRoot).replace(/\/?$/, '/**') : '';
+    return pathRule ? `Read(${pathRule})` : 'Read';
+  }
+
+  if (toolName.includes('mcp')) {
+    const serverName = typeof parsed.server_name === 'string' ? parsed.server_name.trim() : '';
+    const tool = typeof parsed.tool_name === 'string' ? parsed.tool_name.trim() : '';
+    return serverName && tool ? `mcp__${serverName}__${tool}` : 'mcp-tool';
+  }
+
+  if (toolName.includes('agent')) {
+    const agentType = typeof parsed.agent_type === 'string' ? parsed.agent_type.trim() : '';
+    return agentType ? `Agent(${agentType})` : 'Agent';
+  }
+
+  if (toolName.includes('skill')) {
+    const skillName = typeof parsed.skill_name === 'string' ? parsed.skill_name.trim() : '';
+    return skillName ? `Skill(${skillName})` : 'Skill';
+  }
+
+  return entry.toolName || 'Tool';
+}
+
+function getPendingApprovalSignature(entry: DesktopSessionEntry, projectRoot: string): string {
+  const rule = suggestProjectAllowRule(entry, projectRoot).trim();
+  return rule || (entry.toolName || '').trim().toLowerCase() || entry.id;
+}
+
+function buildPendingApprovalPresentations(
+  entries: DesktopSessionEntry[],
+  projectRoot: string,
+): PendingApprovalPresentation[] {
+  const presentations: PendingApprovalPresentation[] = [];
+
+  for (const entry of entries) {
+    const isPendingApproval =
+      entry.type === 'tool' &&
+      entry.status.trim().toLowerCase() === 'approval-required' &&
+      !entry.resolutionStatus?.trim();
+
+    if (!isPendingApproval) {
+      continue;
+    }
+
+    presentations.push({
+      pendingEntry: entry,
+      suggestedRule: suggestProjectAllowRule(entry, projectRoot),
+      signature: getPendingApprovalSignature(entry, projectRoot),
+    });
+  }
+
+  return presentations;
+}
+
+function getApprovalCardTitle(locale: string): string {
+  return locale.startsWith('ru') ? 'Требуется подтверждение' : 'Approval required';
+}
+
+function getApprovalAllowOnceLabel(locale: string): string {
+  return locale.startsWith('ru') ? 'Разрешить один раз' : 'Allow once';
+}
+
+function getApprovalAlwaysAllowLabel(locale: string): string {
+  return locale.startsWith('ru') ? 'Всегда разрешать' : 'Always allow';
+}
+
+function getApprovalFeedbackLabel(locale: string): string {
+  return locale.startsWith('ru') ? 'Сообщить Qwen что он должен сделать' : 'Tell Qwen what it should do instead';
+}
+
+function getApprovalFeedbackPlaceholder(locale: string): string {
+  return locale.startsWith('ru')
+    ? 'Например: сначала прочитай файл и только потом предлагай изменения'
+    : 'For example: read the file first, then suggest a safer change';
+}
+
+function getPendingApprovalReason(entry: DesktopSessionEntry): string {
+  const body = (entry.body || '').trim();
+  if (!body || body.toLowerCase() === 'ask') {
+    return '';
+  }
+
+  if (/requires confirmation/i.test(body) || /waiting for approval/i.test(body)) {
+    return '';
+  }
+
+  return body;
+}
+
+function getPendingApprovalDetailLines(entry: DesktopSessionEntry): string[] {
+  const toolKey = (entry.toolName || entry.title || '').toLowerCase();
+  if (toolKey.includes('shell') || toolKey.includes('bash') || toolKey.includes('run_command') || toolKey.includes('terminal') || toolKey.includes('execute')) {
+    return formatShellArgumentLines(entry.arguments).slice(0, 4);
+  }
+
+  const parsed = parseObjectArguments(entry.arguments);
+  if (!parsed) {
+    return entry.arguments ? [trunc(entry.arguments, 160)] : [];
+  }
+
+  const preferredKeys = ['file_path', 'path', 'directory', 'pattern', 'query', 'url', 'server_name', 'tool_name'];
+  const lines = preferredKeys
+    .filter((key) => typeof parsed[key] === 'string' && `${parsed[key]}`.trim().length > 0)
+    .slice(0, 4)
+    .map((key) => `${key}: ${String(parsed[key]).trim()}`);
+
+  if (lines.length > 0) {
+    return lines;
+  }
+
+  return Object.entries(parsed)
+    .slice(0, 4)
+    .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
+}
+
+function PendingApprovalCard({
+  entry,
+  locale,
+  feedbackValue,
+  onFeedbackChange,
+  onAllowOnce,
+  onAlwaysAllow,
+  onSubmitFeedback,
+}: {
+  entry: DesktopSessionEntry;
+  locale: string;
+  feedbackValue: string;
+  onFeedbackChange: (value: string) => void;
+  onAllowOnce: () => void;
+  onAlwaysAllow: () => void;
+  onSubmitFeedback: () => void;
+}) {
+  const reason = getPendingApprovalReason(entry);
+  const detailLines = getPendingApprovalDetailLines(entry);
+
+  return (
+    <Box maxW="560px" w="full">
+      <Box
+        border="1px solid"
+        borderColor="gray.700"
+        bg="rgba(39,39,46,0.94)"
+        borderRadius="xl"
+        px={3}
+        py={2.5}
+      >
+        <Text fontSize="10px" color="gray.500" textTransform="uppercase" letterSpacing="0.14em">
+          {getApprovalCardTitle(locale)}
+        </Text>
+
+        {reason && (
+          <Text mt={1.5} fontSize="xs" color="gray.300" whiteSpace="pre-wrap" wordBreak="break-word">
+            {reason}
+          </Text>
+        )}
+
+        {detailLines.length > 0 && (
+          <Box
+            as="pre"
+            mt={2}
+            mb={0}
+            px={2.5}
+            py={2}
+            bg="gray.900"
+            border="1px solid"
+            borderColor="gray.700"
+            borderRadius="lg"
+            color="gray.200"
+            fontSize="11px"
+            fontFamily="mono"
+            overflowX="auto"
+            whiteSpace="pre-wrap"
+          >
+            {detailLines.join('\n')}
+          </Box>
+        )}
+      </Box>
+
+      <HStack mt={2} spacing={2} align="stretch" flexWrap="wrap">
+        <Button
+          onClick={onAllowOnce}
+          bg={ACCENT}
+          color="white"
+          _hover={{ bg: ACCENT_HOVER }}
+          _active={{ bg: ACCENT_HOVER }}
+          borderRadius="full"
+          h="32px"
+          px={3.5}
+          fontSize="xs"
+        >
+          {getApprovalAllowOnceLabel(locale)}
+        </Button>
+        <Button
+          onClick={onAlwaysAllow}
+          bg="white"
+          color="gray.900"
+          _hover={{ bg: 'gray.100' }}
+          _active={{ bg: 'gray.200' }}
+          borderRadius="full"
+          h="32px"
+          px={3.5}
+          fontSize="xs"
+        >
+          {getApprovalAlwaysAllowLabel(locale)}
+        </Button>
+        <Input
+          value={feedbackValue}
+          onChange={(event) => onFeedbackChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              onSubmitFeedback();
+            }
+          }}
+          placeholder={getApprovalFeedbackLabel(locale)}
+          bg="gray.900"
+          border="1px solid"
+          borderColor="gray.700"
+          color="white"
+          borderRadius="full"
+          h="32px"
+          px={3.5}
+          fontSize="xs"
+          flex="1 1 240px"
+          minW="220px"
+          _placeholder={{ color: 'gray.500' }}
+          _hover={{ borderColor: 'gray.600' }}
+          _focusVisible={{ borderColor: 'brand.400', boxShadow: '0 0 0 1px rgba(97,92,237,0.35)' }}
+        />
+        <IconButton
+          aria-label={getApprovalFeedbackPlaceholder(locale)}
+          icon={<ArrowUp size={15} />}
+          onClick={onSubmitFeedback}
+          isDisabled={!feedbackValue.trim()}
+          bg="gray.800"
+          color="white"
+          border="1px solid"
+          borderColor="gray.700"
+          borderRadius="full"
+          minW="32px"
+          w="32px"
+          h="32px"
+          _hover={{ bg: 'gray.700' }}
+          _active={{ bg: 'gray.700' }}
+        />
+      </HStack>
+    </Box>
+  );
+}
+
 function upsertOptimisticUserEntry(
   detail: DesktopSessionDetail,
   userEntry: DesktopSessionEntry,
@@ -1178,6 +1700,8 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
   const [loadingPhrase, setLoadingPhrase] = useState('');
   const [retainedStreamingSnapshot, setRetainedStreamingSnapshot] = useState('');
   const [projectPickerPosition, setProjectPickerPosition] = useState({ top: 0, left: 0, width: 320, maxHeight: 320 });
+  const [approvalFeedbackById, setApprovalFeedbackById] = useState<Record<string, string>>({});
+  const [resolvingApprovalIds, setResolvingApprovalIds] = useState<Record<string, true>>({});
 
   // Session data from IPC
   const [sessionDetail, setSessionDetail] = useState<DesktopSessionDetail | null>(null);
@@ -1211,6 +1735,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
   const isSessionStreaming = !!selectedSessionId && !!activeTurnSessions[selectedSessionId];
   const isPendingSelectedSession = !!selectedSessionId && !!pendingTurnSessionIds[selectedSessionId];
   const isComposerBusy = isPendingSelectedSession || isSessionStreaming;
+  const canStopActiveTurn = !!selectedSessionId && isComposerBusy;
   const isAwaitingAssistantText = hasSession && isComposerBusy && !effectiveStreamingSnapshot;
   const defaultThinkingLabel = t('tools.thinking');
   const plainThinkingLabel = getThinkingStatusLabel(locale, 0);
@@ -1421,6 +1946,17 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     effectiveStreamingSnapshot,
   ]);
 
+  const sessionProjectRoot = bootstrap?.workspaceRoot ?? displaySessionDetail?.session.workingDirectory ?? '';
+  const pendingApprovalPresentations = useMemo(
+    () => buildPendingApprovalPresentations(displaySessionDetail?.entries ?? [], sessionProjectRoot),
+    [displaySessionDetail?.entries, sessionProjectRoot],
+  );
+  const visiblePendingApprovalPresentations = useMemo(
+    () => pendingApprovalPresentations.filter((presentation) => !resolvingApprovalIds[presentation.pendingEntry.id]),
+    [pendingApprovalPresentations, resolvingApprovalIds],
+  );
+  const activePendingApprovalPresentation = visiblePendingApprovalPresentations[0] ?? null;
+
   const updateStickToBottomState = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) {
@@ -1472,6 +2008,11 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     shouldStickToBottomRef.current = true;
     scrollToBottom(true);
   }, [scrollToBottom, selectedSessionId]);
+
+  useEffect(() => {
+    setApprovalFeedbackById({});
+    setResolvingApprovalIds({});
+  }, [selectedSessionId]);
 
   useEffect(() => {
     if (!selectedSessionId || !activeTurnSessions[selectedSessionId]) {
@@ -1732,12 +2273,191 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     bootstrap?.workspaceRoot,
   ]);
 
+  const handleStopGeneration = useCallback(async () => {
+    if (!selectedSessionId || !window.qwenDesktop) {
+      return;
+    }
+
+    try {
+      await window.qwenDesktop.cancelSessionTurn({ sessionId: selectedSessionId });
+    } catch (error) {
+      console.error('Failed to cancel active turn:', error);
+    } finally {
+      setPendingTurnSessionIds((current) => {
+        if (!(selectedSessionId in current)) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[selectedSessionId];
+        return next;
+      });
+    }
+  }, [selectedSessionId]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && e.ctrlKey) {
       e.preventDefault();
-      handleSubmit();
+      if (isComposerBusy) {
+        void handleStopGeneration();
+      } else {
+        handleSubmit();
+      }
     }
   };
+
+  const clearApprovalState = useCallback((entryIds: string[]) => {
+    setApprovalFeedbackById((current) => {
+      const next = { ...current };
+      for (const entryId of entryIds) {
+        delete next[entryId];
+      }
+
+      return next;
+    });
+
+    setResolvingApprovalIds((current) => {
+      const next = { ...current };
+      for (const entryId of entryIds) {
+        delete next[entryId];
+      }
+
+      return next;
+    });
+  }, []);
+
+  const markApprovalsResolving = useCallback((entryIds: string[]) => {
+    setResolvingApprovalIds((current) => {
+      const next = { ...current };
+      for (const entryId of entryIds) {
+        next[entryId] = true;
+      }
+
+      return next;
+    });
+  }, []);
+
+  const handlePendingApprovalDecision = useCallback(async (
+    presentation: PendingApprovalPresentation,
+    decision: PendingApprovalDecision,
+    feedback = '',
+  ) => {
+    if (!selectedSessionId || !window.qwenDesktop) {
+      return;
+    }
+
+    const trimmedFeedback = feedback.trim();
+    const matchingPresentations = decision === 'always-allow'
+      ? pendingApprovalPresentations.filter((candidate) =>
+        candidate.pendingEntry.id !== presentation.pendingEntry.id &&
+        candidate.signature === presentation.signature)
+      : [];
+    const optimisticEntryIds = [
+      presentation.pendingEntry.id,
+      ...matchingPresentations.map((candidate) => candidate.pendingEntry.id),
+    ];
+
+    markApprovalsResolving(optimisticEntryIds);
+
+    try {
+      await window.qwenDesktop.approvePendingTool({
+        sessionId: selectedSessionId,
+        entryId: presentation.pendingEntry.id,
+        decision,
+        feedback: trimmedFeedback,
+      });
+
+      if (decision === 'always-allow') {
+        const normalizedRule = presentation.suggestedRule.trim();
+        if (normalizedRule) {
+          setBootstrap((current) => {
+            const existingRules = current.qwenRuntime.approvalProfile.allowRules;
+            if (existingRules.some((rule) => rule.toLowerCase() === normalizedRule.toLowerCase())) {
+              return current;
+            }
+
+            return {
+              ...current,
+              qwenRuntime: {
+                ...current.qwenRuntime,
+                approvalProfile: {
+                  ...current.qwenRuntime.approvalProfile,
+                  allowRules: [...existingRules, normalizedRule],
+                },
+              },
+            };
+          });
+        }
+
+        for (const relatedPresentation of matchingPresentations) {
+          try {
+            await window.qwenDesktop.approvePendingTool({
+              sessionId: selectedSessionId,
+              entryId: relatedPresentation.pendingEntry.id,
+              decision: 'allow-once',
+              feedback: '',
+            });
+          } catch (error) {
+            console.error('Failed to auto-approve a matching pending tool:', error);
+          }
+        }
+      }
+
+      await loadSessionDetail(selectedSessionId, { force: true, limit: 200 });
+      clearApprovalState(optimisticEntryIds);
+    } catch (error) {
+      console.error('Failed to resolve pending tool approval:', error);
+      clearApprovalState(optimisticEntryIds);
+    }
+  }, [
+    clearApprovalState,
+    loadSessionDetail,
+    markApprovalsResolving,
+    pendingApprovalPresentations,
+    selectedSessionId,
+    setBootstrap,
+  ]);
+
+  const renderPendingApprovalInline = useCallback((entry: DesktopSessionEntry, marginLeft = 0) => {
+    if (activePendingApprovalPresentation?.pendingEntry.id !== entry.id) {
+      return null;
+    }
+
+    return (
+      <Box mt={2} ml={marginLeft}>
+        <PendingApprovalCard
+          entry={entry}
+          locale={locale}
+          feedbackValue={approvalFeedbackById[entry.id] ?? ''}
+          onFeedbackChange={(value) => {
+            setApprovalFeedbackById((current) => ({
+              ...current,
+              [entry.id]: value,
+            }));
+          }}
+          onAllowOnce={() => {
+            void handlePendingApprovalDecision(activePendingApprovalPresentation, 'allow-once');
+          }}
+          onAlwaysAllow={() => {
+            void handlePendingApprovalDecision(activePendingApprovalPresentation, 'always-allow');
+          }}
+          onSubmitFeedback={() => {
+            const feedback = approvalFeedbackById[entry.id] ?? '';
+            if (!feedback.trim()) {
+              return;
+            }
+
+            void handlePendingApprovalDecision(activePendingApprovalPresentation, 'deny', feedback);
+          }}
+        />
+      </Box>
+    );
+  }, [
+    activePendingApprovalPresentation,
+    approvalFeedbackById,
+    handlePendingApprovalDecision,
+    locale,
+  ]);
 
   // Donut ring
   const contextPercent = totalTokens > 0 ? Math.min(100, Math.round((usedTokens / totalTokens) * 100)) : 0;
@@ -1759,6 +2479,13 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
     for (const entry of displaySessionDetail.entries) {
       if (entry.type === 'system' || entry.type === 'tool_result') continue;
+      if (
+        entry.type === 'tool' &&
+        entry.status.trim().toLowerCase() === 'approval-required' &&
+        !!entry.resolutionStatus?.trim()
+      ) {
+        continue;
+      }
 
       const isUser = entry.type === 'user';
       const isTool = entry.type === 'tool' || !!entry.toolName;
@@ -2004,23 +2731,17 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                 ))}
                               </Box>
                             )}
+                            {renderPendingApprovalInline(entry, 7)}
                           </Box>
                         );
                       }
 
                       // ── Multiple tools: collapsible with timeline ──
-                      const pendingCount = block.entries.filter((entry) => isToolPendingStatus(entry.status)).length;
-                      const failedCount = block.entries.filter((entry) => {
-                        const normalized = entry.status.trim().toLowerCase();
-                        return normalized === 'error' || normalized === 'failed' || normalized === 'blocked';
-                      }).length;
-                      const livePendingCount = block.entries.filter((entry) => isLiveToolEntry(entry) && isToolPendingStatus(entry.status)).length;
-                      const headerStatus = pendingCount > 0
-                        ? 'requested'
-                        : failedCount > 0
-                          ? 'error'
-                          : 'completed';
-                      const isCollapsed = hasLiveEntries
+                      const containsActivePendingApproval = !!activePendingApprovalPresentation &&
+                        block.entries.some((entry) => entry.id === activePendingApprovalPresentation.pendingEntry.id);
+                      const isCollapsed = containsActivePendingApproval
+                        ? false
+                        : hasLiveEntries
                         ? collapsedBlocks[blockKey] === true
                         : collapsedBlocks[blockKey] !== false;
 
@@ -2051,14 +2772,6 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                               </HStack>
                             )}
                             <Text fontSize="xs" color="gray.500">{t('tools.toolCalls', { count })}</Text>
-                            <Box
-                              as="span"
-                              boxSize="6px"
-                              borderRadius="full"
-                              bg={getToolStatusColor(headerStatus)}
-                              flexShrink={0}
-                              boxShadow={livePendingCount > 0 ? `0 0 10px ${getToolStatusColor(headerStatus)}` : 'none'}
-                            />
                           </HStack>
 
                           {/* Expanded: timeline list */}
@@ -2171,6 +2884,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                                             ))}
                                           </Box>
                                         )}
+                                        {renderPendingApprovalInline(entry, 5)}
                                       </Box>
                                       </motion.div>
                                     );
@@ -2237,6 +2951,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
                       const isStreamingEntry = entry.status === 'streaming';
                       // Skip assistant entries that have no content (e.g. pure orchestrator turns)
                       if (!text && !thinking) return null;
+                      if (isApprovalPlaceholderText(text)) return null;
                       // Show timestamp only on the last entry of the final assistant block in each AI turn
                       const isLastEntry = entryIdx === block.entries.length - 1;
                       const showTime = isLastEntry && finalAssistantBlockIndices.has(blockIdx) && !!entry.timestamp;
@@ -2785,18 +3500,33 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
 
               {/* Send Button */}
               <IconButton
-                aria-label="Send"
-                icon={<ArrowUp size={16} />}
-                bg={ACCENT}
+                aria-label={canStopActiveTurn ? 'Stop' : 'Send'}
+                icon={(
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span
+                      key={canStopActiveTurn ? 'stop' : 'send'}
+                      initial={{ opacity: 0, scale: 0.72, rotate: canStopActiveTurn ? -18 : 18 }}
+                      animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                      exit={{ opacity: 0, scale: 0.72, rotate: canStopActiveTurn ? 18 : -18 }}
+                      transition={{ duration: 0.18, ease: 'easeOut' }}
+                      style={{ display: 'flex' }}
+                    >
+                      {canStopActiveTurn ? <Square size={13} fill="currentColor" /> : <ArrowUp size={16} />}
+                    </motion.span>
+                  </AnimatePresence>
+                )}
+                bg={canStopActiveTurn ? 'rgba(239,68,68,0.92)' : ACCENT}
                 color="white"
-                _hover={{ bg: ACCENT_HOVER }}
-                isDisabled={!prompt.trim() || isComposerBusy || (!selectedSession && !selectedProjectWorkingDirectory)}
-                isLoading={isPendingSelectedSession}
-                onClick={handleSubmit}
+                _hover={{ bg: canStopActiveTurn ? 'rgba(220,38,38,0.98)' : ACCENT_HOVER }}
+                isDisabled={canStopActiveTurn
+                  ? false
+                  : (!prompt.trim() || (!selectedSession && !selectedProjectWorkingDirectory))}
+                onClick={canStopActiveTurn ? () => { void handleStopGeneration(); } : handleSubmit}
                 borderRadius="full"
                 w="36px"
                 h="36px"
                 minW="36px"
+                transition="background-color 0.18s ease, transform 0.18s ease"
               />
             </HStack>
           </HStack>

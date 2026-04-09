@@ -155,6 +155,14 @@ internal static class PermissionRuleParser
             ? canonical
             : rawName;
 
+    internal static bool IsShellTool(string rawName) => ShellToolNames.Contains(ResolveToolName(rawName));
+
+    internal static bool IsReadTool(string rawName) => ReadTools.Contains(ResolveToolName(rawName));
+
+    internal static bool IsEditTool(string rawName) => EditTools.Contains(ResolveToolName(rawName));
+
+    internal static bool IsWebFetchTool(string rawName) => WebFetchTools.Contains(ResolveToolName(rawName));
+
     private static string GetSpecifierKind(string canonicalToolName)
     {
         if (ShellToolNames.Contains(canonicalToolName))

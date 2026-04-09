@@ -1,9 +1,11 @@
 using QwenCode.App.Models;
 using QwenCode.App.Compatibility;
 using QwenCode.App.Hooks;
+using QwenCode.App.Permissions;
 using QwenCode.App.Runtime;
 using QwenCode.App.Telemetry;
 using QwenCode.App.Tools;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace QwenCode.App.Sessions;
@@ -738,23 +740,36 @@ public sealed class DesktopSessionHostService(
 
         var detail = approvalContext.Detail;
         var pendingTool = approvalContext.PendingTool;
+        var normalizedDecision = NormalizePendingToolDecision(request.Decision);
+        var projectRoot = runtimeProfileService.Inspect(paths).ProjectRoot;
+
+        if (normalizedDecision == "always-allow" &&
+            ApprovalRuleSuggestionService.SuggestProjectAllowRule(pendingTool, projectRoot) is { Length: > 0 } allowRule)
+        {
+            TryAppendProjectAllowRule(projectRoot, allowRule);
+        }
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var execution = await nativeToolHostService.ExecuteAsync(
-            paths,
-            new ExecuteNativeToolRequest
-            {
-                ToolName = pendingTool.ToolName,
-                ArgumentsJson = string.IsNullOrWhiteSpace(pendingTool.Arguments) ? "{}" : pendingTool.Arguments,
-                ApproveExecution = true
-            },
-            cancellationToken: cancellationToken);
+        var execution = normalizedDecision == "deny"
+            ? CreateDeniedToolExecutionResult(
+                pendingTool.ToolName,
+                approvalContext.WorkingDirectory,
+                request.Feedback)
+            : await nativeToolHostService.ExecuteAsync(
+                paths,
+                new ExecuteNativeToolRequest
+                {
+                    ToolName = pendingTool.ToolName,
+                    ArgumentsJson = string.IsNullOrWhiteSpace(pendingTool.Arguments) ? "{}" : pendingTool.Arguments,
+                    ApproveExecution = true
+                },
+                cancellationToken: cancellationToken);
 
         var resolutionTimestamp = DateTime.UtcNow;
         await transcriptWriter.MarkToolEntryResolvedAsync(
             detail.TranscriptPath,
             pendingTool.Id,
-            "approved",
+            normalizedDecision == "deny" ? "denied" : "approved",
             resolutionTimestamp,
             cancellationToken);
 
@@ -762,17 +777,21 @@ public sealed class DesktopSessionHostService(
         var gitBranch = approvalContext.GitBranch;
         var workingDirectory = approvalContext.WorkingDirectory;
 
-        PublishSessionEvent(sessionEventFactory.CreateToolApproved(
-            request.SessionId,
-            pendingTool.ToolName,
-            workingDirectory,
-            gitBranch,
-            resolutionTimestamp));
+        if (normalizedDecision != "deny")
+        {
+            PublishSessionEvent(sessionEventFactory.CreateToolApproved(
+                request.SessionId,
+                pendingTool.ToolName,
+                workingDirectory,
+                gitBranch,
+                resolutionTimestamp));
+        }
+
         activeTurnRegistry.Update(request.SessionId, state =>
         {
             state.ToolName = pendingTool.ToolName;
-            state.Stage = "tool-approved";
-            state.Status = "approved";
+            state.Stage = normalizedDecision == "deny" ? "tool-blocked" : "tool-approved";
+            state.Status = normalizedDecision == "deny" ? "blocked" : "approved";
         });
 
         var toolUuid = Guid.NewGuid().ToString();
@@ -798,7 +817,7 @@ public sealed class DesktopSessionHostService(
                 changedFiles = execution.ChangedFiles,
                 questions = execution.Questions,
                 answers = execution.Answers,
-                resolutionStatus = "executed-after-approval",
+                resolutionStatus = normalizedDecision == "deny" ? "blocked-by-user" : "executed-after-approval",
                 sourcePath = pendingTool.SourcePath,
                 scope = pendingTool.Scope
             },
@@ -815,7 +834,7 @@ public sealed class DesktopSessionHostService(
         var assistantResponse = await assistantTurnRuntime.GenerateAsync(
             CreateAssistantTurnRequest(
                 request.SessionId,
-                pendingTool.Body,
+                BuildPendingToolResolutionPrompt(pendingTool, normalizedDecision, request.Feedback),
                 workingDirectory,
                 detail.TranscriptPath,
                 runtimeProfile,
@@ -1820,6 +1839,123 @@ public sealed class DesktopSessionHostService(
             ExitCode = -1,
             ChangedFiles = []
         };
+
+    private static NativeToolExecutionResult CreateDeniedToolExecutionResult(
+        string toolName,
+        string workingDirectory,
+        string feedback) =>
+        new()
+        {
+            ToolName = toolName,
+            Status = "blocked",
+            ApprovalState = "deny",
+            WorkingDirectory = workingDirectory,
+            Output = string.Empty,
+            ErrorMessage = string.IsNullOrWhiteSpace(feedback)
+                ? $"User denied approval for tool '{toolName}'."
+                : $"User denied approval for tool '{toolName}' and redirected the assistant.",
+            ExitCode = 1,
+            ChangedFiles = []
+        };
+
+    private static string NormalizePendingToolDecision(string? decision)
+    {
+        var normalized = decision?.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "always-allow" => "always-allow",
+            "deny" => "deny",
+            _ => "allow-once"
+        };
+    }
+
+    private static string BuildPendingToolResolutionPrompt(
+        DesktopSessionEntry pendingTool,
+        string decision,
+        string feedback)
+    {
+        var trimmedFeedback = feedback.Trim();
+        if (!string.IsNullOrWhiteSpace(trimmedFeedback))
+        {
+            return trimmedFeedback;
+        }
+
+        if (decision == "deny")
+        {
+            return $"The user denied running tool '{pendingTool.ToolName}'. Continue without that tool and explain the next best step.";
+        }
+
+            return $"The user approved tool '{pendingTool.ToolName}'. Continue from the updated tool result and finish the turn.";
+    }
+
+    private static void TryAppendProjectAllowRule(string projectRoot, string allowRule)
+    {
+        if (string.IsNullOrWhiteSpace(projectRoot) || string.IsNullOrWhiteSpace(allowRule))
+        {
+            return;
+        }
+
+        var settingsPath = Path.Combine(projectRoot, ".qwen", "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
+
+        JsonObject root;
+        if (File.Exists(settingsPath))
+        {
+            try
+            {
+                using var stream = File.OpenRead(settingsPath);
+                using var document = JsonDocument.Parse(
+                    stream,
+                    new JsonDocumentOptions
+                    {
+                        AllowTrailingCommas = true,
+                        CommentHandling = JsonCommentHandling.Skip
+                    });
+
+                root = JsonNode.Parse(document.RootElement.GetRawText()) as JsonObject ?? [];
+            }
+            catch
+            {
+                return;
+            }
+        }
+        else
+        {
+            root = [];
+        }
+
+        if (root["permissions"] is not JsonObject permissions)
+        {
+            permissions = [];
+            root["permissions"] = permissions;
+        }
+
+        if (permissions["allow"] is not JsonArray allowArray)
+        {
+            allowArray = [];
+            permissions["allow"] = allowArray;
+        }
+
+        var alreadyPresent = allowArray
+            .OfType<JsonNode>()
+            .Select(static value => value is JsonValue jsonValue && jsonValue.TryGetValue<string>(out var existing)
+                ? existing
+                : string.Empty)
+            .Any(existing => string.Equals(existing, allowRule, StringComparison.OrdinalIgnoreCase));
+
+        if (alreadyPresent)
+        {
+            return;
+        }
+
+        allowArray.Add(allowRule);
+        File.WriteAllText(
+            settingsPath,
+            root.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = true
+            }) + Environment.NewLine);
+    }
 
     private static UserPromptHookResult CreatePromptHookResult(string prompt, HookLifecycleResult hookResult) =>
         new()

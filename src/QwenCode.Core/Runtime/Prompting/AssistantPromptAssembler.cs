@@ -15,6 +15,8 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
 {
     private static readonly StringComparer PathComparer =
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    private static readonly System.Text.RegularExpressions.Regex ApprovalPlaceholderRegex =
+        new("tool '([^']+)' is waiting for approval(?:[^.]*)\\.?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private const int MaxTranscriptMessages = 16;
     private const int MaxContextFiles = 12;
@@ -172,6 +174,8 @@ Trimmed context files: {{trimmedContextFileCount}}
                 using var document = JsonDocument.Parse(line);
                 var root = document.RootElement;
                 var type = TryGetString(root, "type") ?? string.Empty;
+                var status = TryGetString(root, "status") ?? string.Empty;
+                var resolutionStatus = TryGetString(root, "resolutionStatus") ?? string.Empty;
                 var content = type switch
                 {
                     "user" or "assistant" => TryExtractMessageText(root),
@@ -182,6 +186,18 @@ Trimmed context files: {{trimmedContextFileCount}}
                 };
 
                 if (string.IsNullOrWhiteSpace(content))
+                {
+                    continue;
+                }
+
+                if (type == "assistant" && ApprovalPlaceholderRegex.IsMatch(content.Trim()))
+                {
+                    continue;
+                }
+
+                if (type == "tool" &&
+                    string.Equals(status, "approval-required", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(resolutionStatus))
                 {
                     continue;
                 }

@@ -84,8 +84,8 @@ public sealed class SessionHostApprovalTests
 
             var completedExecutionEntry = finalDetail.Entries.Last(entry =>
                 entry.Type == "tool" &&
-                entry.ToolName == "write_file" &&
-                entry.Status == "completed");
+                entry.ToolName == "write_file");
+            Assert.Equal("completed", completedExecutionEntry.Status);
             Assert.Contains("approved write", completedExecutionEntry.Arguments);
             Assert.Equal("executed-after-approval", completedExecutionEntry.ResolutionStatus);
         }
@@ -288,6 +288,196 @@ public sealed class SessionHostApprovalTests
         }
     }
 
+    [Fact]
+    public async Task DesktopSessionHostService_ApprovePendingToolAsync_AlwaysAllow_PersistsProjectRuleAndSkipsMatchingFutureApproval()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-approval-rule-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "permissions": {
+                    "defaultMode": "default"
+                  }
+                }
+                """);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
+            var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
+
+            var firstTurn = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Queue a shell approval.",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "run_shell_command",
+                    ToolArgumentsJson = """{"command":"echo first approval"}""",
+                    ApproveToolExecution = false
+                });
+
+            var pendingDetail = sessionCatalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = firstTurn.Session.SessionId
+                });
+            Assert.NotNull(pendingDetail);
+
+            var pendingEntry = Assert.Single(
+                pendingDetail!.Entries,
+                entry => entry.Type == "tool" && entry.Status == "approval-required");
+
+            await sessionHost.ApprovePendingToolAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new ApproveDesktopSessionToolRequest
+                {
+                    SessionId = firstTurn.Session.SessionId,
+                    EntryId = pendingEntry.Id,
+                    Decision = "always-allow"
+                });
+
+            var settingsPath = Path.Combine(workspaceRoot, ".qwen", "settings.json");
+            var settingsJson = await File.ReadAllTextAsync(settingsPath);
+            Assert.Contains("Bash(echo *)", settingsJson, StringComparison.Ordinal);
+
+            var secondTurn = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Run the same shell family again.",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "run_shell_command",
+                    ToolArgumentsJson = """{"command":"echo second approval"}""",
+                    ApproveToolExecution = false
+                });
+
+            Assert.NotEqual("approval-required", secondTurn.ToolExecution.Status);
+
+            var secondDetail = sessionCatalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = secondTurn.Session.SessionId
+                });
+            Assert.NotNull(secondDetail);
+            Assert.Equal(0, secondDetail!.Summary.PendingApprovalCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DesktopSessionHostService_ApprovePendingToolAsync_DenyWithFeedback_ResolvesPendingEntryAndContinuesTurn()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-deny-pending-tool-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "permissions": {
+                    "defaultMode": "default",
+                    "ask": ["Write"]
+                  }
+                }
+                """);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
+            var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
+
+            var targetFile = Path.Combine(workspaceRoot, "notes.txt");
+            var startResult = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Queue a pending edit for denial.",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "write_file",
+                    ToolArgumentsJson = $$"""{"file_path":"{{targetFile.Replace("\\", "\\\\")}}","content":"should not write"}""",
+                    ApproveToolExecution = false
+                });
+
+            var pendingDetail = sessionCatalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = startResult.Session.SessionId
+                });
+            Assert.NotNull(pendingDetail);
+
+            var pendingEntry = Assert.Single(
+                pendingDetail!.Entries,
+                entry => entry.Type == "tool" && entry.Status == "approval-required");
+
+            var denialResult = await sessionHost.ApprovePendingToolAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new ApproveDesktopSessionToolRequest
+                {
+                    SessionId = startResult.Session.SessionId,
+                    EntryId = pendingEntry.Id,
+                    Decision = "deny",
+                    Feedback = "Do not write the file. Inspect the current content first."
+                });
+
+            Assert.Equal("blocked", denialResult.ToolExecution.Status);
+            Assert.Equal("deny", denialResult.ToolExecution.ApprovalState);
+            Assert.False(File.Exists(targetFile));
+
+            var finalDetail = sessionCatalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = startResult.Session.SessionId
+                });
+            Assert.NotNull(finalDetail);
+            Assert.Equal(0, finalDetail!.Summary.PendingApprovalCount);
+
+            var resolvedPendingEntry = finalDetail.Entries.First(entry => entry.Id == pendingEntry.Id);
+            Assert.Equal("denied", resolvedPendingEntry.ResolutionStatus);
+            Assert.False(string.IsNullOrWhiteSpace(resolvedPendingEntry.ResolvedAt));
+
+            var blockedExecutionEntry = finalDetail.Entries.Last(entry =>
+                entry.Type == "tool" &&
+                entry.ToolName == "write_file");
+            Assert.Equal("blocked", blockedExecutionEntry.Status);
+            Assert.Equal("blocked-by-user", blockedExecutionEntry.ResolutionStatus);
+            Assert.Contains("denied approval", blockedExecutionEntry.Body, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 
 }
 

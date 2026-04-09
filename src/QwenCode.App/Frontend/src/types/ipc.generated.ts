@@ -86,6 +86,8 @@ export interface ApproveChannelPairingRequest {
 export interface ApproveDesktopSessionToolRequest {
   sessionId: string;
   entryId: string;
+  decision: string;
+  feedback: string;
 }
 
 export interface ArenaAgentStatusFile {
