@@ -1,11 +1,11 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using QwenCode.App.Ipc.Attributes;
 using ElectronApi = ElectronNET.API.Electron;
-using QwenCode.App.Models;
+using QwenCode.Core.Models;
 
 namespace QwenCode.App.Ipc;
 

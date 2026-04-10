@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Mcp;
+namespace QwenCode.Core.Mcp;
 
 /// <summary>
 /// Defines the contract for Mcp Registry

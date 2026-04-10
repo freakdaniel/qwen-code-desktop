@@ -1,8 +1,8 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Net;
 using System.Text;
-using QwenCode.App.Channels;
-using QwenCode.App.Sessions;
+using QwenCode.Core.Channels;
+using QwenCode.Core.Sessions;
 
 namespace QwenCode.Tests.Channels;
 

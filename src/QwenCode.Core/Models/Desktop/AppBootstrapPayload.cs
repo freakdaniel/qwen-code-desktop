@@ -1,7 +1,7 @@
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
+﻿using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Models;
+namespace QwenCode.Core.Models;
 
 /// <summary>
 /// Represents the App Bootstrap Payload

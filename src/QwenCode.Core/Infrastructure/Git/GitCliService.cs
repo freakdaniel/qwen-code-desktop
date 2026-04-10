@@ -1,6 +1,6 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
-namespace QwenCode.App.Infrastructure;
+namespace QwenCode.Core.Infrastructure;
 
 /// <summary>
 /// Represents the Git Cli Service

@@ -1,13 +1,13 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
-using QwenCode.App.Tools;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
+using QwenCode.Core.Tools;
 
-namespace QwenCode.App.Agents;
+namespace QwenCode.Core.Agents;
 
 /// <summary>
 /// Represents the Agent Arena Service
@@ -376,6 +376,7 @@ public sealed class AgentArenaService(
         {
             SessionId = updatedConfig.ArenaSessionId,
             Task = updatedConfig.Task,
+            TaskId = updatedConfig.TaskId,
             Status = status?.Status ?? "idle",
             BaseBranch = updatedConfig.BaseBranch,
             RoundCount = updatedConfig.RoundCount,
@@ -512,6 +513,7 @@ public sealed class AgentArenaService(
         {
             SessionId = updatedConfig.ArenaSessionId,
             Task = updatedConfig.Task,
+            TaskId = updatedConfig.TaskId,
             Status = status?.Status ?? "completed",
             BaseBranch = updatedConfig.BaseBranch,
             RoundCount = updatedConfig.RoundCount,
@@ -636,6 +638,7 @@ public sealed class AgentArenaService(
             {
                 SessionId = sessionId,
                 Task = task,
+                TaskId = taskId,
                 Status = "running",
                 WorkingDirectory = sourceRepoPath,
                 BaseBranch = baseBranch,
@@ -730,6 +733,7 @@ public sealed class AgentArenaService(
                 $"Arena session '{sessionId}' completed round {roundCount}.");
             arenaSessionRegistry.Complete(
                 sessionId,
+                taskId,
                 sessionStatus,
                 roundCount,
                 selectedWinner,
@@ -814,6 +818,7 @@ public sealed class AgentArenaService(
 
             arenaSessionRegistry.Complete(
                 sessionId,
+                taskId,
                 "cancelled",
                 roundCount,
                 cancelledResult.SelectedWinner,
@@ -1269,6 +1274,7 @@ public sealed class AgentArenaService(
         {
             SessionId = updatedConfig.ArenaSessionId,
             Task = updatedConfig.Task,
+            TaskId = updatedConfig.TaskId,
             Status = "discarded",
             BaseBranch = updatedConfig.BaseBranch,
             RoundCount = updatedConfig.RoundCount,
@@ -1686,6 +1692,7 @@ public sealed class AgentArenaService(
         {
             SessionId = sessionId,
             Task = task,
+            TaskId = taskId,
             Status = "initializing",
             BaseBranch = baseBranch,
             RoundCount = roundCount,
@@ -1747,6 +1754,7 @@ public sealed class AgentArenaService(
         {
             SessionId = sessionResult.SessionId,
             Task = sessionResult.Task,
+            TaskId = string.IsNullOrWhiteSpace(taskId) ? sessionResult.TaskId : taskId,
             Status = sessionResult.Status,
             BaseBranch = sessionResult.BaseBranch,
             RoundCount = sessionResult.RoundCount,
@@ -1830,6 +1838,7 @@ public sealed class AgentArenaService(
             {
                 SessionId = updatedConfig.ArenaSessionId,
                 Task = updatedConfig.Task,
+                TaskId = updatedConfig.TaskId,
                 Status = sessionStatus,
                 BaseBranch = updatedConfig.BaseBranch,
                 RoundCount = updatedConfig.RoundCount,

@@ -1,10 +1,10 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Represents the Skill Tool Service

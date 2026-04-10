@@ -1,6 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 
-namespace QwenCode.App.Followup;
+namespace QwenCode.Core.Followup;
 
 /// <summary>
 /// Provides extension members for Followup Service Collection

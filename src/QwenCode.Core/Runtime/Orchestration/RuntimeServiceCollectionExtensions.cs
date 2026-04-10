@@ -1,8 +1,8 @@
-using Microsoft.Extensions.DependencyInjection;
-using QwenCode.App.Options;
-using QwenCode.App.Models;
+﻿using Microsoft.Extensions.DependencyInjection;
+using QwenCode.Core.Runtime;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Provides extension members for Runtime Service Collection

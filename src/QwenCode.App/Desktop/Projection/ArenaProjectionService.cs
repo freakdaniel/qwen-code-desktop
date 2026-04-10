@@ -1,5 +1,5 @@
-using QwenCode.App.Agents;
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Agents;
+using QwenCode.Core.Models;
 
 namespace QwenCode.App.Desktop;
 

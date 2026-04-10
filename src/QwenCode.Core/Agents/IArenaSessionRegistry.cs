@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Agents;
+namespace QwenCode.Core.Agents;
 
 /// <summary>
 /// Defines the contract for Arena Session Registry
@@ -39,6 +39,7 @@ public interface IArenaSessionRegistry
     /// Executes complete
     /// </summary>
     /// <param name="sessionId">The session identifier</param>
+    /// <param name="taskId">The linked orchestration task id</param>
     /// <param name="status">The status</param>
     /// <param name="roundCount">The round count</param>
     /// <param name="selectedWinner">The selected winner</param>
@@ -47,6 +48,7 @@ public interface IArenaSessionRegistry
     /// <param name="message">The message</param>
     void Complete(
         string sessionId,
+        string taskId,
         string status,
         int roundCount,
         string selectedWinner,

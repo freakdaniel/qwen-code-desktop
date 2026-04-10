@@ -1,12 +1,12 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Runtime.InteropServices;
-using QwenCode.App.Models;
-using QwenCode.App.Mcp;
-using QwenCode.App.Prompts;
-using QwenCode.App.Sessions;
-using QwenCode.App.Tools;
+using QwenCode.Core.Models;
+using QwenCode.Core.Mcp;
+using QwenCode.Core.Prompts;
+using QwenCode.Core.Sessions;
+using QwenCode.Core.Tools;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Assistant Prompt Assembler

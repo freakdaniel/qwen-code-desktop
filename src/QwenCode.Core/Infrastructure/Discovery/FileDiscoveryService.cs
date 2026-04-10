@@ -1,8 +1,8 @@
-using System.Text.RegularExpressions;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
+﻿using System.Text.RegularExpressions;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Infrastructure;
+namespace QwenCode.Core.Infrastructure;
 
 /// <summary>
 /// Represents the File Discovery Service

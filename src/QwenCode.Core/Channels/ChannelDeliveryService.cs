@@ -1,10 +1,10 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
-using QwenCode.App.Sessions;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
+using QwenCode.Core.Sessions;
 
-namespace QwenCode.App.Channels;
+namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Represents the Channel Delivery Service

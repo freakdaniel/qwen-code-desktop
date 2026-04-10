@@ -1,4 +1,4 @@
-namespace QwenCode.App.Followup;
+﻿namespace QwenCode.Core.Followup;
 
 internal static class FollowupSuggestionFilter
 {

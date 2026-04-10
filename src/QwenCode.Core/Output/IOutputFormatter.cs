@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Output;
+namespace QwenCode.Core.Output;
 
 /// <summary>
 /// Defines the contract for Output Formatter

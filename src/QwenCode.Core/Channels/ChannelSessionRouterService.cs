@@ -1,8 +1,8 @@
-using System.Text.Json;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+﻿using System.Text.Json;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Channels;
+namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Represents the Channel Session Router Service

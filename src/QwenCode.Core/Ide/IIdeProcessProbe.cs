@@ -1,4 +1,4 @@
-namespace QwenCode.App.Ide;
+﻿namespace QwenCode.Core.Ide;
 
 /// <summary>
 /// Defines the contract for Ide Process Probe

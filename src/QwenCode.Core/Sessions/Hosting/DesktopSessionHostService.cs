@@ -1,14 +1,14 @@
-using QwenCode.App.Models;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Hooks;
-using QwenCode.App.Permissions;
-using QwenCode.App.Runtime;
-using QwenCode.App.Telemetry;
-using QwenCode.App.Tools;
+﻿using QwenCode.Core.Models;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Hooks;
+using QwenCode.Core.Permissions;
+using QwenCode.Core.Runtime;
+using QwenCode.Core.Telemetry;
+using QwenCode.Core.Tools;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace QwenCode.App.Sessions;
+namespace QwenCode.Core.Sessions;
 
 /// <summary>
 /// Represents the Desktop Session Host Service
@@ -1912,7 +1912,7 @@ public sealed class DesktopSessionHostService(
                         CommentHandling = JsonCommentHandling.Skip
                     });
 
-                root = JsonNode.Parse(document.RootElement.GetRawText()) as JsonObject ?? [];
+                root = JsonSerializer.SerializeToNode(document.RootElement) as JsonObject ?? [];
             }
             catch
             {

@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Infrastructure;
+namespace QwenCode.Core.Infrastructure;
 
 /// <summary>
 /// Defines the contract for Git History Service

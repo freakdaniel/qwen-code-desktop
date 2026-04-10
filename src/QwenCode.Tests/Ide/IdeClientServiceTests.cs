@@ -1,5 +1,5 @@
-using System.Text.Json.Nodes;
-using QwenCode.App.Ide;
+﻿using System.Text.Json.Nodes;
+using QwenCode.Core.Ide;
 
 namespace QwenCode.Tests.Ide;
 

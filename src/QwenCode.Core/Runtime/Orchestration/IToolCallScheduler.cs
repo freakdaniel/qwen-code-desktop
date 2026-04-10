@@ -1,4 +1,4 @@
-namespace QwenCode.App.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Defines the contract for Tool Call Scheduler

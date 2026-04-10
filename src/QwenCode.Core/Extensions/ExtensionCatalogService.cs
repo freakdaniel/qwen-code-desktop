@@ -1,12 +1,12 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Diagnostics;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Extensions;
+namespace QwenCode.Core.Extensions;
 
 /// <summary>
 /// Represents the Extension Catalog Service

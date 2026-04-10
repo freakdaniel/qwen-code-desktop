@@ -1,6 +1,6 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 
-namespace QwenCode.App.Models;
+namespace QwenCode.Core.Models;
 
 /// <summary>
 /// Represents the Telemetry Event Record

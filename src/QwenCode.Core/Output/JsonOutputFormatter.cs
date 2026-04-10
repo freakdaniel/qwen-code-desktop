@@ -1,7 +1,7 @@
-using System.Text.Json;
-using QwenCode.App.Models;
+﻿using System.Text.Json;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Output;
+namespace QwenCode.Core.Output;
 
 /// <summary>
 /// Represents the Json Output Formatter

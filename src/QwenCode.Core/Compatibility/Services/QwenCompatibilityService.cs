@@ -1,9 +1,9 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.RegularExpressions;
-using QwenCode.App.Models;
-using QwenCode.App.Infrastructure;
+using QwenCode.Core.Models;
+using QwenCode.Core.Infrastructure;
 
-namespace QwenCode.App.Compatibility;
+namespace QwenCode.Core.Compatibility;
 
 /// <summary>
 /// Represents the Qwen Compatibility Service

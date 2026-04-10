@@ -1,5 +1,5 @@
-using System.Globalization;
-using QwenCode.App.Models;
+﻿using System.Globalization;
+using QwenCode.Core.Models;
 
 namespace QwenCode.App.Desktop;
 
@@ -38,7 +38,7 @@ internal static class DesktopProjectionCatalog
         var lang = Environment.GetEnvironmentVariable("LANG");
         if (!string.IsNullOrWhiteSpace(lang))
         {
-            // LANG can be like "en_US.UTF-8" — extract language part
+            // LANG can be like "en_US.UTF-8"; extract the language part.
             var langCode = lang.Split('.', '_')[0];
             var normalized = NormalizeLocale(langCode);
             if (normalized != "en") return normalized;

@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Permissions;
+namespace QwenCode.Core.Permissions;
 
 /// <summary>
 /// Represents the Approval Policy Service
@@ -19,16 +19,6 @@ public sealed class ApprovalPolicyService : IApprovalPolicyEngine
     {
         var contexts = BuildCandidateContexts(context);
         var primaryContext = contexts[0];
-
-        if (string.Equals(primaryContext.ToolName, "web_search", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(primaryContext.ToolName, "web_fetch", StringComparison.OrdinalIgnoreCase))
-        {
-            return new ApprovalDecision
-            {
-                State = "allow",
-                Reason = "Web search and fetch tools are always allowed in the desktop shell."
-            };
-        }
 
         if (TryMatchRule(approvalProfile.DenyRules, contexts, out var denyRule))
         {
@@ -65,6 +55,16 @@ public sealed class ApprovalPolicyService : IApprovalPolicyEngine
             {
                 State = "allow",
                 Reason = "Allowed by qwen-compatible shell semantics across extracted virtual operations."
+            };
+        }
+
+        if (string.Equals(primaryContext.ToolName, "web_search", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(primaryContext.ToolName, "web_fetch", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ApprovalDecision
+            {
+                State = "allow",
+                Reason = "Web search and fetch tools are allowed by default in the desktop shell unless an explicit rule overrides them."
             };
         }
 

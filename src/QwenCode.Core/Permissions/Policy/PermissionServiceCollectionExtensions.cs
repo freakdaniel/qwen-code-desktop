@@ -1,7 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
-using QwenCode.App.Models;
+﻿using Microsoft.Extensions.DependencyInjection;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Permissions;
+namespace QwenCode.Core.Permissions;
 
 /// <summary>
 /// Provides extension members for Permission Service Collection

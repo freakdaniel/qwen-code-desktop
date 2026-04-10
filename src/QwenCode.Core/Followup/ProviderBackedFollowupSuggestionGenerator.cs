@@ -1,10 +1,9 @@
-using Microsoft.Extensions.Options;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
-using QwenCode.App.Options;
-using QwenCode.App.Runtime;
+﻿using Microsoft.Extensions.Options;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Followup;
+namespace QwenCode.Core.Followup;
 
 /// <summary>
 /// Represents the Provider Backed Followup Suggestion Generator

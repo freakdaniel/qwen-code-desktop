@@ -1,4 +1,4 @@
-namespace QwenCode.App.Models;
+﻿namespace QwenCode.Core.Models;
 
 /// <summary>
 /// Represents the Active Arena Session State
@@ -14,6 +14,11 @@ public sealed class ActiveArenaSessionState
     /// Gets or sets the task
     /// </summary>
     public string Task { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the linked orchestration task id
+    /// </summary>
+    public string TaskId { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the status

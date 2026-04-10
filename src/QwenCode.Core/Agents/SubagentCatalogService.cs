@@ -1,9 +1,9 @@
-using System.Text.RegularExpressions;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+﻿using System.Text.RegularExpressions;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Agents;
+namespace QwenCode.Core.Agents;
 
 /// <summary>
 /// Represents the Subagent Catalog Service

@@ -1,6 +1,6 @@
-using QwenCode.App.Runtime;
+﻿using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Options;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Native Assistant Runtime Options

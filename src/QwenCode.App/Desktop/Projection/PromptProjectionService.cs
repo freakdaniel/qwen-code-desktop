@@ -1,8 +1,8 @@
-using Microsoft.Extensions.Options;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+﻿using Microsoft.Extensions.Options;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 using QwenCode.App.Options;
-using QwenCode.App.Prompts;
+using QwenCode.Core.Prompts;
 
 namespace QwenCode.App.Desktop;
 

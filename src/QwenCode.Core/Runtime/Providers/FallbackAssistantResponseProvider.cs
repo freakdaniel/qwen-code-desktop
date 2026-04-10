@@ -1,7 +1,7 @@
-using QwenCode.App.Models;
-using QwenCode.App.Options;
+﻿using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Fallback Assistant Response Provider

@@ -1,5 +1,7 @@
 namespace QwenCode.IpcGen;
 
+using System.Reflection;
+
 internal enum IpcKind
 {
     Invoke,
@@ -12,4 +14,6 @@ internal sealed record IpcMethod(
     string Channel,
     string MethodName,
     Type? InputType,
-    Type OutputType);
+    NullabilityInfo? InputNullability,
+    Type OutputType,
+    NullabilityInfo? OutputNullability);

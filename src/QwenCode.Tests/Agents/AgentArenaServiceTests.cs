@@ -104,6 +104,7 @@ public sealed class AgentArenaServiceTests
             Assert.Contains("\"RoundCount\": 1", persistedConfig);
             Assert.Contains("\"TaskId\": \"1\"", persisted);
             Assert.Contains("\"Status\": \"idle\"", persistedStatus);
+            Assert.Contains("\"TaskId\": \"1\"", persistedStatus);
             Assert.Contains("\"AgentName\": \"Alpha\"", persistedStatus);
             Assert.Contains("\"StopReason\": \"completed\"", persistedStatus);
             Assert.Contains("\"ToolCallCount\": 0", persistedStatus);
@@ -130,6 +131,7 @@ public sealed class AgentArenaServiceTests
                 "allow");
             Assert.Equal("completed", statusResult.Status);
             Assert.Contains("\"SessionId\": \"arena-test-session\"", statusResult.Output);
+            Assert.Contains("\"TaskId\": \"1\"", statusResult.Output);
             Assert.Contains("\"Status\": \"idle\"", statusResult.Output);
 
             var snapshot = new GitWorktreeService(new GitCliService(), runtimeProfileService).Inspect(new WorkspacePaths

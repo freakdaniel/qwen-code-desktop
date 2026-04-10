@@ -1,4 +1,4 @@
-namespace QwenCode.App.Models;
+﻿namespace QwenCode.Core.Models;
 
 /// <summary>
 /// Represents the Arena Session Event
@@ -14,6 +14,11 @@ public sealed class ArenaSessionEvent
     /// Gets or sets the kind
     /// </summary>
     public ArenaSessionEventKind Kind { get; init; }
+
+    /// <summary>
+    /// Gets or sets the linked orchestration task id
+    /// </summary>
+    public string TaskId { get; init; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the status

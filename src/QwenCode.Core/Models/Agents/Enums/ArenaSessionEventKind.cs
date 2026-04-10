@@ -1,4 +1,4 @@
-namespace QwenCode.App.Models;
+﻿namespace QwenCode.Core.Models;
 
 /// <summary>
 /// Specifies the available Arena Session Event Kind

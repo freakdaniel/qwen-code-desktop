@@ -1,18 +1,17 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Hooks;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
-using QwenCode.App.Options;
-using QwenCode.App.Runtime;
-using QwenCode.App.Telemetry;
-using QwenCode.App.Tools;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Hooks;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
+using QwenCode.Core.Telemetry;
+using QwenCode.Core.Tools;
 
-namespace QwenCode.App.Agents;
+namespace QwenCode.Core.Agents;
 
 /// <summary>
 /// Represents the Subagent Coordinator Service

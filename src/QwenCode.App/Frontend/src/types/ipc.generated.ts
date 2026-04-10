@@ -4,6 +4,7 @@
 export interface ActiveArenaSessionState {
   sessionId: string;
   task: string;
+  taskId: string;
   status: string;
   workingDirectory: string;
   baseBranch: string;
@@ -60,6 +61,7 @@ export interface AppBootstrapPayload {
   projectSummary: ProjectSummarySnapshot;
   qwenCompatibility: QwenCompatibilitySnapshot;
   qwenRuntime: QwenRuntimeProfile;
+  qwenModels: RuntimeModelSnapshot;
   qwenTools: ToolCatalogSnapshot;
   qwenNativeHost: NativeToolHostSnapshot;
   qwenAuth: AuthStatusSnapshot;
@@ -110,6 +112,7 @@ export interface ArenaAgentStatusFile {
 export interface ArenaSessionEvent {
   sessionId: string;
   kind: ArenaSessionEventKind;
+  taskId: string;
   status: string;
   message: string;
   agentName: string;
@@ -154,7 +157,20 @@ export interface AuthStatusSnapshot {
   credentialPath: string;
   lastError: string;
   lastAuthenticatedAtUtc: string | null;
-  deviceFlow: QwenOAuthDeviceFlowSnapshot;
+  deviceFlow: QwenOAuthDeviceFlowSnapshot | null;
+}
+
+export interface AvailableModel {
+  id: string;
+  authType: string;
+  baseUrl: string;
+  apiKeyEnvironmentVariable: string;
+  source: string;
+  contextWindowSize: number;
+  maxOutputTokens: number;
+  isDefaultModel: boolean;
+  isEmbeddingModel: boolean;
+  capabilities: RuntimeModelCapabilities;
 }
 
 export interface CancelArenaSessionRequest {
@@ -325,7 +341,6 @@ export interface DesktopSessionEntry {
   gitBranch: string;
   title: string;
   body: string;
-  thinkingBody: string;
   status: string;
   toolName: string;
   approvalState: string;
@@ -335,6 +350,8 @@ export interface DesktopSessionEntry {
   sourcePath: string;
   resolutionStatus: string;
   resolvedAt: string;
+  thinkingBody: string;
+  thinkingDurationMs: number;
   changedFiles: string[];
   questions: DesktopQuestionPrompt[];
   answers: DesktopQuestionAnswer[];
@@ -356,6 +373,11 @@ export interface DesktopSessionEvent {
   contentDelta: string;
   contentSnapshot: string;
   agentName: string;
+  toolOutput: string;
+  approvalState: string;
+  changedFiles: string[];
+  questions: DesktopQuestionPrompt[];
+  answers: DesktopQuestionAnswer[];
   title: string;
 }
 
@@ -366,7 +388,7 @@ export interface DesktopSessionTurnResult {
   assistantSummary: string;
   createdNewSession: boolean;
   toolExecution: NativeToolExecutionResult;
-  resolvedCommand: ResolvedCommand;
+  resolvedCommand: ResolvedCommand | null;
 }
 
 export interface DesktopStateChangedEvent {
@@ -597,6 +619,7 @@ export interface McpServerDefinition {
   timeoutMs: number | null;
   trust: boolean;
   description: string;
+  instructions: string;
   includeTools: string[];
   excludeTools: string[];
   settingsPath: string;
@@ -622,6 +645,7 @@ export interface McpServerRegistrationRequest {
   timeoutMs: number | null;
   trust: boolean;
   description: string;
+  instructions: string;
   includeTools: string[];
   excludeTools: string[];
 }
@@ -753,8 +777,10 @@ export interface QwenRuntimeProfile {
   contextFilePaths: string[];
   modelName: string;
   embeddingModel: string;
-  chatCompression: RuntimeChatCompressionSettings;
-  telemetry: RuntimeTelemetrySettings;
+  currentLocale: string;
+  currentLanguage: string;
+  chatCompression: RuntimeChatCompressionSettings | null;
+  telemetry: RuntimeTelemetrySettings | null;
   checkpointing: boolean;
   folderTrustEnabled: boolean;
   isWorkspaceTrusted: boolean;
@@ -841,6 +867,23 @@ export interface RuntimeChatCompressionSettings {
   contextPercentageThreshold: number | null;
 }
 
+export interface RuntimeModelCapabilities {
+  supportsToolCalls: boolean;
+  supportsJsonOutput: boolean;
+  supportsStreaming: boolean;
+  supportsReasoning: boolean;
+  supportsEmbeddings: boolean;
+  contextWindowTokens: number | null;
+  maxOutputTokens: number | null;
+}
+
+export interface RuntimeModelSnapshot {
+  defaultModelId: string;
+  embeddingModelId: string;
+  selectedAuthType: string;
+  availableModels: AvailableModel[];
+}
+
 export interface RuntimeTelemetrySettings {
   enabled: boolean;
   target: string;
@@ -849,6 +892,11 @@ export interface RuntimeTelemetrySettings {
   logPrompts: boolean;
   outfile: string;
   useCollector: boolean;
+}
+
+export interface SelectProjectDirectoryResult {
+  cancelled: boolean;
+  selectedPath: string;
 }
 
 export interface SessionPreview {
@@ -882,11 +930,6 @@ export interface SetExtensionSettingValueRequest {
 
 export interface SetLocaleRequest {
   locale: string;
-}
-
-export interface SelectProjectDirectoryResult {
-  cancelled: boolean;
-  selectedPath: string;
 }
 
 export interface StartDesktopSessionTurnRequest {
@@ -976,8 +1019,8 @@ export interface QwenDesktopBridge {
   createGitCheckpoint(request: CreateGitCheckpointRequest): Promise<WorkspaceSnapshot>;
   createManagedWorktree(request: CreateManagedWorktreeRequest): Promise<WorkspaceSnapshot>;
   getWorkspaceSnapshot(): Promise<WorkspaceSnapshot>;
-  selectProjectDirectory(): Promise<SelectProjectDirectoryResult>;
   restoreGitCheckpoint(request: RestoreGitCheckpointRequest): Promise<WorkspaceSnapshot>;
+  selectProjectDirectory(): Promise<SelectProjectDirectoryResult>;
 }
 
 export const qwenDesktopChannels = {
@@ -1026,6 +1069,6 @@ export const qwenDesktopChannels = {
   createGitCheckpoint: 'qwen-desktop:workspace:create-git-checkpoint',
   createManagedWorktree: 'qwen-desktop:workspace:create-managed-worktree',
   getWorkspaceSnapshot: 'qwen-desktop:workspace:get',
-  selectProjectDirectory: 'qwen-desktop:workspace:select-project-directory',
   restoreGitCheckpoint: 'qwen-desktop:workspace:restore-git-checkpoint',
+  selectProjectDirectory: 'qwen-desktop:workspace:select-project-directory',
 } as const

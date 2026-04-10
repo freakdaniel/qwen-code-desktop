@@ -1,4 +1,4 @@
-namespace QwenCode.App.Permissions;
+﻿namespace QwenCode.Core.Permissions;
 
 internal sealed class PermissionRule
 {

@@ -1,8 +1,8 @@
-using Microsoft.Extensions.DependencyInjection;
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
+﻿using Microsoft.Extensions.DependencyInjection;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Compatibility;
+namespace QwenCode.Core.Compatibility;
 
 /// <summary>
 /// Provides extension members for Compatibility Service Collection

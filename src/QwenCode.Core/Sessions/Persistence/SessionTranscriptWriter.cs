@@ -1,8 +1,8 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Runtime;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Sessions;
+namespace QwenCode.Core.Sessions;
 
 /// <summary>
 /// Represents the Session Transcript Writer

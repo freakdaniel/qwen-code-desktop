@@ -1,8 +1,8 @@
-using System.Text.Json;
-using QwenCode.App.Models;
-using QwenCode.App.Tools;
+﻿using System.Text.Json;
+using QwenCode.Core.Models;
+using QwenCode.Core.Tools;
 
-namespace QwenCode.App.Permissions;
+namespace QwenCode.Core.Permissions;
 
 /// <summary>
 /// Builds project-scoped permission rules from pending approval entries.

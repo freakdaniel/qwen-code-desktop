@@ -1,4 +1,4 @@
-namespace QwenCode.App.Channels;
+﻿namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Represents the Channel Block Streamer

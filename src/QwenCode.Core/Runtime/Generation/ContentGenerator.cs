@@ -1,6 +1,6 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Content Generator

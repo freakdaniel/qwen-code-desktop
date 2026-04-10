@@ -1,12 +1,12 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Config;
-using QwenCode.App.Extensions;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Config;
+using QwenCode.Core.Extensions;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Channels;
+namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Represents the Channel Registry Service

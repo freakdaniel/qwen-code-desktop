@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using Microsoft.CodeAnalysis;
@@ -7,10 +7,10 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
 using Microsoft.CodeAnalysis.Operations;
 using Microsoft.CodeAnalysis.Text;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Represents the Roslyn Lsp Tool Service

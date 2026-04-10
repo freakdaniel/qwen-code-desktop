@@ -1,8 +1,8 @@
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
-using QwenCode.App.Tools;
+﻿using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
+using QwenCode.Core.Tools;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Command Action Runtime

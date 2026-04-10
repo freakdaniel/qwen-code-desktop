@@ -1,9 +1,9 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Models;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Hooks;
+namespace QwenCode.Core.Hooks;
 
 /// <summary>
 /// Represents the Hook Command Runner

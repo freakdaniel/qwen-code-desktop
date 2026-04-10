@@ -1,4 +1,4 @@
-namespace QwenCode.App.Mcp;
+﻿namespace QwenCode.Core.Mcp;
 
 /// <summary>
 /// Defines the contract for Mcp Token Store

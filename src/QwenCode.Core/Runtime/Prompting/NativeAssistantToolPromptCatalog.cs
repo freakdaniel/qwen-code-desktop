@@ -1,4 +1,4 @@
-namespace QwenCode.App.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 internal static class NativeAssistantToolPromptCatalog
 {
@@ -29,7 +29,7 @@ internal static class NativeAssistantToolPromptCatalog
             """
             ## `web_fetch`
             - Use it after you already know a promising URL and need the contents of that exact page.
-            - Write the prompt around the specific facts you need from the page, not around a vague “summarize everything”.
+            - Write the prompt around the specific facts you need from the page, not around a vague вЂњsummarize everythingвЂќ.
             - If the URL 404s, redirects, or looks stale, recover by searching for a replacement source instead of treating the tool failure as the end of the task.
             """),
         new(
@@ -91,7 +91,7 @@ internal static class NativeAssistantToolPromptCatalog
             190,
             """
             ## `agent`
-            - Delegate bounded, high-value side work or parallelizable implementation, not the parent agent’s core understanding.
+            - Delegate bounded, high-value side work or parallelizable implementation, not the parent agentвЂ™s core understanding.
             - Write the brief like a smart engineer joining mid-task: include the goal, relevant files, constraints, known findings, and success criteria.
             - Keep final synthesis, tradeoff judgment, and the user-facing answer in the parent agent after the subagent returns.
             """),
@@ -100,7 +100,7 @@ internal static class NativeAssistantToolPromptCatalog
             200,
             """
             ## `arena`
-            - Use it for deliberate compare-and-choose work: second opinions, model competitions, or “pick the best implementation” tasks.
+            - Use it for deliberate compare-and-choose work: second opinions, model competitions, or вЂњpick the best implementationвЂќ tasks.
             - Do not default to arena for routine work that one strong agent can finish directly.
             - If the comparison is part of tracked work, link it to a task so the status and ownership stay coherent.
             """)

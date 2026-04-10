@@ -1,6 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using QwenCode.App.Ipc;
-using QwenCode.App.Models;
+using QwenCode.Core.Models;
 
 namespace QwenCode.App.AppHost;
 

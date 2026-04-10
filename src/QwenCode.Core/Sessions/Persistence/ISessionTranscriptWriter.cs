@@ -1,6 +1,6 @@
-using QwenCode.App.Runtime;
+﻿using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Sessions;
+namespace QwenCode.Core.Sessions;
 
 /// <summary>
 /// Defines the contract for Session Transcript Writer

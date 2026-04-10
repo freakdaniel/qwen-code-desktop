@@ -1,6 +1,6 @@
-using QwenCode.App.Ipc.Attributes;
+﻿using QwenCode.App.Ipc.Attributes;
 using QwenCode.App.Desktop;
-using QwenCode.App.Models;
+using QwenCode.Core.Models;
 using ElectronNET.API.Entities;
 using ElectronApi = ElectronNET.API.Electron;
 

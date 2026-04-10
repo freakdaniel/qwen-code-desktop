@@ -1,4 +1,4 @@
-namespace QwenCode.App.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Describes high-level prompt modes for the native assistant runtime.

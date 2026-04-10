@@ -1,4 +1,4 @@
-namespace QwenCode.App.Models;
+﻿namespace QwenCode.Core.Models;
 
 /// <summary>
 /// Represents the Configure Coding Plan Auth Request

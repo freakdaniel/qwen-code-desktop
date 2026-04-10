@@ -1,18 +1,18 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
-using QwenCode.App.Agents;
-using QwenCode.App.Auth;
-using QwenCode.App.Channels;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Agents;
+using QwenCode.Core.Auth;
+using QwenCode.Core.Channels;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 using QwenCode.App.Options;
-using QwenCode.App.Runtime;
-using QwenCode.App.Sessions;
-using QwenCode.App.Tools;
-using QwenCode.App.Mcp;
-using QwenCode.App.Extensions;
+using QwenCode.Core.Runtime;
+using QwenCode.Core.Sessions;
+using QwenCode.Core.Tools;
+using QwenCode.Core.Mcp;
+using QwenCode.Core.Extensions;
 using QwenCode.App.Desktop.Projection;
 
 namespace QwenCode.App.Desktop;
@@ -31,6 +31,7 @@ namespace QwenCode.App.Desktop;
 /// <param name="workspaceInspectionService">The workspace inspection service</param>
 /// <param name="authFlowService">The auth flow service</param>
 /// <param name="mcpConnectionManager">The mcp connection manager</param>
+/// <param name="modelRegistry">The model registry</param>
 /// <param name="transcriptStore">The transcript store</param>
 /// <param name="activeTurnRegistry">The active turn registry</param>
 /// <param name="arenaSessionRegistry">The arena session registry</param>

@@ -1,4 +1,4 @@
-using QwenCode.App.Auth;
+﻿using QwenCode.Core.Auth;
 
 namespace QwenCode.Tests.Auth;
 

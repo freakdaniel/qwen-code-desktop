@@ -1,20 +1,18 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Models;
-using QwenCode.App.Tools;
+using QwenCode.Core.Models;
+using QwenCode.Core.Tools;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 internal static class OpenAiCompatibleProtocol
 {
-    private static readonly string[] PreferredQwenCompatibleToolOrder =
+    private static readonly HashSet<string> StrictQwenCompatibleToolNames =
     [
         "agent",
-        "arena",
         "skill",
-        "tool_search",
         "list_directory",
         "read_file",
         "grep_search",
@@ -24,19 +22,27 @@ internal static class OpenAiCompatibleProtocol
         "run_shell_command",
         "save_memory",
         "todo_write",
-        "task_create",
-        "task_list",
-        "task_get",
-        "task_update",
-        "task_stop",
         "ask_user_question",
         "exit_plan_mode",
-        "mcp-client",
-        "mcp-tool",
-        "lsp",
-        "cron_create",
-        "cron_list",
-        "cron_delete",
+        "web_fetch",
+        "web_search"
+    ];
+
+    private static readonly string[] PreferredQwenCompatibleToolOrder =
+    [
+        "agent",
+        "skill",
+        "list_directory",
+        "read_file",
+        "grep_search",
+        "glob",
+        "edit",
+        "write_file",
+        "run_shell_command",
+        "save_memory",
+        "todo_write",
+        "ask_user_question",
+        "exit_plan_mode",
         "web_fetch",
         "web_search"
     ];
@@ -83,7 +89,9 @@ internal static class OpenAiCompatibleProtocol
 
         if (!request.DisableTools)
         {
-            payload["tools"] = BuildTools(request.AllowedToolNames);
+            payload["tools"] = BuildTools(
+                request.AllowedToolNames,
+                string.Equals(providerFlavor, "dashscope", StringComparison.OrdinalIgnoreCase));
             payload["tool_choice"] = "auto";
         }
         else
@@ -542,13 +550,21 @@ Pending questions:
 """;
     }
 
-    private static JsonArray BuildTools(IReadOnlyList<string> allowedToolNames)
+    private static JsonArray BuildTools(
+        IReadOnlyList<string> allowedToolNames,
+        bool strictQwenCompatibleTools = false)
     {
         var allowed = allowedToolNames.Count == 0
             ? ToolContractCatalog.Implemented
             : ToolContractCatalog.Implemented
                 .Where(tool => allowedToolNames.Contains(tool.Name, StringComparer.OrdinalIgnoreCase))
                 .ToArray();
+        if (strictQwenCompatibleTools)
+        {
+            allowed = allowed
+                .Where(tool => StrictQwenCompatibleToolNames.Contains(tool.Name))
+                .ToArray();
+        }
 
         return new JsonArray(
             allowed

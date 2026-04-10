@@ -14,6 +14,7 @@ public sealed class ArenaSessionRegistryTests
             {
                 SessionId = "arena-session",
                 Task = "Test task",
+                TaskId = "task-42",
                 Status = "running",
                 WorkingDirectory = @"E:\workspace",
                 BaseBranch = "main",
@@ -80,6 +81,7 @@ public sealed class ArenaSessionRegistryTests
             "Round completed.");
 
         var activeSession = registry.ListActiveSessions().Single();
+        Assert.Equal("task-42", activeSession.TaskId);
         Assert.Equal(2, activeSession.RoundCount);
         Assert.Equal("alpha", activeSession.SelectedWinner);
         Assert.Equal("completed", activeSession.Agents.Single().Status);
@@ -87,6 +89,7 @@ public sealed class ArenaSessionRegistryTests
 
         registry.Complete(
             "arena-session",
+            activeSession.TaskId,
             "completed",
             2,
             "alpha",
@@ -100,11 +103,13 @@ public sealed class ArenaSessionRegistryTests
             first =>
             {
                 Assert.Equal(ArenaSessionEventKind.SessionStarted, first.Kind);
+                Assert.Equal("task-42", first.TaskId);
                 Assert.Equal("running", first.Status);
             },
             second =>
             {
                 Assert.Equal(ArenaSessionEventKind.RoundCompleted, second.Kind);
+                Assert.Equal("task-42", second.TaskId);
                 Assert.Equal(2, second.RoundCount);
                 Assert.Equal("alpha", second.SelectedWinner);
                 Assert.Equal(3, second.Stats.ToolCallCount);
@@ -112,6 +117,7 @@ public sealed class ArenaSessionRegistryTests
             third =>
             {
                 Assert.Equal(ArenaSessionEventKind.SessionCompleted, third.Kind);
+                Assert.Equal("task-42", third.TaskId);
                 Assert.Equal("completed", third.Status);
                 Assert.Equal(2, third.RoundCount);
                 Assert.Equal("alpha", third.SelectedWinner);
@@ -131,6 +137,7 @@ public sealed class ArenaSessionRegistryTests
             {
                 SessionId = "arena-cancel",
                 Task = "Cancel task",
+                TaskId = "task-cancel",
                 Status = "running",
                 WorkingDirectory = @"E:\workspace",
                 BaseBranch = "main",
@@ -157,6 +164,7 @@ public sealed class ArenaSessionRegistryTests
             second =>
             {
                 Assert.Equal(ArenaSessionEventKind.SessionUpdated, second.Kind);
+                Assert.Equal("task-cancel", second.TaskId);
                 Assert.Equal("cancelling", second.Status);
             });
     }

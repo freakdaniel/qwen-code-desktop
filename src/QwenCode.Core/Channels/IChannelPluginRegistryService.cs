@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Channels;
+namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Defines the contract for Channel Plugin Registry Service

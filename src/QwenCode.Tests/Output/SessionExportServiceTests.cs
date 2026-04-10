@@ -1,4 +1,4 @@
-using QwenCode.App.Output;
+using QwenCode.Core.Output;
 
 namespace QwenCode.Tests.Output;
 

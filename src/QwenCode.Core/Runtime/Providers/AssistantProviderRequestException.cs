@@ -1,4 +1,4 @@
-namespace QwenCode.App.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents a provider request failure that should be surfaced to the session runtime.

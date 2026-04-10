@@ -1,4 +1,4 @@
-namespace QwenCode.App.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Provides reusable utility prompts for specialized assistant subtasks such as

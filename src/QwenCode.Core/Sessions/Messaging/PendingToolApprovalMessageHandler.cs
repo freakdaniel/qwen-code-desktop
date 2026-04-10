@@ -1,7 +1,7 @@
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Sessions;
+namespace QwenCode.Core.Sessions;
 
 /// <summary>
 /// Represents the Pending Tool Approval Message Handler

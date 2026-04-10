@@ -1,9 +1,9 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Ide;
-using QwenCode.App.Models;
+using QwenCode.Core.Ide;
+using QwenCode.Core.Models;
 
 namespace QwenCode.Tests.Ide;
 

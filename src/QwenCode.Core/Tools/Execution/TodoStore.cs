@@ -1,7 +1,7 @@
-using System.Text.Json;
-using QwenCode.App.Models;
+﻿using System.Text.Json;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 internal static class TodoStore
 {

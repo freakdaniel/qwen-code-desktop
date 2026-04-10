@@ -1,8 +1,8 @@
-using System.Text.Json;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+﻿using System.Text.Json;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Ide;
+namespace QwenCode.Core.Ide;
 
 /// <summary>
 /// Represents the Ide Backend Service

@@ -1,14 +1,13 @@
 import type {
   AppBootstrapPayload as GeneratedAppBootstrapPayload,
-  AuthStatusSnapshot as GeneratedAuthStatusSnapshot,
   DesktopQuestionAnswer,
   DesktopQuestionPrompt,
   DesktopStateChangedEvent,
   DesktopSessionEvent as GeneratedDesktopSessionEvent,
+  DesktopSessionDetail as GeneratedDesktopSessionDetail,
   DesktopSessionEntry as GeneratedDesktopSessionEntry,
-  DesktopSessionTurnResult as GeneratedDesktopSessionTurnResult,
   QwenDesktopBridge,
-  QwenOAuthDeviceFlowSnapshot,
+  SessionPreview,
 } from './ipc.generated'
 
 export type {
@@ -42,7 +41,6 @@ export type {
   GetChannelPairingRequest,
   GetDesktopSessionRequest,
   GetExtensionSettingsRequest,
-  DesktopSessionDetail,
   DesktopMode,
   DesktopSessionEventKind,
   DesktopStateChangedEvent,
@@ -68,6 +66,12 @@ export type {
   QwenSkillSurface,
   ToolCatalogSnapshot,
   ToolDescriptor,
+  AuthStatusSnapshot,
+  AvailableModel,
+  RuntimeModelCapabilities,
+  RuntimeModelSnapshot,
+  SessionPreview,
+  DesktopSessionTurnResult,
   WorkspaceSnapshot,
   GitRepositorySnapshot,
   GitWorktreeEntry,
@@ -76,7 +80,6 @@ export type {
   GitHistorySnapshot,
   QwenSurfaceDirectory,
   ResearchTrack,
-  SessionPreview,
   InstallExtensionRequest,
   RemoveExtensionRequest,
   SetExtensionEnabledRequest,
@@ -84,48 +87,16 @@ export type {
   StartDesktopSessionTurnRequest,
 } from './ipc.generated'
 
-export type DesktopSessionTurnResult =
-  Omit<GeneratedDesktopSessionTurnResult, 'resolvedCommand'> & {
-    resolvedCommand: GeneratedDesktopSessionTurnResult['resolvedCommand'] | null
+export type DesktopSessionEntry =
+  Omit<GeneratedDesktopSessionEntry, 'thinkingDurationMs'> & {
+    thinkingDurationMs?: number
   }
 
-export type AuthStatusSnapshot =
-  Omit<GeneratedAuthStatusSnapshot, 'deviceFlow'> & {
-    deviceFlow: QwenOAuthDeviceFlowSnapshot | null
+export type DesktopSessionDetail =
+  Omit<GeneratedDesktopSessionDetail, 'session' | 'entries'> & {
+    session: SessionPreview
+    entries: DesktopSessionEntry[]
   }
-
-export interface RuntimeModelCapabilities {
-  supportsEmbeddings: boolean
-  supportsJsonOutput: boolean
-  supportsStreaming: boolean
-  supportsToolCalls: boolean
-  supportsReasoning: boolean
-  maxOutputTokens?: number | null
-}
-
-export interface AvailableModel {
-  id: string
-  authType: string
-  baseUrl: string
-  apiKeyEnvironmentVariable: string
-  source: string
-  contextWindowSize: number
-  maxOutputTokens: number
-  isDefaultModel: boolean
-  isEmbeddingModel: boolean
-  capabilities: RuntimeModelCapabilities
-}
-
-export interface RuntimeModelSnapshot {
-  defaultModelId: string
-  embeddingModelId: string
-  selectedAuthType: string
-  availableModels: AvailableModel[]
-}
-
-export type DesktopSessionEntry = GeneratedDesktopSessionEntry & {
-  thinkingDurationMs?: number
-}
 
 export type DesktopSessionEvent =
   GeneratedDesktopSessionEvent & {
@@ -137,10 +108,7 @@ export type DesktopSessionEvent =
   }
 
 export type AppBootstrapPayload =
-  Omit<GeneratedAppBootstrapPayload, 'qwenAuth'> & {
-    qwenAuth: AuthStatusSnapshot
-    qwenModels: RuntimeModelSnapshot
-  }
+  GeneratedAppBootstrapPayload
 
 export interface DesktopBridge extends Omit<QwenDesktopBridge, 'setLocale'> {
   setLocale: (locale: string) => Promise<DesktopStateChangedEvent>

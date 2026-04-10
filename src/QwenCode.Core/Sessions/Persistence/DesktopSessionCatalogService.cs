@@ -1,9 +1,9 @@
-using System.Text.Json;
-using QwenCode.App.Models;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Runtime;
+﻿using System.Text.Json;
+using QwenCode.Core.Models;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Sessions;
+namespace QwenCode.Core.Sessions;
 
 /// <summary>
 /// Represents the Desktop Session Catalog Service
@@ -848,7 +848,7 @@ public sealed class DesktopSessionCatalogService(
             return value ?? string.Empty;
         }
 
-        return $"{value[..maximumLength]}…";
+        return $"{value[..maximumLength]}\u2026";
     }
 
     private static ParsedTranscriptEntry ParseTranscriptEntry(JsonElement root)

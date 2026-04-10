@@ -1,9 +1,9 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
-using QwenCode.App.Telemetry;
+using QwenCode.Core.Telemetry;
 
 namespace QwenCode.Tests.Telemetry;
 

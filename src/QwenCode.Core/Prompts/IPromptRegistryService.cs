@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Prompts;
+namespace QwenCode.Core.Prompts;
 
 /// <summary>
 /// Defines the contract for Prompt Registry Service

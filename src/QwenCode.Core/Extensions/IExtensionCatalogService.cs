@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Extensions;
+namespace QwenCode.Core.Extensions;
 
 /// <summary>
 /// Defines the contract for Extension Catalog Service

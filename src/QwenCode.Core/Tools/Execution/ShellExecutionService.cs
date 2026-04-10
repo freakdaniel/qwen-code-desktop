@@ -1,8 +1,8 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
-using QwenCode.App.Models;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Represents the Shell Execution Service

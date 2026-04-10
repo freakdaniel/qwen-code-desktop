@@ -1,7 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace QwenCode.App.Channels;
+namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Provides extension members for Channel Service Collection

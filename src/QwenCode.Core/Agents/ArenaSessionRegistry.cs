@@ -1,8 +1,8 @@
-using System.Collections.Concurrent;
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
+﻿using System.Collections.Concurrent;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Agents;
+namespace QwenCode.Core.Agents;
 
 /// <summary>
 /// Represents the Arena Session Registry
@@ -57,6 +57,7 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
         {
             SessionId = initialState.SessionId,
             Kind = ArenaSessionEventKind.SessionStarted,
+            TaskId = initialState.TaskId,
             Status = initialState.Status,
             Message = message,
             RoundCount = initialState.RoundCount,
@@ -100,6 +101,7 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
         {
             SessionId = snapshot.SessionId,
             Kind = kind,
+            TaskId = snapshot.TaskId,
             Status = snapshot.Status,
             Message = message,
             AgentName = agentName,
@@ -114,6 +116,7 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
     /// Executes complete
     /// </summary>
     /// <param name="sessionId">The session identifier</param>
+    /// <param name="taskId">The linked orchestration task id</param>
     /// <param name="status">The status</param>
     /// <param name="roundCount">The round count</param>
     /// <param name="selectedWinner">The selected winner</param>
@@ -122,6 +125,7 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
     /// <param name="message">The message</param>
     public void Complete(
         string sessionId,
+        string taskId,
         string status,
         int roundCount,
         string selectedWinner,
@@ -142,6 +146,7 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
             {
                 SessionId = completed.SessionId,
                 Task = completed.Task,
+                TaskId = string.IsNullOrWhiteSpace(taskId) ? completed.TaskId : taskId,
                 Status = status,
                 WorkingDirectory = completed.WorkingDirectory,
                 BaseBranch = completed.BaseBranch,
@@ -164,6 +169,7 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
                 : string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase)
                     ? ArenaSessionEventKind.SessionCancelled
                     : ArenaSessionEventKind.SessionFailed,
+            TaskId = snapshot.TaskId,
             Status = snapshot.Status,
             Message = message,
             RoundCount = snapshot.RoundCount,
@@ -200,6 +206,7 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
         {
             SessionId = snapshot.SessionId,
             Kind = ArenaSessionEventKind.SessionUpdated,
+            TaskId = snapshot.TaskId,
             Status = snapshot.Status,
             Message = message,
             RoundCount = snapshot.RoundCount,
@@ -218,15 +225,22 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
     /// <param name="message">The message</param>
     public void Remove(string sessionId, string message)
     {
-        if (!_sessions.TryRemove(sessionId, out _))
+        if (!_sessions.TryRemove(sessionId, out var entry))
         {
             return;
         }
 
+        ActiveArenaSessionState snapshot;
+        lock (entry.SyncRoot)
+        {
+            snapshot = Clone(entry.State);
+        }
+
         Publish(new ArenaSessionEvent
         {
-            SessionId = sessionId,
+            SessionId = snapshot.SessionId,
             Kind = ArenaSessionEventKind.SessionRemoved,
+            TaskId = snapshot.TaskId,
             Status = "removed",
             Message = message,
             TimestampUtc = DateTime.UtcNow
@@ -259,6 +273,7 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
         {
             SessionId = state.SessionId,
             Task = state.Task,
+            TaskId = state.TaskId,
             Status = state.Status,
             WorkingDirectory = state.WorkingDirectory,
             BaseBranch = state.BaseBranch,
@@ -275,6 +290,7 @@ public sealed class ArenaSessionRegistry : IArenaSessionRegistry
         {
             SessionId = state.SessionId,
             Task = state.Task,
+            TaskId = state.TaskId,
             Status = state.Status,
             WorkingDirectory = state.WorkingDirectory,
             BaseBranch = state.BaseBranch,

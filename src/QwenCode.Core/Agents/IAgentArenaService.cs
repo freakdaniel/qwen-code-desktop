@@ -1,8 +1,8 @@
-using System.Text.Json;
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
+﻿using System.Text.Json;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Agents;
+namespace QwenCode.Core.Agents;
 
 /// <summary>
 /// Defines the contract for Agent Arena Service

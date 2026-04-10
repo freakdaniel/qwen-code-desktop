@@ -1,9 +1,9 @@
-using QwenCode.App.Agents;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
-using QwenCode.App.Sessions;
+﻿using QwenCode.Core.Agents;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
+using QwenCode.Core.Sessions;
 
-namespace QwenCode.App.Followup;
+namespace QwenCode.Core.Followup;
 
 /// <summary>
 /// Represents the Followup Suggestion Service

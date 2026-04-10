@@ -1,11 +1,11 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.Json;
-using QwenCode.App.Config;
-using QwenCode.App.Models;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Runtime;
+using QwenCode.Core.Config;
+using QwenCode.Core.Models;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Compatibility;
+namespace QwenCode.Core.Compatibility;
 
 /// <summary>
 /// Represents the Qwen Runtime Profile Service

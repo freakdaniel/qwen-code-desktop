@@ -1,7 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace QwenCode.App.Models;
+namespace QwenCode.Core.Models;
 
 /// <summary>
 /// Represents the Channel Runtime Configuration

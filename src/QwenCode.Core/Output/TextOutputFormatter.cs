@@ -1,7 +1,7 @@
-using System.Text;
-using QwenCode.App.Models;
+﻿using System.Text;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Output;
+namespace QwenCode.Core.Output;
 
 /// <summary>
 /// Represents the Text Output Formatter
@@ -33,7 +33,7 @@ public sealed class TextOutputFormatter : IOutputFormatter
     private static string FormatSession(SessionExportSnapshot snapshot)
     {
         var builder = new StringBuilder();
-        builder.AppendLine($"Session: {snapshot.Session.Title}");
+        builder.AppendLine($"Session: {ResolveSessionTitle(snapshot)}");
         builder.AppendLine($"SessionId: {snapshot.Session.SessionId}");
         builder.AppendLine($"Status: {snapshot.Session.Status}");
         builder.AppendLine($"WorkingDirectory: {snapshot.Session.WorkingDirectory}");
@@ -90,5 +90,24 @@ public sealed class TextOutputFormatter : IOutputFormatter
         }
 
         return builder.ToString().TrimEnd();
+    }
+
+    private static string ResolveSessionTitle(SessionExportSnapshot snapshot)
+    {
+        if (!string.IsNullOrWhiteSpace(snapshot.Session.Title))
+        {
+            return snapshot.Session.Title;
+        }
+
+        var firstUserPrompt = snapshot.Entries
+            .FirstOrDefault(static entry => string.Equals(entry.Type, "user", StringComparison.OrdinalIgnoreCase) &&
+                                            !string.IsNullOrWhiteSpace(entry.Body))
+            ?.Body;
+        if (!string.IsNullOrWhiteSpace(firstUserPrompt))
+        {
+            return firstUserPrompt;
+        }
+
+        return snapshot.Session.SessionId;
     }
 }

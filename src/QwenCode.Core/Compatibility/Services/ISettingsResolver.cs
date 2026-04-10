@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Compatibility;
+namespace QwenCode.Core.Compatibility;
 
 /// <summary>
 /// Defines the contract for Settings Resolver

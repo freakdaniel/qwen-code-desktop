@@ -1,9 +1,9 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Models;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Channels;
+namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Represents the Dingtalk Channel Adapter

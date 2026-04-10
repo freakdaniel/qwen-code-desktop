@@ -1,12 +1,12 @@
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using QwenCode.App.Desktop.Projection;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 using QwenCode.App.Options;
-using QwenCode.App.Sessions;
-using QwenCode.App.Tools;
+using QwenCode.Core.Sessions;
+using QwenCode.Core.Tools;
 
 namespace QwenCode.App.Desktop;
 

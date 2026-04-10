@@ -1,7 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
-using QwenCode.App.Models;
+﻿using Microsoft.Extensions.DependencyInjection;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Infrastructure;
+namespace QwenCode.Core.Infrastructure;
 
 /// <summary>
 /// Provides extension members for Infrastructure Service Collection

@@ -1,6 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 
-namespace QwenCode.App.Mcp;
+namespace QwenCode.Core.Mcp;
 
 /// <summary>
 /// Provides extension members for Mcp Service Collection

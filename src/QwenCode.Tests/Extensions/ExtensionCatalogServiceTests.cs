@@ -1,5 +1,5 @@
-using System.Text.Json;
-using QwenCode.App.Extensions;
+﻿using System.Text.Json;
+using QwenCode.Core.Extensions;
 
 namespace QwenCode.Tests.Extensions;
 

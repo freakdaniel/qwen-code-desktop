@@ -1,7 +1,7 @@
-using System.Text;
-using QwenCode.App.Infrastructure;
+﻿using System.Text;
+using QwenCode.Core.Infrastructure;
 
-namespace QwenCode.App.Mcp;
+namespace QwenCode.Core.Mcp;
 
 /// <summary>
 /// Represents the File Mcp Token Store

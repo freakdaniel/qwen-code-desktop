@@ -1,8 +1,8 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
-using QwenCode.App.Auth;
-using QwenCode.App.Ide;
-using QwenCode.App.Telemetry;
+using QwenCode.Core.Auth;
+using QwenCode.Core.Ide;
+using QwenCode.Core.Telemetry;
 
 namespace QwenCode.Tests.Parity;
 

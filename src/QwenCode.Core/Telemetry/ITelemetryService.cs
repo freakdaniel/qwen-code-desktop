@@ -1,7 +1,7 @@
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
+﻿using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Telemetry;
+namespace QwenCode.Core.Telemetry;
 
 /// <summary>
 /// Defines the contract for Telemetry Service

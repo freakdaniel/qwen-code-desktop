@@ -1,9 +1,9 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Config;
+namespace QwenCode.Core.Config;
 
 /// <summary>
 /// Represents the Runtime Config Service
@@ -188,7 +188,7 @@ public sealed class RuntimeConfigService(IDesktopEnvironmentPaths environmentPat
                         AllowTrailingCommas = true,
                         CommentHandling = JsonCommentHandling.Skip
                     });
-                if (JsonNode.Parse(document.RootElement.GetRawText()) is JsonObject layerRoot)
+                if (JsonSerializer.SerializeToNode(document.RootElement) is JsonObject layerRoot)
                 {
                     MergeObjects(mergedRoot, layerRoot);
                 }

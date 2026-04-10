@@ -1,8 +1,8 @@
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
-using QwenCode.App.Permissions;
+﻿using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
+using QwenCode.Core.Permissions;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Represents the Tool Catalog Service

@@ -1,7 +1,7 @@
-using System.Text;
-using QwenCode.App.Models;
+﻿using System.Text;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Permissions;
+namespace QwenCode.Core.Permissions;
 
 internal static class ShellOperationAnalyzer
 {

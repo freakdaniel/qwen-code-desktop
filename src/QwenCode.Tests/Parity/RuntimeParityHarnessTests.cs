@@ -1,12 +1,13 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Channels;
-using QwenCode.App.Extensions;
-using QwenCode.App.Ide;
-using QwenCode.App.Sessions;
+using QwenCode.Core.Channels;
+using QwenCode.Core.Extensions;
+using QwenCode.Core.Ide;
+using QwenCode.Core.Sessions;
+using QwenCode.Tests.Shared.Fixtures;
 
 namespace QwenCode.Tests.Parity;
 
@@ -554,68 +555,71 @@ public sealed class RuntimeParityHarnessTests
     [Fact]
     public void IdeHarness_Backend_UsesEnvironmentFallbackAndNormalizesContext()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"qwen-parity-ide-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(root);
-
-        var previousPort = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT");
-        var previousWorkspace = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH");
-        var previousAuth = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN");
-
-        try
+        lock (ProcessEnvironmentLock.Gate)
         {
-            var homeRoot = Path.Combine(root, "home");
-            var workspaceRoot = Path.Combine(root, "workspace");
-            Directory.CreateDirectory(homeRoot);
-            Directory.CreateDirectory(workspaceRoot);
+            var root = Path.Combine(Path.GetTempPath(), $"qwen-parity-ide-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(root);
 
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT", "4222");
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH", workspaceRoot);
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN", "secret");
+            var previousPort = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT");
+            var previousWorkspace = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH");
+            var previousAuth = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN");
 
-            var contextService = new IdeContextService();
-            var backend = new IdeBackendService(
-                new FakeDesktopEnvironmentPaths(homeRoot, null, workspaceRoot, workspaceRoot),
-                new IdeDetectionService(),
-                contextService,
-                new IdeInstallerService(new NoOpIdeCommandRunner(), new FakeDesktopEnvironmentPaths(homeRoot, null, workspaceRoot, workspaceRoot)),
-                new AlwaysAliveProcessProbe());
-
-            var normalizedContext = backend.UpdateContext(new IdeContextSnapshot
+            try
             {
-                OpenFiles =
-                [
-                    new IdeOpenFile
-                    {
-                        Path = "b.cs",
-                        Timestamp = 2,
-                        IsActive = true,
-                        SelectedText = new string('x', IdeContextService.MaxSelectedTextLength + 10)
-                    },
-                    new IdeOpenFile
-                    {
-                        Path = "a.cs",
-                        Timestamp = 1,
-                        IsActive = true,
-                        SelectedText = "stale"
-                    }
-                ],
-                IsTrusted = true
-            });
-            var snapshot = backend.Inspect(workspaceRoot, "code");
+                var homeRoot = Path.Combine(root, "home");
+                var workspaceRoot = Path.Combine(root, "workspace");
+                Directory.CreateDirectory(homeRoot);
+                Directory.CreateDirectory(workspaceRoot);
 
-            Assert.Equal("connected", snapshot.Status);
-            Assert.Equal("4222", snapshot.Port);
-            Assert.Equal("***", snapshot.AuthToken);
-            Assert.True(normalizedContext.OpenFiles[0].IsActive);
-            Assert.Contains("[TRUNCATED]", normalizedContext.OpenFiles[0].SelectedText);
-            Assert.False(normalizedContext.OpenFiles[1].IsActive);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT", previousPort);
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH", previousWorkspace);
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN", previousAuth);
-            Directory.Delete(root, recursive: true);
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT", "4222");
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH", workspaceRoot);
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN", "secret");
+
+                var contextService = new IdeContextService();
+                var backend = new IdeBackendService(
+                    new FakeDesktopEnvironmentPaths(homeRoot, null, workspaceRoot, workspaceRoot),
+                    new IdeDetectionService(),
+                    contextService,
+                    new IdeInstallerService(new NoOpIdeCommandRunner(), new FakeDesktopEnvironmentPaths(homeRoot, null, workspaceRoot, workspaceRoot)),
+                    new AlwaysAliveProcessProbe());
+
+                var normalizedContext = backend.UpdateContext(new IdeContextSnapshot
+                {
+                    OpenFiles =
+                    [
+                        new IdeOpenFile
+                        {
+                            Path = "b.cs",
+                            Timestamp = 2,
+                            IsActive = true,
+                            SelectedText = new string('x', IdeContextService.MaxSelectedTextLength + 10)
+                        },
+                        new IdeOpenFile
+                        {
+                            Path = "a.cs",
+                            Timestamp = 1,
+                            IsActive = true,
+                            SelectedText = "stale"
+                        }
+                    ],
+                    IsTrusted = true
+                });
+                var snapshot = backend.Inspect(workspaceRoot, "code");
+
+                Assert.Equal("connected", snapshot.Status);
+                Assert.Equal("4222", snapshot.Port);
+                Assert.Equal("***", snapshot.AuthToken);
+                Assert.True(normalizedContext.OpenFiles[0].IsActive);
+                Assert.Contains("[TRUNCATED]", normalizedContext.OpenFiles[0].SelectedText);
+                Assert.False(normalizedContext.OpenFiles[1].IsActive);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT", previousPort);
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH", previousWorkspace);
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN", previousAuth);
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 

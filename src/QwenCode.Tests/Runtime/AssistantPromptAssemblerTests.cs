@@ -1,5 +1,5 @@
-using QwenCode.App.Mcp;
-using QwenCode.App.Prompts;
+﻿using QwenCode.Core.Mcp;
+using QwenCode.Core.Prompts;
 
 namespace QwenCode.Tests.Runtime;
 

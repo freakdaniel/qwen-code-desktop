@@ -1,9 +1,9 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Auth;
+namespace QwenCode.Core.Auth;
 
 /// <summary>
 /// Represents the File Qwen O Auth Credential Store

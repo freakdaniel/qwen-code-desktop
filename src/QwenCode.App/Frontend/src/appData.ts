@@ -164,6 +164,8 @@ export const fallbackBootstrap: AppBootstrapPayload = {
     },
     modelName: '',
     embeddingModel: '',
+    currentLocale: 'en',
+    currentLanguage: 'English',
     chatCompression: {
       contextPercentageThreshold: null,
     },

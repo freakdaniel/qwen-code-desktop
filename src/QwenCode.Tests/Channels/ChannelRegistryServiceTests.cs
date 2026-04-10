@@ -1,6 +1,6 @@
-using System.Text.Json;
-using QwenCode.App.Channels;
-using QwenCode.App.Extensions;
+﻿using System.Text.Json;
+using QwenCode.Core.Channels;
+using QwenCode.Core.Extensions;
 
 namespace QwenCode.Tests.Channels;
 

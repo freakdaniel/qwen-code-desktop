@@ -1,9 +1,9 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Auth;
+namespace QwenCode.Core.Auth;
 
 /// <summary>
 /// Represents the Qwen O Auth Token Manager

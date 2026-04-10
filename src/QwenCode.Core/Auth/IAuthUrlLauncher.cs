@@ -1,4 +1,4 @@
-namespace QwenCode.App.Auth;
+﻿namespace QwenCode.Core.Auth;
 
 /// <summary>
 /// Defines the contract for Auth Url Launcher

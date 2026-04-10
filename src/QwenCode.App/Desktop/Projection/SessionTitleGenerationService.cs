@@ -1,9 +1,9 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
-using QwenCode.App.Sessions;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
+using QwenCode.Core.Sessions;
 
 namespace QwenCode.App.Desktop.Projection;
 
@@ -123,8 +123,8 @@ public sealed class SessionTitleGenerationService(
             .Replace("\n", " ", StringComparison.Ordinal)
             .Trim();
 
-        normalized = normalized.Trim('"', '\'', '«', '»', '“', '”', '`', ' ', '\t');
-        normalized = normalized.TrimEnd('.', '!', '?', ';', ':', ',', '…');
+        normalized = normalized.Trim('"', '\'', '\u00AB', '\u00BB', '\u201C', '\u201D', '`', ' ', '\t');
+        normalized = normalized.TrimEnd('.', '!', '?', ';', ':', ',', '\u2026');
 
         if (string.IsNullOrWhiteSpace(normalized))
         {

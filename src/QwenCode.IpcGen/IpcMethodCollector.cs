@@ -20,24 +20,32 @@ internal sealed class IpcMethodCollector
 
     private static IpcMethod? TryCreate(MethodInfo method)
     {
+        var nullabilityContext = new NullabilityInfoContext();
+
         if (method.GetCustomAttribute<IpcInvokeAttribute>() is { } invoke)
         {
+            var input = GetInputParameter(method);
             return new IpcMethod(
                 IpcKind.Invoke,
                 invoke.Channel,
                 ToCamelCase(method.Name),
-                GetInputType(method),
-                UnwrapReturnType(method.ReturnType));
+                input?.ParameterType,
+                input is null ? null : nullabilityContext.Create(input),
+                UnwrapReturnType(method.ReturnType),
+                nullabilityContext.Create(method.ReturnParameter));
         }
 
         if (method.GetCustomAttribute<IpcSendAttribute>() is { } send)
         {
+            var input = GetInputParameter(method);
             return new IpcMethod(
                 IpcKind.Send,
                 send.Channel,
                 ToCamelCase(method.Name),
-                GetInputType(method),
-                typeof(void));
+                input?.ParameterType,
+                input is null ? null : nullabilityContext.Create(input),
+                typeof(void),
+                null);
         }
 
         if (method.GetCustomAttribute<IpcEventAttribute>() is { } evt)
@@ -52,16 +60,17 @@ internal sealed class IpcMethodCollector
                 evt.Channel,
                 ToCamelCase(method.Name),
                 null,
-                payloadType);
+                null,
+                payloadType,
+                null);
         }
 
         return null;
     }
 
-    private static Type? GetInputType(MethodInfo method)
+    private static ParameterInfo? GetInputParameter(MethodInfo method)
         => method.GetParameters()
             .Where(parameter => parameter.ParameterType != typeof(CancellationToken))
-            .Select(parameter => parameter.ParameterType)
             .FirstOrDefault();
 
     private static Type UnwrapReturnType(Type type)

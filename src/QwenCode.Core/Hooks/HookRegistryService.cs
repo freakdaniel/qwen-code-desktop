@@ -1,10 +1,10 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Extensions;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Extensions;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Hooks;
+namespace QwenCode.Core.Hooks;
 
 /// <summary>
 /// Represents the Hook Registry Service

@@ -1,21 +1,21 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Security.Authentication;
 using System.Text.RegularExpressions;
-using QwenCode.App.Agents;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Hooks;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Mcp;
-using QwenCode.App.Models;
-using QwenCode.App.Permissions;
-using QwenCode.App.Runtime;
-using QwenCode.App.Telemetry;
+using QwenCode.Core.Agents;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Hooks;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Mcp;
+using QwenCode.Core.Models;
+using QwenCode.Core.Permissions;
+using QwenCode.Core.Runtime;
+using QwenCode.Core.Telemetry;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Represents the Native Tool Host Service

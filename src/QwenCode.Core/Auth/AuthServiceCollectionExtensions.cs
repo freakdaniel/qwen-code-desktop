@@ -1,6 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 
-namespace QwenCode.App.Auth;
+namespace QwenCode.Core.Auth;
 
 /// <summary>
 /// Provides extension members for Auth Service Collection

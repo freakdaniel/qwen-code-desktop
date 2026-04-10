@@ -1,4 +1,4 @@
-using QwenCode.App.Followup;
+﻿using QwenCode.Core.Followup;
 
 namespace QwenCode.Tests.Followup;
 

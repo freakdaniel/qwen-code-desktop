@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Ide;
+namespace QwenCode.Core.Ide;
 
 /// <summary>
 /// Represents the Ide Context Service

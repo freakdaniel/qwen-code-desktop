@@ -1,7 +1,7 @@
-using System.Text.Json.Nodes;
-using QwenCode.App.Models;
+﻿using System.Text.Json.Nodes;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Hooks;
+namespace QwenCode.Core.Hooks;
 
 /// <summary>
 /// Represents the Hook Lifecycle Service

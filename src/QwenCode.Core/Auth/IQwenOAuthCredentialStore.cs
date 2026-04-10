@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Auth;
+namespace QwenCode.Core.Auth;
 
 /// <summary>
 /// Defines the contract for Qwen O Auth Credential Store

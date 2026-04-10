@@ -1,4 +1,4 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
 namespace QwenCode.App.Options;
 

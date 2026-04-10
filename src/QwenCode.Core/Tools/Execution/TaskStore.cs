@@ -1,6 +1,6 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 internal static class TaskStore
 {
@@ -12,14 +12,14 @@ internal static class TaskStore
         "cancelled"
     ];
 
-    public static string ResolveTaskFilePath(QwenCode.App.Models.QwenRuntimeProfile runtimeProfile, string? sessionId)
+    public static string ResolveTaskFilePath(QwenCode.Core.Models.QwenRuntimeProfile runtimeProfile, string? sessionId)
     {
         var effectiveSessionId = string.IsNullOrWhiteSpace(sessionId) ? "default" : sessionId.Trim();
         return Path.Combine(runtimeProfile.RuntimeBaseDirectory, "tasks", $"{effectiveSessionId}.json");
     }
 
     public static async Task<TaskCreateResult> CreateTaskAsync(
-        QwenCode.App.Models.QwenRuntimeProfile runtimeProfile,
+        QwenCode.Core.Models.QwenRuntimeProfile runtimeProfile,
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
@@ -56,7 +56,7 @@ internal static class TaskStore
     }
 
     public static async Task<TaskListResult> ListTasksAsync(
-        QwenCode.App.Models.QwenRuntimeProfile runtimeProfile,
+        QwenCode.Core.Models.QwenRuntimeProfile runtimeProfile,
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
@@ -67,7 +67,7 @@ internal static class TaskStore
     }
 
     public static async Task<TaskRecord?> GetTaskAsync(
-        QwenCode.App.Models.QwenRuntimeProfile runtimeProfile,
+        QwenCode.Core.Models.QwenRuntimeProfile runtimeProfile,
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
@@ -79,7 +79,7 @@ internal static class TaskStore
     }
 
     public static async Task<TaskUpdateResult> UpdateTaskAsync(
-        QwenCode.App.Models.QwenRuntimeProfile runtimeProfile,
+        QwenCode.Core.Models.QwenRuntimeProfile runtimeProfile,
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
@@ -143,7 +143,7 @@ internal static class TaskStore
     }
 
     public static async Task<TaskStopResult> StopTaskAsync(
-        QwenCode.App.Models.QwenRuntimeProfile runtimeProfile,
+        QwenCode.Core.Models.QwenRuntimeProfile runtimeProfile,
         JsonElement arguments,
         CancellationToken cancellationToken)
     {

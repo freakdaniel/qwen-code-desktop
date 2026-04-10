@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 
-namespace QwenCode.App.Config;
+namespace QwenCode.Core.Config;
 
 /// <summary>
 /// Provides extension members for Config Service Collection

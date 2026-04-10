@@ -1,7 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
-using QwenCode.App.Models;
+﻿using Microsoft.Extensions.DependencyInjection;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Provides extension members for Tool Service Collection

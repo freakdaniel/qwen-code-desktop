@@ -1,7 +1,7 @@
-using System.Text.Json;
-using QwenCode.App.Models;
+﻿using System.Text.Json;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Channels;
+namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Defines the contract for Channel Plugin Runtime Service

@@ -1,5 +1,6 @@
-using System.Text.Json;
-using QwenCode.App.Ide;
+﻿using System.Text.Json;
+using QwenCode.Core.Ide;
+using QwenCode.Tests.Shared.Fixtures;
 
 namespace QwenCode.Tests.Ide;
 
@@ -154,44 +155,47 @@ public sealed class IdeBackendServiceTests
     [Fact]
     public void IdeBackendService_Inspect_UsesEnvironmentFallbackWhenLockFileIsMissing()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"qwen-ide-env-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(root);
-
-        var previousPort = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT");
-        var previousWorkspace = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH");
-        var previousAuth = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN");
-
-        try
+        lock (ProcessEnvironmentLock.Gate)
         {
-            var homeRoot = Path.Combine(root, "home");
-            var workspaceRoot = Path.Combine(root, "workspace");
-            Directory.CreateDirectory(homeRoot);
-            Directory.CreateDirectory(workspaceRoot);
+            var root = Path.Combine(Path.GetTempPath(), $"qwen-ide-env-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(root);
 
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT", "4123");
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH", workspaceRoot);
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN", "env-secret");
+            var previousPort = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT");
+            var previousWorkspace = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH");
+            var previousAuth = Environment.GetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN");
 
-            var backend = new IdeBackendService(
-                new FakeDesktopEnvironmentPaths(homeRoot, null, workspaceRoot, workspaceRoot),
-                new IdeDetectionService(),
-                new IdeContextService(),
-                new IdeInstallerService(new FakeIdeCommandRunner(), new FakeDesktopEnvironmentPaths(homeRoot, null, workspaceRoot, workspaceRoot)),
-                new FakeIdeProcessProbe(true));
+            try
+            {
+                var homeRoot = Path.Combine(root, "home");
+                var workspaceRoot = Path.Combine(root, "workspace");
+                Directory.CreateDirectory(homeRoot);
+                Directory.CreateDirectory(workspaceRoot);
 
-            var snapshot = backend.Inspect(workspaceRoot, "code");
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT", "4123");
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH", workspaceRoot);
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN", "env-secret");
 
-            Assert.Equal("connected", snapshot.Status);
-            Assert.Equal("4123", snapshot.Port);
-            Assert.Equal("***", snapshot.AuthToken);
-            Assert.Equal(workspaceRoot, snapshot.WorkspacePath);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT", previousPort);
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH", previousWorkspace);
-            Environment.SetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN", previousAuth);
-            Directory.Delete(root, recursive: true);
+                var backend = new IdeBackendService(
+                    new FakeDesktopEnvironmentPaths(homeRoot, null, workspaceRoot, workspaceRoot),
+                    new IdeDetectionService(),
+                    new IdeContextService(),
+                    new IdeInstallerService(new FakeIdeCommandRunner(), new FakeDesktopEnvironmentPaths(homeRoot, null, workspaceRoot, workspaceRoot)),
+                    new FakeIdeProcessProbe(true));
+
+                var snapshot = backend.Inspect(workspaceRoot, "code");
+
+                Assert.Equal("connected", snapshot.Status);
+                Assert.Equal("4123", snapshot.Port);
+                Assert.Equal("***", snapshot.AuthToken);
+                Assert.Equal(workspaceRoot, snapshot.WorkspacePath);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_SERVER_PORT", previousPort);
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_WORKSPACE_PATH", previousWorkspace);
+                Environment.SetEnvironmentVariable("QWEN_CODE_IDE_AUTH_TOKEN", previousAuth);
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 

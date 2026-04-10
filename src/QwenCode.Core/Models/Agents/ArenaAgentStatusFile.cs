@@ -1,6 +1,6 @@
-using QwenCode.App.Runtime;
+﻿using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Models;
+namespace QwenCode.Core.Models;
 
 /// <summary>
 /// Represents the Arena Agent Status File

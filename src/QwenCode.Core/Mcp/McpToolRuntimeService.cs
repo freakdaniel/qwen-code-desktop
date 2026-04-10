@@ -1,13 +1,13 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Mcp;
+namespace QwenCode.Core.Mcp;
 
 /// <summary>
 /// Represents the Mcp Tool Runtime Service

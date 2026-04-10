@@ -1,4 +1,4 @@
-namespace QwenCode.App.Permissions;
+﻿namespace QwenCode.Core.Permissions;
 
 /// <summary>
 /// Represents the Approval Check Context

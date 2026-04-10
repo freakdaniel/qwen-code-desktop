@@ -1,6 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 
-namespace QwenCode.App.Prompts;
+namespace QwenCode.Core.Prompts;
 
 /// <summary>
 /// Provides extension members for Prompt Service Collection

@@ -1,8 +1,8 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
-using QwenCode.App.Models;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Defines the contract for Web Tool Service

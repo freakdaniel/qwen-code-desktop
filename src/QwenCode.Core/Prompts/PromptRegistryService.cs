@@ -1,8 +1,8 @@
-using System.Text.Json;
-using QwenCode.App.Mcp;
-using QwenCode.App.Models;
+﻿using System.Text.Json;
+using QwenCode.Core.Mcp;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Prompts;
+namespace QwenCode.Core.Prompts;
 
 /// <summary>
 /// Represents the Prompt Registry Service

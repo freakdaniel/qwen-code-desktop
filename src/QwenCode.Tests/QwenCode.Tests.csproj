@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\QwenCode.Core\QwenCode.Core.csproj" />
     <ProjectReference Include="..\QwenCode.App\QwenCode.App.csproj" />
+    <ProjectReference Include="..\QwenCode.IpcGen\QwenCode.IpcGen.csproj" />
   </ItemGroup>
 
 </Project>

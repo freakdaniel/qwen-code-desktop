@@ -1,8 +1,8 @@
-using System.Text.Json;
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
+﻿using System.Text.Json;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Sessions;
+namespace QwenCode.Core.Sessions;
 
 /// <summary>
 /// Represents the Chat Compression Service
@@ -333,7 +333,7 @@ Older transcript digest:
                 var normalized = line.Trim();
                 while (normalized.StartsWith("-", StringComparison.Ordinal) ||
                        normalized.StartsWith("*", StringComparison.Ordinal) ||
-                       normalized.StartsWith("•", StringComparison.Ordinal))
+                       normalized.StartsWith("\u2022", StringComparison.Ordinal))
                 {
                     normalized = normalized[1..].TrimStart();
                 }

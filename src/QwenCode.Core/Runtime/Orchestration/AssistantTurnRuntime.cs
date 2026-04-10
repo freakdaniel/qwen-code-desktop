@@ -1,10 +1,10 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Extensions.Options;
-using QwenCode.App.Models;
-using QwenCode.App.Options;
-using QwenCode.App.Tools;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
+using QwenCode.Core.Tools;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Assistant Turn Runtime

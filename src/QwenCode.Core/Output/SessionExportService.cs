@@ -1,7 +1,7 @@
-using QwenCode.App.Models;
-using QwenCode.App.Sessions;
+﻿using QwenCode.Core.Models;
+using QwenCode.Core.Sessions;
 
-namespace QwenCode.App.Output;
+namespace QwenCode.Core.Output;
 
 /// <summary>
 /// Represents the Session Export Service

@@ -1,4 +1,4 @@
-using System.Runtime;
+﻿using System.Runtime;
 using System.Threading;
 using System.Diagnostics;
 using ElectronNET;
@@ -9,7 +9,7 @@ using QwenCode.App.AppHost;
 using Serilog;
 using Serilog.Events;
 using Serilog.Sinks.SystemConsole.Themes;
-using QwenCode.App.Models;
+using QwenCode.Core.Models;
 
 namespace QwenCode.App;
 

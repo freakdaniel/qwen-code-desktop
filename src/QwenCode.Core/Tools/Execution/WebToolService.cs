@@ -1,15 +1,16 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Config;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Represents the Web Tool Service
@@ -290,7 +291,7 @@ Requested analysis: {prompt}
 
     private static string BuildPromptScopedExcerpt(string prompt, string extractedText)
     {
-        var promptTerms = Regex.Matches(prompt.ToLowerInvariant(), "[a-zA-Zа-яА-Я0-9_\\-]{4,}")
+        var promptTerms = Regex.Matches(prompt.ToLowerInvariant(), "[\\p{L}0-9_\\-]{4,}")
             .Select(match => match.Value)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -433,13 +434,15 @@ Call web_fetch again with the redirect URL if you want to inspect that destinati
 
     private WebSearchConfiguration? ResolveWebSearchConfiguration(string projectRoot)
     {
-        var merged = LoadMergedSettings(projectRoot);
+        var configSnapshot = new RuntimeConfigService(environmentPaths)
+            .Inspect(new WorkspacePaths { WorkspaceRoot = projectRoot });
+        var merged = configSnapshot.MergedSettings;
         if (GetNode(merged, "webSearch") is not JsonObject webSearchObject)
         {
             return null;
         }
 
-        var settingsEnvironment = ReadEnvironment(merged);
+        var settingsEnvironment = configSnapshot.Environment;
         var providers = new List<WebSearchProviderConfiguration>();
         var defaultProvider = GetString(webSearchObject, "default");
 
@@ -636,74 +639,6 @@ Call web_fetch again with the redirect URL if you want to inspect that destinati
             : $"{content}{Environment.NewLine}{Environment.NewLine}*Note: For detailed content from any source above, use the web_fetch tool with the URL.*";
     }
 
-    private JsonObject LoadMergedSettings(string projectRoot)
-    {
-        var merged = new JsonObject();
-        foreach (var settingsPath in GetSettingsPaths(projectRoot))
-        {
-            if (!File.Exists(settingsPath))
-            {
-                continue;
-            }
-
-            try
-            {
-                using var stream = File.OpenRead(settingsPath);
-                using var document = JsonDocument.Parse(
-                    stream,
-                    new JsonDocumentOptions
-                    {
-                        AllowTrailingCommas = true,
-                        CommentHandling = JsonCommentHandling.Skip
-                    });
-                if (JsonNode.Parse(document.RootElement.GetRawText()) is JsonObject objectNode)
-                {
-                    MergeObjects(merged, objectNode);
-                }
-            }
-            catch
-            {
-                // Ignore malformed settings layers.
-            }
-        }
-
-        return merged;
-    }
-
-    private IEnumerable<string> GetSettingsPaths(string projectRoot)
-    {
-        var globalQwenDirectory = Path.Combine(environmentPaths.HomeDirectory, ".qwen");
-        var programDataRoot = ResolveProgramDataRoot();
-
-        yield return GetSystemDefaultsPath(programDataRoot);
-        yield return Path.Combine(globalQwenDirectory, "settings.json");
-        yield return Path.Combine(projectRoot, ".qwen", "settings.json");
-        yield return GetSystemSettingsPath(programDataRoot);
-    }
-
-    private string ResolveProgramDataRoot() =>
-        Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_SETTINGS_PATH") is { Length: > 0 } overridePath
-            ? Path.GetDirectoryName(overridePath) ?? string.Empty
-            : environmentPaths.ProgramDataDirectory is { Length: > 0 } commonAppData
-                ? Path.Combine(commonAppData, "qwen-code")
-                : string.Empty;
-
-    private static string GetSystemDefaultsPath(string programDataRoot)
-    {
-        var overridePath = Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_DEFAULTS_PATH");
-        return string.IsNullOrWhiteSpace(overridePath)
-            ? Path.Combine(programDataRoot, "system-defaults.json")
-            : overridePath;
-    }
-
-    private static string GetSystemSettingsPath(string programDataRoot)
-    {
-        var overridePath = Environment.GetEnvironmentVariable("QWEN_CODE_SYSTEM_SETTINGS_PATH");
-        return string.IsNullOrWhiteSpace(overridePath)
-            ? Path.Combine(programDataRoot, "settings.json")
-            : overridePath;
-    }
-
     private static IReadOnlyDictionary<string, string> ReadEnvironment(JsonObject mergedSettings)
     {
         if (GetNode(mergedSettings, "env") is not JsonObject envObject)
@@ -729,21 +664,6 @@ Call web_fetch again with the redirect URL if you want to inspect that destinati
         }
 
         return string.Empty;
-    }
-
-    private static void MergeObjects(JsonObject target, JsonObject source)
-    {
-        foreach (var (key, value) in source)
-        {
-            if (value is JsonObject sourceObject &&
-                target[key] is JsonObject targetObject)
-            {
-                MergeObjects(targetObject, sourceObject);
-                continue;
-            }
-
-            target[key] = value?.DeepClone();
-        }
     }
 
     private static JsonNode? GetNode(JsonObject root, params string[] path)

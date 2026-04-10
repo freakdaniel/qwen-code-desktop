@@ -1,6 +1,6 @@
-using System.Globalization;
+﻿using System.Globalization;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 internal static class RuntimeLocaleCatalog
 {

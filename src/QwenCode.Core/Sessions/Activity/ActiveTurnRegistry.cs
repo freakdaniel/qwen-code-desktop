@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
-using QwenCode.App.Models;
+﻿using System.Collections.Concurrent;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Sessions;
+namespace QwenCode.Core.Sessions;
 
 /// <summary>
 /// Represents the Active Turn Registry

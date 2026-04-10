@@ -1,11 +1,11 @@
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using QwenCode.App.Desktop;
 using QwenCode.App.Desktop.Projection;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 using QwenCode.App.Options;
-using QwenCode.App.Sessions;
+using QwenCode.Core.Sessions;
 using QwenCode.Tests.Shared.Fakes;
 
 namespace QwenCode.Tests.Desktop;
@@ -85,13 +85,13 @@ public sealed class SessionProjectionServiceTests
             await service.StartSessionTurnAsync(new StartDesktopSessionTurnRequest
             {
                 SessionId = "session-1",
-                Prompt = "Сравни архитектуру Avalonia и WPF",
+                Prompt = "Compare Avalonia and WPF architecture",
                 WorkingDirectory = workspaceRoot
             });
 
             var call = Assert.Single(titleGenerationService.Calls);
             Assert.Equal("session-1", call.SessionId);
-            Assert.Equal("Сравни архитектуру Avalonia и WPF", call.FirstMessageText);
+            Assert.Equal("Compare Avalonia and WPF architecture", call.FirstMessageText);
             Assert.Equal(result.Session.TranscriptPath, call.TranscriptPath);
             Assert.Equal(workspaceRoot, call.WorkingDirectory);
             Assert.Equal("ru", call.Locale);

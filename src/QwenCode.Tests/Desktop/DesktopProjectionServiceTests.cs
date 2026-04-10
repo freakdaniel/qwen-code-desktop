@@ -1,9 +1,9 @@
-using QwenCode.App.Auth;
-using QwenCode.App.Channels;
-using QwenCode.App.Config;
+﻿using QwenCode.Core.Auth;
+using QwenCode.Core.Channels;
+using QwenCode.Core.Config;
 using QwenCode.App.Desktop;
 using QwenCode.App.Desktop.Projection;
-using QwenCode.App.Extensions;
+using QwenCode.Core.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using QwenCode.Tests.Shared.Fakes;
 
@@ -380,6 +380,7 @@ public sealed class DesktopProjectionServiceTests
                 {
                     SessionId = "arena-live-bootstrap",
                     Task = "Benchmark two models",
+                    TaskId = "task-bootstrap-1",
                     Status = "running",
                     WorkingDirectory = workspaceRoot,
                     BaseBranch = "main",
@@ -499,6 +500,7 @@ public sealed class DesktopProjectionServiceTests
             var payload = await service.GetBootstrapAsync();
             var activeArenaSession = Assert.Single(payload.ActiveArenaSessions);
             Assert.Equal("arena-live-bootstrap", activeArenaSession.SessionId);
+            Assert.Equal("task-bootstrap-1", activeArenaSession.TaskId);
             Assert.Equal("running", activeArenaSession.Status);
             Assert.Equal(2, activeArenaSession.Agents.Count);
 
@@ -514,6 +516,7 @@ public sealed class DesktopProjectionServiceTests
 
             Assert.NotNull(observedEvent);
             Assert.Equal(ArenaSessionEventKind.SessionUpdated, observedEvent!.Kind);
+            Assert.Equal("task-bootstrap-1", observedEvent.TaskId);
             Assert.Equal("model-a", observedEvent.SelectedWinner);
 
             var cancelResult = await service.CancelArenaSessionAsync(new CancelArenaSessionRequest

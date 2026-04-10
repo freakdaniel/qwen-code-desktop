@@ -1,6 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 
-namespace QwenCode.App.Extensions;
+namespace QwenCode.Core.Extensions;
 
 /// <summary>
 /// Provides extension members for Extension Service Collection

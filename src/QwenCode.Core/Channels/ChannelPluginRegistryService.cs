@@ -1,8 +1,8 @@
-using System.Text.Json.Nodes;
-using QwenCode.App.Extensions;
-using QwenCode.App.Models;
+﻿using System.Text.Json.Nodes;
+using QwenCode.Core.Extensions;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Channels;
+namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Represents the Channel Plugin Registry Service

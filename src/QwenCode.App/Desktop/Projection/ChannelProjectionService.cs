@@ -1,7 +1,7 @@
-using Microsoft.Extensions.Options;
-using QwenCode.App.Channels;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+﻿using Microsoft.Extensions.Options;
+using QwenCode.Core.Channels;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 using QwenCode.App.Options;
 
 namespace QwenCode.App.Desktop;

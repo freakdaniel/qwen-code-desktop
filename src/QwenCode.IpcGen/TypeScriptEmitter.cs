@@ -7,6 +7,7 @@ internal sealed class TypeScriptEmitter
 {
     private readonly Dictionary<Type, string> _definitions = [];
     private readonly HashSet<Type> _visited = [];
+    private readonly NullabilityInfoContext _nullabilityContext = new();
 
     public string Emit(IReadOnlyCollection<IpcMethod> methods)
     {
@@ -19,12 +20,12 @@ internal sealed class TypeScriptEmitter
         {
             if (method.InputType is not null)
             {
-                _ = Map(method.InputType);
+                _ = Map(method.InputType, method.InputNullability);
             }
 
             if (method.OutputType != typeof(void))
             {
-                _ = Map(method.OutputType);
+                _ = Map(method.OutputType, method.OutputNullability);
             }
         }
 
@@ -56,23 +57,23 @@ internal sealed class TypeScriptEmitter
     {
         var input = method.InputType is null
             ? string.Empty
-            : $"request: {Map(method.InputType)}";
+            : $"request: {Map(method.InputType, method.InputNullability)}";
 
         return method.Kind switch
         {
-            IpcKind.Invoke => $"{method.MethodName}({input}): Promise<{Map(method.OutputType)}>;",
+            IpcKind.Invoke => $"{method.MethodName}({input}): Promise<{Map(method.OutputType, method.OutputNullability)}>;",
             IpcKind.Send => $"{method.MethodName}({input}): void;",
-            IpcKind.Event => $"{method.MethodName}(callback: (payload: {Map(method.OutputType)}) => void): () => void;",
+            IpcKind.Event => $"{method.MethodName}(callback: (payload: {Map(method.OutputType, method.OutputNullability)}) => void): () => void;",
             _ => throw new ArgumentOutOfRangeException()
         };
     }
 
-    private string Map(Type type)
+    private string Map(Type type, NullabilityInfo? nullability = null)
     {
         var nullable = Nullable.GetUnderlyingType(type);
         if (nullable is not null)
         {
-            return $"{Map(nullable)} | null";
+            return $"{Map(nullable, nullability)} | null";
         }
 
         if (type == typeof(void))
@@ -80,9 +81,19 @@ internal sealed class TypeScriptEmitter
             return "void";
         }
 
-        if (type == typeof(string) || type == typeof(Guid) || type == typeof(Uri))
+        if (type == typeof(string))
+        {
+            return ApplyNullability("string", type, nullability);
+        }
+
+        if (type == typeof(Guid))
         {
             return "string";
+        }
+
+        if (type == typeof(Uri))
+        {
+            return ApplyNullability("string", type, nullability);
         }
 
         if (type == typeof(bool))
@@ -102,17 +113,17 @@ internal sealed class TypeScriptEmitter
 
         if (type.IsArray)
         {
-            return $"{Map(type.GetElementType()!)}[]";
+            return $"{Map(type.GetElementType()!, nullability?.ElementType)}[]";
         }
 
-        if (TryMapEnumerable(type, out var enumerableType))
-        {
-            return enumerableType;
-        }
-
-        if (TryMapDictionary(type, out var dictionaryType))
+        if (TryMapDictionary(type, nullability, out var dictionaryType))
         {
             return dictionaryType;
+        }
+
+        if (TryMapEnumerable(type, nullability, out var enumerableType))
+        {
+            return enumerableType;
         }
 
         if (type.IsEnum)
@@ -121,26 +132,26 @@ internal sealed class TypeScriptEmitter
             return type.Name;
         }
 
-        if (type.Namespace?.StartsWith("QwenCode.App", StringComparison.Ordinal) == true)
+        if (ShouldEmitStructuredType(type))
         {
             EnsureInterface(type);
-            return type.Name;
+            return ApplyNullability(type.Name, type, nullability);
         }
 
-        return "unknown";
+        return ApplyNullability("unknown", type, nullability);
     }
 
-    private bool TryMapEnumerable(Type type, out string result)
+    private bool TryMapEnumerable(Type type, NullabilityInfo? nullability, out string result)
     {
-        var enumerable = type.IsGenericType &&
-                         type.GetGenericArguments().Length == 1 &&
-                         type.GetInterfaces().Concat([type]).Any(candidate =>
-                             candidate.IsGenericType &&
-                             candidate.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+        var candidate = type.GetInterfaces().Concat([type]).FirstOrDefault(item =>
+            item.IsGenericType &&
+            item.GetGenericTypeDefinition() == typeof(IEnumerable<>));
 
-        if (enumerable)
+        if (candidate is not null)
         {
-            result = $"{Map(type.GetGenericArguments()[0])}[]";
+            var elementType = candidate.GetGenericArguments()[0];
+            var elementNullability = nullability?.GenericTypeArguments.FirstOrDefault();
+            result = $"{Map(elementType, elementNullability)}[]";
             return true;
         }
 
@@ -148,7 +159,7 @@ internal sealed class TypeScriptEmitter
         return false;
     }
 
-    private bool TryMapDictionary(Type type, out string result)
+    private bool TryMapDictionary(Type type, NullabilityInfo? nullability, out string result)
     {
         var candidate = type.GetInterfaces().Concat([type]).FirstOrDefault(item =>
             item.IsGenericType &&
@@ -157,7 +168,8 @@ internal sealed class TypeScriptEmitter
 
         if (candidate is not null)
         {
-            result = $"Record<string, {Map(candidate.GetGenericArguments()[1])}>";
+            var valueNullability = nullability?.GenericTypeArguments.Skip(1).FirstOrDefault();
+            result = $"Record<string, {Map(candidate.GetGenericArguments()[1], valueNullability)}>";
             return true;
         }
 
@@ -168,7 +180,8 @@ internal sealed class TypeScriptEmitter
 
         if (candidate is not null)
         {
-            result = $"Record<string, {Map(candidate.GetGenericArguments()[1])}>";
+            var valueNullability = nullability?.GenericTypeArguments.Skip(1).FirstOrDefault();
+            result = $"Record<string, {Map(candidate.GetGenericArguments()[1], valueNullability)}>";
             return true;
         }
 
@@ -200,11 +213,36 @@ internal sealed class TypeScriptEmitter
         foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             var name = ToCamelCase(property.Name);
-            lines.Add($"  {name}: {Map(property.PropertyType)};");
+            lines.Add($"  {name}: {Map(property.PropertyType, _nullabilityContext.Create(property))};");
         }
         lines.Add("}");
 
         _definitions[type] = string.Join(Environment.NewLine, lines);
+    }
+
+    private static string ApplyNullability(string mappedType, Type type, NullabilityInfo? nullability)
+    {
+        if (type.IsValueType || mappedType.EndsWith(" | null", StringComparison.Ordinal))
+        {
+            return mappedType;
+        }
+
+        return nullability?.ReadState == NullabilityState.Nullable
+            ? $"{mappedType} | null"
+            : mappedType;
+    }
+
+    private static bool ShouldEmitStructuredType(Type type)
+    {
+        var ns = type.Namespace;
+        if (string.IsNullOrWhiteSpace(ns))
+        {
+            return false;
+        }
+
+        return ns.StartsWith("QwenCode.App", StringComparison.Ordinal) ||
+               ns.StartsWith("QwenCode.Core.Models", StringComparison.Ordinal) ||
+               ns.StartsWith("QwenCode.Core.Runtime", StringComparison.Ordinal);
     }
 
     private static string ToCamelCase(string value)

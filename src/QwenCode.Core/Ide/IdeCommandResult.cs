@@ -1,4 +1,4 @@
-namespace QwenCode.App.Ide;
+﻿namespace QwenCode.Core.Ide;
 
 /// <summary>
 /// Represents the Ide Command Result

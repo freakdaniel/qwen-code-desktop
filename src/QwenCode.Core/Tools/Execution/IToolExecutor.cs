@@ -1,7 +1,7 @@
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
+﻿using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Defines the contract for Tool Executor

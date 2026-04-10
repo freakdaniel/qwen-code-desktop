@@ -1,4 +1,4 @@
-using QwenCode.App.Infrastructure;
+﻿using QwenCode.Core.Infrastructure;
 
 namespace QwenCode.Tests.Infrastructure;
 

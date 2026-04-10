@@ -1,7 +1,7 @@
-using System.Text.Json;
-using QwenCode.App.Models;
+﻿using System.Text.Json;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Sessions;
+namespace QwenCode.Core.Sessions;
 
 /// <summary>
 /// Represents the Chat Recording Service

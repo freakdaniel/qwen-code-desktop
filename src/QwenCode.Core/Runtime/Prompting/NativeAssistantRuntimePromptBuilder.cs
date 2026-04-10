@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 internal static class NativeAssistantRuntimePromptBuilder
 {

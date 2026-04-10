@@ -1,4 +1,4 @@
-namespace QwenCode.App.Infrastructure;
+﻿namespace QwenCode.Core.Infrastructure;
 
 /// <summary>
 /// Defines the contract for Git Cli Service

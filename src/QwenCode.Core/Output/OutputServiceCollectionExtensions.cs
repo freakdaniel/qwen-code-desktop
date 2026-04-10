@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 
-namespace QwenCode.App.Output;
+namespace QwenCode.Core.Output;
 
 /// <summary>
 /// Provides extension members for Output Service Collection

@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Permissions;
+namespace QwenCode.Core.Permissions;
 
 /// <summary>
 /// Defines the contract for Approval Policy Engine

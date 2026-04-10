@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
-using QwenCode.App.Models;
+﻿using System.Collections.Concurrent;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Mcp;
+namespace QwenCode.Core.Mcp;
 
 /// <summary>
 /// Represents the Mcp Connection Manager Service

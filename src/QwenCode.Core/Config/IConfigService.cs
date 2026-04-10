@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Config;
+namespace QwenCode.Core.Config;
 
 /// <summary>
 /// Defines the contract for Config Service

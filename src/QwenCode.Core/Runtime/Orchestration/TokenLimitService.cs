@@ -1,7 +1,7 @@
-using System.Text.RegularExpressions;
-using QwenCode.App.Options;
+﻿using System.Text.RegularExpressions;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Token Limit Service

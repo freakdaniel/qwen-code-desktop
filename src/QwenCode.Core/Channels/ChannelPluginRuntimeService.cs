@@ -1,13 +1,13 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
-using QwenCode.App.Sessions;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
+using QwenCode.Core.Sessions;
 
-namespace QwenCode.App.Channels;
+namespace QwenCode.Core.Channels;
 
 /// <summary>
 /// Represents the Channel Plugin Runtime Service
@@ -171,11 +171,13 @@ public sealed class ChannelPluginRuntimeService(
 
     private static string ResolvePluginHostScriptPath()
     {
+        var coreAssemblyDirectory = Path.GetDirectoryName(typeof(ChannelPluginRuntimeService).Assembly.Location)
+            ?? AppContext.BaseDirectory;
         var candidates = new[]
         {
             Path.Combine(AppContext.BaseDirectory, "Channels", "plugin-host", "channel-plugin-host.mjs"),
             Path.Combine(AppContext.BaseDirectory, "channel-plugin-host.mjs"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "QwenCode.App", "Channels", "plugin-host", "channel-plugin-host.mjs"))
+            Path.GetFullPath(Path.Combine(coreAssemblyDirectory, "..", "..", "..", "Channels", "plugin-host", "channel-plugin-host.mjs"))
         };
 
         foreach (var candidate in candidates)

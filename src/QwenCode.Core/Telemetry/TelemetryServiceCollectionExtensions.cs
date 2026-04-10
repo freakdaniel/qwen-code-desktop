@@ -1,6 +1,6 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 
-namespace QwenCode.App.Telemetry;
+namespace QwenCode.Core.Telemetry;
 
 /// <summary>
 /// Provides extension members for Telemetry Service Collection

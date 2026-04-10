@@ -1,12 +1,12 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Nodes;
-using QwenCode.App.Auth;
-using QwenCode.App.Config;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Options;
-using QwenCode.App.Models;
+using QwenCode.Core.Auth;
+using QwenCode.Core.Config;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Runtime;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Provider Configuration Resolver

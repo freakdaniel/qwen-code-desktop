@@ -1,8 +1,8 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
-using QwenCode.App.Models;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Permissions;
+namespace QwenCode.Core.Permissions;
 
 internal static class PermissionRuleParser
 {

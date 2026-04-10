@@ -1,7 +1,7 @@
-using Microsoft.Extensions.Options;
-using QwenCode.App.Followup;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Models;
+﻿using Microsoft.Extensions.Options;
+using QwenCode.Core.Followup;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Models;
 using QwenCode.App.Options;
 
 namespace QwenCode.App.Desktop;

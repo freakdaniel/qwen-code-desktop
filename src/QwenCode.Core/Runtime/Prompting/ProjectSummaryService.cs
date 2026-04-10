@@ -1,7 +1,7 @@
-using System.Text.RegularExpressions;
-using QwenCode.App.Models;
+﻿using System.Text.RegularExpressions;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Project Summary Service

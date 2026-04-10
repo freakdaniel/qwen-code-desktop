@@ -1,9 +1,9 @@
-using Microsoft.Extensions.Options;
-using QwenCode.App.Config;
-using QwenCode.App.Models;
-using QwenCode.App.Options;
+﻿using Microsoft.Extensions.Options;
+using QwenCode.Core.Config;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Model Registry Service

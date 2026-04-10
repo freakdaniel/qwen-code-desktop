@@ -1,6 +1,6 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Defines the contract for Base Llm Client

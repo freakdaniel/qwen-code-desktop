@@ -1,8 +1,8 @@
-using System.Text.Json;
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
+﻿using System.Text.Json;
+using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Tools;
+namespace QwenCode.Core.Tools;
 
 /// <summary>
 /// Defines the contract for User Question Tool Service

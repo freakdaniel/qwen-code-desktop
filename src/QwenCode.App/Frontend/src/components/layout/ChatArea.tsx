@@ -1313,7 +1313,7 @@ function buildLiveToolEntries(
       );
 
     if (!call) {
-      call = {
+      const nextCall: LiveToolCallSnapshot = {
         id: event.toolCallId || `live-tool-${calls.length}-${event.toolName}-${event.timestampUtc}`,
         groupId: event.toolCallGroupId || `live-tool-group-${calls.length}`,
         toolName: event.toolName,
@@ -1329,7 +1329,12 @@ function buildLiveToolEntries(
         questions: event.questions ?? [],
         answers: event.answers ?? [],
       };
-      calls.push(call);
+      call = nextCall;
+      calls.push(nextCall);
+    }
+
+    if (!call) {
+      continue;
     }
 
     call.toolName = event.toolName || call.toolName;

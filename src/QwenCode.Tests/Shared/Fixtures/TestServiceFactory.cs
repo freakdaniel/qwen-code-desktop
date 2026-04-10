@@ -1,14 +1,14 @@
-using Microsoft.Extensions.Options;
+﻿using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
-using QwenCode.App.Auth;
-using QwenCode.App.Channels;
+using QwenCode.Core.Auth;
+using QwenCode.Core.Channels;
 using QwenCode.App.Desktop.Projection;
-using QwenCode.App.Extensions;
-using QwenCode.App.Followup;
-using QwenCode.App.Infrastructure;
-using QwenCode.App.Prompts;
-using QwenCode.App.Config;
-using QwenCode.App.Telemetry;
+using QwenCode.Core.Extensions;
+using QwenCode.Core.Followup;
+using QwenCode.Core.Infrastructure;
+using QwenCode.Core.Prompts;
+using QwenCode.Core.Config;
+using QwenCode.Core.Telemetry;
 using QwenCode.Tests.Shared.Fakes;
 
 namespace QwenCode.Tests.Shared.Fixtures;

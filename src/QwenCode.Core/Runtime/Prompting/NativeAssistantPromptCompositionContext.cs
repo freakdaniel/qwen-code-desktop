@@ -1,4 +1,4 @@
-namespace QwenCode.App.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 internal sealed record NativeAssistantPromptCompositionContext(
     AssistantTurnRequest Request,

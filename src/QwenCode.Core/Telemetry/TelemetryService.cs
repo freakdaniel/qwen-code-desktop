@@ -1,11 +1,11 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
-using QwenCode.App.Models;
-using QwenCode.App.Runtime;
+using QwenCode.Core.Models;
+using QwenCode.Core.Runtime;
 
-namespace QwenCode.App.Telemetry;
+namespace QwenCode.Core.Telemetry;
 
 /// <summary>
 /// Represents the Telemetry Service

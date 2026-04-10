@@ -1,4 +1,4 @@
-namespace QwenCode.Tests.Runtime;
+﻿namespace QwenCode.Tests.Runtime;
 
 public sealed class DashScopeProviderTests
 {
@@ -917,7 +917,7 @@ public sealed class DashScopeProviderTests
                 """);
 
             var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
-            var store = new QwenCode.App.Auth.FileQwenOAuthCredentialStore(environmentPaths);
+            var store = new QwenCode.Core.Auth.FileQwenOAuthCredentialStore(environmentPaths);
             await store.WriteAsync(
                 new QwenOAuthCredentials
                 {
@@ -1064,7 +1064,7 @@ public sealed class DashScopeProviderTests
                 """);
 
             var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
-            var store = new QwenCode.App.Auth.FileQwenOAuthCredentialStore(environmentPaths);
+            var store = new QwenCode.Core.Auth.FileQwenOAuthCredentialStore(environmentPaths);
             await store.WriteAsync(
                 new QwenOAuthCredentials
                 {

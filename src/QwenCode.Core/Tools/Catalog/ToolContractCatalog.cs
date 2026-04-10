@@ -1,4 +1,4 @@
-namespace QwenCode.App.Tools;
+﻿namespace QwenCode.Core.Tools;
 
 internal static class ToolContractCatalog
 {

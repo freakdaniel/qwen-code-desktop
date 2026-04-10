@@ -1,5 +1,5 @@
 using System.Net.Http.Headers;
-using QwenCode.App.Config;
+using QwenCode.Core.Config;
 
 namespace QwenCode.Tests.Runtime;
 

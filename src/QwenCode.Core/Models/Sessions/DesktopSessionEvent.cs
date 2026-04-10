@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Models;
+namespace QwenCode.Core.Models;
 
 /// <summary>
 /// Represents the Desktop Session Event

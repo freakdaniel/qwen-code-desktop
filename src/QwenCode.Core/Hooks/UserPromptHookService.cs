@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Hooks;
+namespace QwenCode.Core.Hooks;
 
 /// <summary>
 /// Represents the User Prompt Hook Service

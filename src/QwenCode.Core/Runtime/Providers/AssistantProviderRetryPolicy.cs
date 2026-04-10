@@ -1,9 +1,9 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 internal static class AssistantProviderRetryPolicy
 {

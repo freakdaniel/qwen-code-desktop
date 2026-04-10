@@ -1,6 +1,6 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
-using QwenCode.App.Auth;
+using QwenCode.Core.Auth;
 
 namespace QwenCode.Tests.Auth;
 

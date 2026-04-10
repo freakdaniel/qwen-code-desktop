@@ -1,7 +1,7 @@
-using QwenCode.App.Compatibility;
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Compatibility;
+using QwenCode.Core.Models;
 
-namespace QwenCode.App.Infrastructure;
+namespace QwenCode.Core.Infrastructure;
 
 /// <summary>
 /// Represents the Git Worktree Service

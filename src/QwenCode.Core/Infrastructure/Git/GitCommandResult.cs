@@ -1,4 +1,4 @@
-namespace QwenCode.App.Infrastructure;
+﻿namespace QwenCode.Core.Infrastructure;
 
 /// <summary>
 /// Represents the Git Command Result

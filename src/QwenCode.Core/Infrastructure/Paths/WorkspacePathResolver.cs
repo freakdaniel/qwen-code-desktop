@@ -1,6 +1,6 @@
-using QwenCode.App.Models;
+﻿using QwenCode.Core.Models;
 
-namespace QwenCode.App.Infrastructure;
+namespace QwenCode.Core.Infrastructure;
 
 /// <summary>
 /// Represents the Workspace Path Resolver
@@ -10,8 +10,10 @@ public sealed class WorkspacePathResolver(IDesktopEnvironmentPaths environmentPa
 {
     private static readonly string[] WorkspaceMarkers =
     [
-        "QwenCode.slnx",
-        Path.Combine("QwenCode.App", "QwenCode.App.csproj")
+        ".qwen",
+        ".git",
+        "QwenCode.sln",
+        "QwenCode.slnx"
     ];
 
     /// <summary>
@@ -71,7 +73,7 @@ public sealed class WorkspacePathResolver(IDesktopEnvironmentPaths environmentPa
         var current = new DirectoryInfo(normalizedStart);
         while (current is not null)
         {
-            if (HasMarkers(current.FullName, markers))
+            if (HasAnyMarker(current.FullName, markers))
             {
                 return current.FullName;
             }
@@ -82,8 +84,8 @@ public sealed class WorkspacePathResolver(IDesktopEnvironmentPaths environmentPa
         return null;
     }
 
-    private static bool HasMarkers(string directory, IReadOnlyList<string> markers) =>
-        markers.All(marker => File.Exists(Path.Combine(directory, marker)) || Directory.Exists(Path.Combine(directory, marker)));
+    private static bool HasAnyMarker(string directory, IReadOnlyList<string> markers) =>
+        markers.Any(marker => File.Exists(Path.Combine(directory, marker)) || Directory.Exists(Path.Combine(directory, marker)));
 
     private static bool TryNormalizeExistingDirectory(string? path, out string normalizedDirectory)
     {

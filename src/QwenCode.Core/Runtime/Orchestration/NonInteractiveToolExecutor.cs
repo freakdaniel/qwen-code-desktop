@@ -1,7 +1,7 @@
-using QwenCode.App.Models;
-using QwenCode.App.Tools;
+﻿using QwenCode.Core.Models;
+using QwenCode.Core.Tools;
 
-namespace QwenCode.App.Runtime;
+namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Non Interactive Tool Executor
