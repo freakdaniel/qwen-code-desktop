@@ -126,14 +126,13 @@ public sealed class ChatRecordingService : IChatRecordingService
             }
         }
 
+        var existingMetadata = TryReadMetadata(transcriptPath);
         var effectiveSessionId = string.IsNullOrWhiteSpace(sessionId)
             ? Path.GetFileNameWithoutExtension(transcriptPath)
             : sessionId;
         var effectiveStartedAt = startedAt ?? DateTime.UtcNow.ToString("O");
         var effectiveLastUpdatedAt = lastUpdatedAt ?? effectiveStartedAt;
-        var effectiveTitle = string.IsNullOrWhiteSpace(title)
-            ? BuildFallbackTitle(context.TitleHint, effectiveSessionId)
-            : title;
+        var effectiveTitle = ResolveEffectiveTitle(existingMetadata, title, context.TitleHint, effectiveSessionId);
 
         var metadata = new SessionRecordingMetadata
         {
@@ -165,6 +164,25 @@ public sealed class ChatRecordingService : IChatRecordingService
             cancellationToken);
 
         return metadata;
+    }
+
+    private static string ResolveEffectiveTitle(
+        SessionRecordingMetadata? existingMetadata,
+        string? transcriptTitle,
+        string titleHint,
+        string sessionId)
+    {
+        if (!string.IsNullOrWhiteSpace(existingMetadata?.Title))
+        {
+            return existingMetadata.Title;
+        }
+
+        if (!string.IsNullOrWhiteSpace(transcriptTitle))
+        {
+            return transcriptTitle;
+        }
+
+        return BuildFallbackTitle(titleHint, sessionId);
     }
 
     private static string BuildFallbackTitle(string titleHint, string sessionId)

@@ -34,6 +34,12 @@ interface SidebarProps {
   onOpenSkills?: () => void;
 }
 
+interface ChatSection {
+  key: string;
+  label: string;
+  sessions: SessionPreview[];
+}
+
 function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslation>['t']): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
@@ -93,7 +99,7 @@ export default function Sidebar({
   onOpenSkills = () => console.log('Skills clicked'),
 }: SidebarProps) {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const visibleSessions = useMemo(
     () => filterSessionsByNavigationMode(sessions, mode, { runtimeBaseDirectory, workspaceRoot }),
@@ -113,6 +119,61 @@ export default function Sidebar({
     [visibleSessions],
   );
 
+  const chatSections = useMemo(() => {
+    if (mode !== 'chats') {
+      return [];
+    }
+
+    const language = i18n.language || 'en-US';
+    const now = new Date();
+    const todayKey = now.toDateString();
+    const recentCutoff = new Date(now);
+    recentCutoff.setDate(recentCutoff.getDate() - 30);
+
+    const sections = new Map<string, ChatSection>();
+
+    const resolveSection = (session: SessionPreview): ChatSection => {
+      const activityDate = new Date(session.lastActivity);
+      const isToday = activityDate.toDateString() === todayKey;
+
+      if (isToday) {
+        return {
+          key: 'today',
+          label: t('sidebar.today'),
+          sessions: [],
+        };
+      }
+
+      if (activityDate >= recentCutoff) {
+        return {
+          key: 'recent-30-days',
+          label: t('sidebar.previousThirtyDays'),
+          sessions: [],
+        };
+      }
+
+      const monthLabel = new Intl.DateTimeFormat(language, {
+        month: 'long',
+      }).format(activityDate);
+      const monthKey = `${activityDate.getFullYear()}-${activityDate.getMonth()}`;
+
+      return {
+        key: monthKey,
+        label: monthLabel,
+        sessions: [],
+      };
+    };
+
+    for (const session of orderedChatSessions) {
+      const section = resolveSection(session);
+      const existing = sections.get(section.key) ?? section;
+      existing.sessions.push(session);
+      sections.set(section.key, existing);
+    }
+
+    return Array.from(sections.values());
+  }, [i18n.language, mode, orderedChatSessions, t]);
+
   const toggleGroup = (name: string) => {
     setOpenGroups(prev => ({
       ...prev,
@@ -130,52 +191,68 @@ export default function Sidebar({
         variant="ghost"
         colorScheme="gray"
         onClick={() => onSelectSession(conv.sessionId)}
-        h="32px"
-        px={2}
+        h="38px"
+        px={3}
         py={0}
         justifyContent="space-between"
         w="full"
         minW={0}
-        bg={isSelected ? 'gray.700' : 'transparent'}
+        bg={isSelected ? '#3a3a42' : 'transparent'}
         color={isSelected ? 'white' : 'gray.200'}
-        _hover={{ bg: 'gray.700' }}
-        borderRadius="md"
-        whiteSpace="nowrap"
+        _hover={{ bg: isSelected ? '#404049' : 'rgba(255,255,255,0.06)' }}
+        _active={{ bg: isSelected ? '#404049' : 'rgba(255,255,255,0.08)' }}
+        borderRadius="full"
         fontSize="sm"
+        fontWeight="normal"
+        boxShadow={isSelected ? '0 0 0 1px rgba(255,255,255,0.04) inset' : 'none'}
       >
-        {conv.title === null ? (
-          <Skeleton
-            h="14px"
-            w="120px"
-            borderRadius="sm"
-            startColor="gray.700"
-            endColor="gray.600"
-            flexShrink={0}
-          />
-        ) : (
-          <Text
-            color="inherit"
-            flex={1}
-            minW={0}
-            overflow="hidden"
-            textOverflow="ellipsis"
-            textAlign="left"
-            noOfLines={1}
-          >
-            {conv.title}
-          </Text>
+        <Box flex={1} minW={0} pr={2}>
+          {conv.title === null ? (
+            <Skeleton
+              h="14px"
+              w="120px"
+              borderRadius="sm"
+              startColor="gray.700"
+              endColor="gray.600"
+              flexShrink={0}
+            />
+          ) : (
+            <Text
+              color="inherit"
+              display="block"
+              fontWeight="normal"
+              minW={0}
+              overflow="hidden"
+              textOverflow="ellipsis"
+              whiteSpace="nowrap"
+              textAlign="left"
+            >
+              {conv.title}
+            </Text>
+          )}
+        </Box>
+        {mode !== 'chats' && (
+          <HStack spacing={2} ml={3} flexShrink={0}>
+            <Text fontSize="xs" color={isSelected ? 'gray.300' : 'gray.500'}>
+              {formatRelativeTime(conv.lastActivity, t)}
+            </Text>
+            <Box
+              boxSize="6px"
+              borderRadius="full"
+              bg={isRunning ? 'green.400' : 'transparent'}
+              transition="background-color 0.2s ease"
+            />
+          </HStack>
         )}
-        <HStack spacing={2} ml={2} flexShrink={0}>
-          <Text fontSize="xs" color={isSelected ? 'gray.300' : 'gray.500'}>
-            {formatRelativeTime(conv.lastActivity, t)}
-          </Text>
+        {mode === 'chats' && isRunning && (
           <Box
             boxSize="6px"
             borderRadius="full"
-            bg={isRunning ? 'green.400' : 'transparent'}
+            bg="green.400"
+            flex={1}
             transition="background-color 0.2s ease"
           />
-        </HStack>
+        )}
       </Button>
     );
   };
@@ -317,14 +394,12 @@ export default function Sidebar({
           px={3}
           sx={{
             scrollbarGutter: 'stable',
-            '&::-webkit-scrollbar': { width: '6px' },
-            '&::-webkit-scrollbar-track': { background: 'transparent' },
-            '&::-webkit-scrollbar-thumb': {
-              background: '#5b5b67',
-              borderRadius: '3px',
-            },
-            '&::-webkit-scrollbar-thumb:hover': {
-              background: '#72727f',
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+            '&::-webkit-scrollbar': {
+              width: '0px',
+              height: '0px',
+              display: 'none',
             },
           }}
         >
@@ -371,7 +446,7 @@ export default function Sidebar({
                         exit="hidden"
                         style={{ overflow: 'hidden', width: '100%' }}
                       >
-                        <VStack spacing={0} align="stretch" pl={2}>
+                        <VStack spacing={1} align="stretch" pl={2}>
                           {group.sessions.map((conv, idx) => (
                             <motion.div
                               key={conv.sessionId}
@@ -391,18 +466,35 @@ export default function Sidebar({
                   </AnimatePresence>
                 </Box>
               );
-            }) : orderedChatSessions.map((conv, idx) => (
-              <motion.div
-                key={conv.sessionId}
-                variants={sessionItemVariants}
-                initial="hidden"
-                animate="visible"
-                exit="exit"
-                custom={idx}
-                style={{ width: '100%' }}
-              >
-                {renderSessionButton(conv)}
-              </motion.div>
+            }) : chatSections.map((section) => (
+              <Box key={section.key}>
+                <Text
+                  px={2}
+                  pt={1}
+                  pb={2}
+                  fontSize="xs"
+                  color="gray.400"
+                  fontWeight="medium"
+                  textTransform="none"
+                >
+                  {section.label}
+                </Text>
+                <VStack spacing={1} align="stretch">
+                  {section.sessions.map((conv, idx) => (
+                    <motion.div
+                      key={conv.sessionId}
+                      variants={sessionItemVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      custom={idx}
+                      style={{ width: '100%' }}
+                    >
+                      {renderSessionButton(conv)}
+                    </motion.div>
+                  ))}
+                </VStack>
+              </Box>
             ))}
             {visibleSessions.length === 0 && (
               <Text px={2} py={3} fontSize="sm" color="gray.500">

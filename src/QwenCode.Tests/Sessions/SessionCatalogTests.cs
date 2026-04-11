@@ -344,6 +344,68 @@ public sealed class SessionCatalogTests
     }
 
     [Fact]
+    public async Task ChatRecordingService_RefreshMetadataAsync_PreservesExistingGeneratedTitle()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-session-title-preserve-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var recordingService = new ChatRecordingService();
+            var transcriptPath = Path.Combine(root, "title-preserve.jsonl");
+            File.WriteAllText(
+                transcriptPath,
+                """
+                {"uuid":"u-1","parentUuid":null,"sessionId":"title-preserve","timestamp":"2026-04-01T12:00:00Z","type":"user","cwd":"D:\\demo","version":"0.1.0","gitBranch":"main","message":{"role":"user","parts":[{"text":"Первое сообщение пользователя, которое не должно стать итоговым заголовком"}]}}
+                """ + Environment.NewLine);
+
+            var metadataPath = recordingService.GetMetadataPath(transcriptPath);
+            File.WriteAllText(
+                metadataPath,
+                """
+                {
+                  "sessionId": "title-preserve",
+                  "transcriptPath": "TRANSCRIPT_PATH",
+                  "metadataPath": "METADATA_PATH",
+                  "title": "Сгенерированный заголовок",
+                  "workingDirectory": "D:\\demo",
+                  "gitBranch": "main",
+                  "status": "resume-ready",
+                  "startedAt": "2026-04-01T12:00:00Z",
+                  "lastUpdatedAt": "2026-04-01T12:05:00Z",
+                  "lastCompletedUuid": "u-1",
+                  "messageCount": 1,
+                  "entryCount": 1
+                }
+                """
+                    .Replace("TRANSCRIPT_PATH", transcriptPath.Replace("\\", "\\\\"))
+                    .Replace("METADATA_PATH", metadataPath.Replace("\\", "\\\\")));
+
+            var metadata = await recordingService.RefreshMetadataAsync(
+                transcriptPath,
+                new SessionRecordingContext
+                {
+                    SessionId = "title-preserve",
+                    WorkingDirectory = @"D:\demo",
+                    GitBranch = "main",
+                    Status = "resume-ready",
+                    TitleHint = "Title hint"
+                });
+
+            Assert.NotNull(metadata);
+            Assert.Equal("Сгенерированный заголовок", metadata!.Title);
+
+            var reloaded = recordingService.TryReadMetadata(transcriptPath);
+            Assert.NotNull(reloaded);
+            Assert.Equal("Сгенерированный заголовок", reloaded!.Title);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DesktopSessionCatalogService_LoadLastSession_ReturnsMostRecentSession()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-session-last-{Guid.NewGuid():N}");
