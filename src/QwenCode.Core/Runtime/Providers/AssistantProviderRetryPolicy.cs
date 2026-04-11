@@ -117,9 +117,10 @@ internal static class AssistantProviderRetryPolicy
                           messageProperty.ValueKind == JsonValueKind.String
                 ? messageProperty.GetString()
                 : string.Empty;
+            code ??= string.Empty;
+            message ??= string.Empty;
 
             return string.Equals(code, "insufficient_quota", StringComparison.OrdinalIgnoreCase) &&
-                   !string.IsNullOrWhiteSpace(message) &&
                    message.Contains("free allocated quota exceeded", StringComparison.OrdinalIgnoreCase);
         }
         catch

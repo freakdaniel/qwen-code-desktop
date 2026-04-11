@@ -212,6 +212,160 @@ public sealed class WebToolServiceTests
     }
 
     [Fact]
+    public async Task WebToolService_SearchAsync_BuildsProviderFromEnvironmentWhenWebSearchIsMissing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-web-search-env-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "env": {
+                    "TAVILY_API_KEY": "env-test-key"
+                  }
+                }
+                """);
+
+            var runtimeProfile = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, null))
+                .Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            var handler = new StubHttpMessageHandler(async request =>
+            {
+                Assert.Equal(HttpMethod.Post, request.Method);
+                Assert.Equal("https://api.tavily.com/search", request.RequestUri!.ToString());
+                var requestBody = await request.Content!.ReadAsStringAsync();
+                Assert.Contains("\"api_key\":\"env-test-key\"", requestBody);
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "results":[
+                            {
+                              "title":"Environment result",
+                              "url":"https://example.com/env",
+                              "content":"Configured from env."
+                            }
+                          ]
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json")
+                };
+            });
+
+            var service = new WebToolService(
+                new FakeDesktopEnvironmentPaths(homeRoot, null),
+                new HttpClient(handler));
+
+            using var document = JsonDocument.Parse("""{"query":"env configured search"}""");
+            var output = await service.SearchAsync(runtimeProfile, document.RootElement);
+
+            Assert.Contains("Web search results for \"env configured search\" (via tavily):", output);
+            Assert.Contains("Environment result", output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task WebToolService_SearchAsync_FallsBackToNextConfiguredProviderWhenDefaultFails()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-web-search-fallback-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "webSearch": {
+                    "provider": [
+                      {
+                        "type": "tavily",
+                        "apiKey": "bad-tavily"
+                      },
+                      {
+                        "type": "google",
+                        "apiKey": "google-key",
+                        "searchEngineId": "cse-id"
+                      }
+                    ],
+                    "default": "tavily"
+                  }
+                }
+                """);
+
+            var runtimeProfile = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, null))
+                .Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+
+            var requestCount = 0;
+            var handler = new StubHttpMessageHandler(request =>
+            {
+                requestCount++;
+                if (request.RequestUri!.Host.Equals("api.tavily.com", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                    {
+                        Content = new StringContent("""{"error":"quota"}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                Assert.Equal("www.googleapis.com", request.RequestUri.Host);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "items":[
+                            {
+                              "title":"Google fallback result",
+                              "link":"https://example.com/google",
+                              "snippet":"Fallback search worked."
+                            }
+                          ]
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json")
+                };
+            });
+
+            var service = new WebToolService(
+                new FakeDesktopEnvironmentPaths(homeRoot, null),
+                new HttpClient(handler));
+
+            using var document = JsonDocument.Parse("""{"query":"fallback search"}""");
+            var output = await service.SearchAsync(runtimeProfile, document.RootElement);
+
+            Assert.Equal(2, requestCount);
+            Assert.Contains("Web search results for \"fallback search\" (via google):", output);
+            Assert.Contains("Google fallback result", output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task WebToolService_FetchAsync_FollowsPermittedSameHostRedirect()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-web-fetch-redirect-{Guid.NewGuid():N}");

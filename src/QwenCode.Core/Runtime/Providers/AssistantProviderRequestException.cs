@@ -44,6 +44,11 @@ public sealed class AssistantProviderRequestException : Exception
 
     private static string BuildMessage(string providerName, string endpoint, int? statusCode, string responseBody)
     {
+        if (statusCode == 429)
+        {
+            return $"The model provider '{providerName}' failed with HTTP 429. The provider temporarily rejected the request due to rate limiting, capacity, or quota policy. Please try again later.";
+        }
+
         var trimmedBody = string.IsNullOrWhiteSpace(responseBody)
             ? string.Empty
             : responseBody.Length <= 280

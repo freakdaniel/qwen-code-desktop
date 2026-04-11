@@ -12,6 +12,7 @@ namespace QwenCode.Core.Runtime;
 /// <param name="tokenLimitService">The token limit service</param>
 /// <param name="providerConfigurationResolver">The provider configuration resolver</param>
 /// <param name="options">The options</param>
+/// <param name="webToolService">The web tool service</param>
 public sealed class AssistantTurnRuntime(
     IAssistantPromptAssembler promptAssembler,
     IEnumerable<IAssistantResponseProvider> providers,
@@ -19,7 +20,8 @@ public sealed class AssistantTurnRuntime(
     ILoopDetectionService loopDetectionService,
     ITokenLimitService tokenLimitService,
     ProviderConfigurationResolver providerConfigurationResolver,
-    IOptions<NativeAssistantRuntimeOptions> options) : IAssistantTurnRuntime
+    IOptions<NativeAssistantRuntimeOptions> options,
+    IWebToolService? webToolService = null) : IAssistantTurnRuntime
 {
     private readonly IReadOnlyList<IAssistantResponseProvider> _providers = providers.ToArray();
     private readonly NativeAssistantRuntimeOptions _options = options.Value;
@@ -48,6 +50,7 @@ public sealed class AssistantTurnRuntime(
             Message = "Loading transcript and workspace context."
         });
 
+        request = ApplyDynamicToolAvailability(request);
         var resolvedConfiguration = providerConfigurationResolver.Resolve(request, _options);
         var tokenLimits = tokenLimitService.Resolve(resolvedConfiguration.Model, _options);
         var promptContext = await promptAssembler.AssembleAsync(request, tokenLimits, cancellationToken);
@@ -140,6 +143,57 @@ public sealed class AssistantTurnRuntime(
 
         return resolvedProviders;
     }
+
+    private AssistantTurnRequest ApplyDynamicToolAvailability(AssistantTurnRequest request)
+    {
+        if (request.DisableTools ||
+            webToolService?.IsSearchAvailable(request.RuntimeProfile) != false)
+        {
+            return request;
+        }
+
+        var sourceToolNames = request.AllowedToolNames.Count == 0
+            ? ToolContractCatalog.Implemented.Select(static tool => tool.Name)
+            : request.AllowedToolNames;
+        var filteredToolNames = sourceToolNames
+            .Where(static toolName => !toolName.Equals("web_search", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (request.AllowedToolNames.Count > 0 &&
+            filteredToolNames.Length == request.AllowedToolNames.Count)
+        {
+            return request;
+        }
+
+        return CloneWithAllowedTools(request, filteredToolNames);
+    }
+
+    private static AssistantTurnRequest CloneWithAllowedTools(
+        AssistantTurnRequest request,
+        IReadOnlyList<string> allowedToolNames) =>
+        new()
+        {
+            SessionId = request.SessionId,
+            Prompt = request.Prompt,
+            WorkingDirectory = request.WorkingDirectory,
+            TranscriptPath = request.TranscriptPath,
+            RuntimeProfile = request.RuntimeProfile,
+            GitBranch = request.GitBranch,
+            CommandInvocation = request.CommandInvocation,
+            ResolvedCommand = request.ResolvedCommand,
+            ToolExecution = request.ToolExecution,
+            ToolArgumentsJson = request.ToolArgumentsJson,
+            IsApprovalResolution = request.IsApprovalResolution,
+            PromptMode = request.PromptMode,
+            SystemPromptOverride = request.SystemPromptOverride,
+            AllowedToolNames = allowedToolNames,
+            ModelOverride = request.ModelOverride,
+            AuthTypeOverride = request.AuthTypeOverride,
+            EndpointOverride = request.EndpointOverride,
+            ApiKeyOverride = request.ApiKeyOverride,
+            DisableTools = request.DisableTools
+        };
 
     private async Task<AssistantTurnResponse?> RunProviderLoopAsync(
         IAssistantResponseProvider provider,

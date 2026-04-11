@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next';
 import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
 import TitleBar from './TitleBar';
-import DirectConnectPanel from './DirectConnectPanel';
 import type { SessionPreview } from '@/types/desktop';
 
 function getProjectName(workingDir: string): string {
@@ -25,7 +24,6 @@ export default function MainLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [searchModalOpen, setSearchModalOpen] = useState(false);
-  const [directConnectOpen, setDirectConnectOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const { t } = useTranslation();
   const { bootstrap, activeTurnSessions } = useBootstrap();
@@ -103,7 +101,6 @@ export default function MainLayout() {
         onNewChat={handleNewChat}
         onOpenSearch={openSearch}
         onOpenSkills={() => console.log('Skills & Integrations')}
-        onOpenDirectConnect={() => setDirectConnectOpen(true)}
       />
 
       {/* Main content area - under title bar */}
@@ -254,11 +251,6 @@ export default function MainLayout() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      <DirectConnectPanel
-        isOpen={directConnectOpen}
-        onClose={() => setDirectConnectOpen(false)}
-      />
     </Box>
   );
 }

@@ -8,6 +8,13 @@ namespace QwenCode.Core.Tools;
 public interface IWebToolService
 {
     /// <summary>
+    /// Determines whether web search is available for the runtime profile.
+    /// </summary>
+    /// <param name="runtimeProfile">The runtime profile</param>
+    /// <returns>A value indicating whether web search can execute</returns>
+    bool IsSearchAvailable(QwenRuntimeProfile runtimeProfile);
+
+    /// <summary>
     /// Executes fetch async
     /// </summary>
     /// <param name="runtimeProfile">The runtime profile</param>

@@ -596,6 +596,81 @@ public sealed class OpenAiCompatibleProviderTests
         }
     }
 
+    [Fact]
+    public async Task OpenAiCompatibleAssistantResponseProvider_TryGenerateAsync_RetriesInsufficientQuota429OutsideQwenOAuth()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-openai-quota-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "security": {
+                    "auth": {
+                      "selectedType": "openai",
+                      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    }
+                  },
+                  "env": {
+                    "OPENAI_API_KEY": "openai-key"
+                  },
+                  "model": {
+                    "name": "qwen3-coder-plus"
+                  }
+                }
+                """);
+
+            var runtimeProfile = CreateRuntimeProfile(workspaceRoot, homeRoot);
+            var callCount = 0;
+            var httpClient = new HttpClient(new RecordingHttpMessageHandler((_, _) =>
+            {
+                callCount++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                {
+                    Content = new StringContent(
+                        """{"error":{"code":"insufficient_quota","message":"You exceeded your current quota, please check your plan and billing details."}}""",
+                        Encoding.UTF8,
+                        "application/json")
+                });
+            }));
+
+            var provider = new OpenAiCompatibleAssistantResponseProvider(
+                httpClient,
+                new ProviderConfigurationResolver(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot)),
+                new TokenLimitService());
+
+            var exception = await Assert.ThrowsAsync<AssistantProviderRequestException>(() =>
+                provider.TryGenerateAsync(
+                    CreateTurnRequest(workspaceRoot, runtimeProfile),
+                    CreatePromptContext(),
+                    [],
+                    new NativeAssistantRuntimeOptions
+                    {
+                        Provider = "openai-compatible",
+                        ApiKeyEnvironmentVariable = "OPENAI_API_KEY"
+                    },
+                    _ => { }));
+
+            Assert.Equal(7, callCount);
+            Assert.Equal(429, exception.StatusCode);
+            Assert.DoesNotContain("You exceeded your current quota", exception.Message);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static AssistantTurnRequest CreateTurnRequest(
         string workspaceRoot,
         QwenRuntimeProfile runtimeProfile,

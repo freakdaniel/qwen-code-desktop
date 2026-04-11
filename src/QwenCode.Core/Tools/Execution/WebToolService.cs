@@ -1,4 +1,5 @@
 ﻿using QwenCode.Core.Config;
+using QwenCode.Core.Auth;
 using QwenCode.Core.Infrastructure;
 using QwenCode.Core.Models;
 
@@ -9,9 +10,11 @@ namespace QwenCode.Core.Tools;
 /// </summary>
 /// <param name="environmentPaths">The environment paths</param>
 /// <param name="httpClient">The http client</param>
+/// <param name="qwenOAuthCredentialStore">The qwen o auth credential store</param>
 public sealed class WebToolService(
     IDesktopEnvironmentPaths environmentPaths,
-    HttpClient? httpClient = null) : IWebToolService
+    HttpClient? httpClient = null,
+    IQwenOAuthCredentialStore? qwenOAuthCredentialStore = null) : IWebToolService
 {
     private const int FetchTimeoutMilliseconds = 60_000;
     private const int MaxFetchContentLength = 100_000;
@@ -19,8 +22,13 @@ public sealed class WebToolService(
     private const int MaxRedirects = 10;
     private static readonly TimeSpan FetchCacheLifetime = TimeSpan.FromMinutes(15);
     private static readonly ConcurrentDictionary<string, CachedFetchResult> FetchCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly WebSearchProviderConfiguration EmptyWebSearchProviderConfiguration = CreateProvider(string.Empty);
 
     private readonly HttpClient client = httpClient ?? CreateDefaultClient();
+
+    /// <inheritdoc />
+    public bool IsSearchAvailable(QwenRuntimeProfile runtimeProfile) =>
+        ResolveWebSearchConfiguration(runtimeProfile.ProjectRoot) is not null;
 
     /// <summary>
     /// Executes fetch async
@@ -86,25 +94,44 @@ Requested analysis: {prompt}
             return "Web search is disabled. Configure a webSearch provider in your qwen-compatible settings.json.";
         }
 
-        var provider = SelectProvider(configuration, requestedProvider);
-        var result = await (provider switch
+        var providers = SelectProviderChain(configuration, requestedProvider);
+        var failures = new List<string>();
+        foreach (var provider in providers)
         {
-            WebSearchProviderConfiguration { Type: "tavily" } tavily =>
-                SearchWithTavilyAsync(query, tavily, cancellationToken),
-            WebSearchProviderConfiguration { Type: "google" } google =>
-                SearchWithGoogleAsync(query, google, cancellationToken),
-            WebSearchProviderConfiguration { Type: "dashscope" } =>
-                throw new InvalidOperationException("DashScope web search is not wired in the C# port yet."),
-            _ => throw new InvalidOperationException($"Unknown web search provider '{provider.Type}'.")
-        });
+            WebSearchResult result;
+            try
+            {
+                result = await (provider switch
+                {
+                    WebSearchProviderConfiguration { Type: "tavily" } tavily =>
+                        SearchWithTavilyAsync(query, tavily, cancellationToken),
+                    WebSearchProviderConfiguration { Type: "google" } google =>
+                        SearchWithGoogleAsync(query, google, cancellationToken),
+                    WebSearchProviderConfiguration { Type: "dashscope" } dashScope =>
+                        SearchWithDashScopeAsync(query, dashScope, cancellationToken),
+                    _ => throw new InvalidOperationException($"Unknown web search provider '{provider.Type}'.")
+                });
+            }
+            catch (Exception exception) when (providers.Count > 1)
+            {
+                failures.Add($"{provider.Type}: {exception.Message}");
+                continue;
+            }
 
-        if (!result.Results.Any() && string.IsNullOrWhiteSpace(result.Answer))
-        {
-            return $"No search results found for query: \"{query}\" (via {provider.Type})";
+            if (!result.Results.Any() && string.IsNullOrWhiteSpace(result.Answer))
+            {
+                return $"No search results found for query: \"{query}\" (via {provider.Type})";
+            }
+
+            var content = BuildSearchContent(result);
+            return $"Web search results for \"{query}\" (via {provider.Type}):{Environment.NewLine}{Environment.NewLine}{content}";
         }
 
-        var content = BuildSearchContent(result);
-        return $"Web search results for \"{query}\" (via {provider.Type}):{Environment.NewLine}{Environment.NewLine}{content}";
+        var attemptedProviders = string.Join(", ", providers.Select(static provider => provider.Type));
+        var failureSummary = failures.Count == 0
+            ? "No providers were attempted."
+            : string.Join("; ", failures);
+        throw new InvalidOperationException($"All configured web search providers failed ({attemptedProviders}). {failureSummary}");
     }
 
     private async Task<FetchedContentResult> FetchContentAsync(string url, CancellationToken cancellationToken)
@@ -429,63 +456,139 @@ Call web_fetch again with the redirect URL if you want to inspect that destinati
         var configSnapshot = new RuntimeConfigService(environmentPaths)
             .Inspect(new WorkspacePaths { WorkspaceRoot = projectRoot });
         var merged = configSnapshot.MergedSettings;
-        if (GetNode(merged, "webSearch") is not JsonObject webSearchObject)
-        {
-            return null;
-        }
-
         var settingsEnvironment = configSnapshot.Environment;
         var providers = new List<WebSearchProviderConfiguration>();
-        var defaultProvider = GetString(webSearchObject, "default");
+        var defaultProvider = string.Empty;
 
-        if (GetNode(webSearchObject, "provider") is not JsonArray providerArray)
+        if (GetNode(merged, "webSearch") is JsonObject webSearchObject)
         {
-            return null;
-        }
-
-        foreach (var providerNode in providerArray.OfType<JsonObject>())
-        {
-            var type = GetString(providerNode, "type");
-            if (string.IsNullOrWhiteSpace(type))
+            defaultProvider = GetString(webSearchObject, "default");
+            if (GetNode(webSearchObject, "provider") is JsonArray providerArray)
             {
-                continue;
+                providers.AddRange(providerArray
+                    .OfType<JsonObject>()
+                    .Select(providerNode => BuildProviderConfiguration(providerNode, settingsEnvironment))
+                    .Where(static provider => !string.IsNullOrWhiteSpace(provider.Type)));
             }
-
-            var apiKey = FirstNonEmpty(
-                GetString(providerNode, "apiKey"),
-                type.Equals("tavily", StringComparison.OrdinalIgnoreCase)
-                    ? ReadEnvironmentValue(settingsEnvironment, "TAVILY_API_KEY", "WEB_SEARCH_API_KEY")
-                    : type.Equals("google", StringComparison.OrdinalIgnoreCase)
-                        ? ReadEnvironmentValue(settingsEnvironment, "GOOGLE_SEARCH_API_KEY", "GOOGLE_API_KEY")
-                        : ReadEnvironmentValue(settingsEnvironment, "DASHSCOPE_API_KEY"),
-                type.Equals("tavily", StringComparison.OrdinalIgnoreCase)
-                    ? Environment.GetEnvironmentVariable("TAVILY_API_KEY")
-                    : type.Equals("google", StringComparison.OrdinalIgnoreCase)
-                        ? FirstNonEmpty(Environment.GetEnvironmentVariable("GOOGLE_SEARCH_API_KEY"), Environment.GetEnvironmentVariable("GOOGLE_API_KEY"))
-                        : Environment.GetEnvironmentVariable("DASHSCOPE_API_KEY"));
-
-            var searchEngineId = FirstNonEmpty(
-                GetString(providerNode, "searchEngineId"),
-                ReadEnvironmentValue(settingsEnvironment, "GOOGLE_SEARCH_ENGINE_ID", "GOOGLE_CSE_ID"),
-                Environment.GetEnvironmentVariable("GOOGLE_SEARCH_ENGINE_ID"),
-                Environment.GetEnvironmentVariable("GOOGLE_CSE_ID"));
-
-            providers.Add(new WebSearchProviderConfiguration(
-                Type: type,
-                ApiKey: apiKey,
-                SearchEngineId: searchEngineId,
-                MaxResults: TryGetInt(providerNode, "maxResults") ?? DefaultSearchResultCount,
-                SearchDepth: FirstNonEmpty(GetString(providerNode, "searchDepth"), "advanced"),
-                IncludeAnswer: TryGetBool(providerNode, "includeAnswer") ?? true,
-                SafeSearch: FirstNonEmpty(GetString(providerNode, "safeSearch"), "medium"),
-                Language: GetString(providerNode, "language"),
-                Country: GetString(providerNode, "country")));
+        }
+        else
+        {
+            providers.AddRange(BuildEnvironmentProviders(merged, settingsEnvironment));
         }
 
-        return providers.Count == 0
+        EnsureDashScopeProvider(providers, configSnapshot.SelectedAuthType);
+        var availableProviders = providers
+            .Select(static provider => provider with { Type = provider.Type.Trim().ToLowerInvariant() })
+            .Where(provider => IsProviderAvailable(provider, configSnapshot.SelectedAuthType))
+            .GroupBy(static provider => provider.Type, StringComparer.OrdinalIgnoreCase)
+            .Select(static group => group.First())
+            .ToArray();
+
+        return availableProviders.Length == 0
             ? null
-            : new WebSearchConfiguration(providers, FirstNonEmpty(defaultProvider, providers[0].Type));
+            : new WebSearchConfiguration(availableProviders, ResolveDefaultProvider(defaultProvider, availableProviders));
     }
+
+    private static WebSearchProviderConfiguration BuildProviderConfiguration(
+        JsonObject providerNode,
+        IReadOnlyDictionary<string, string> settingsEnvironment)
+    {
+        var type = GetString(providerNode, "type");
+        if (string.IsNullOrWhiteSpace(type))
+        {
+            return EmptyWebSearchProviderConfiguration;
+        }
+
+        var normalizedType = type.Trim().ToLowerInvariant();
+        var apiKey = FirstNonEmpty(
+            GetString(providerNode, "apiKey"),
+            normalizedType.Equals("tavily", StringComparison.OrdinalIgnoreCase)
+                ? ReadEnvironmentValue(settingsEnvironment, "TAVILY_API_KEY", "WEB_SEARCH_API_KEY")
+                : normalizedType.Equals("google", StringComparison.OrdinalIgnoreCase)
+                    ? ReadEnvironmentValue(settingsEnvironment, "GOOGLE_SEARCH_API_KEY", "GOOGLE_API_KEY")
+                    : ReadEnvironmentValue(settingsEnvironment, "DASHSCOPE_API_KEY", "QWEN_OAUTH_ACCESS_TOKEN"),
+            normalizedType.Equals("tavily", StringComparison.OrdinalIgnoreCase)
+                ? FirstNonEmpty(Environment.GetEnvironmentVariable("TAVILY_API_KEY"), Environment.GetEnvironmentVariable("WEB_SEARCH_API_KEY"))
+                : normalizedType.Equals("google", StringComparison.OrdinalIgnoreCase)
+                    ? FirstNonEmpty(Environment.GetEnvironmentVariable("GOOGLE_SEARCH_API_KEY"), Environment.GetEnvironmentVariable("GOOGLE_API_KEY"))
+                    : FirstNonEmpty(Environment.GetEnvironmentVariable("DASHSCOPE_API_KEY"), Environment.GetEnvironmentVariable("QWEN_OAUTH_ACCESS_TOKEN")));
+
+        var searchEngineId = FirstNonEmpty(
+            GetString(providerNode, "searchEngineId"),
+            ReadEnvironmentValue(settingsEnvironment, "GOOGLE_SEARCH_ENGINE_ID", "GOOGLE_CSE_ID"),
+            Environment.GetEnvironmentVariable("GOOGLE_SEARCH_ENGINE_ID"),
+            Environment.GetEnvironmentVariable("GOOGLE_CSE_ID"));
+
+        return new WebSearchProviderConfiguration(
+            Type: normalizedType,
+            ApiKey: apiKey,
+            SearchEngineId: searchEngineId,
+            MaxResults: TryGetInt(providerNode, "maxResults") ?? DefaultSearchResultCount,
+            SearchDepth: FirstNonEmpty(GetString(providerNode, "searchDepth"), "advanced"),
+            IncludeAnswer: TryGetBool(providerNode, "includeAnswer") ?? true,
+            SafeSearch: FirstNonEmpty(GetString(providerNode, "safeSearch"), "medium"),
+            Language: GetString(providerNode, "language"),
+            Country: GetString(providerNode, "country"),
+            Endpoint: FirstNonEmpty(GetString(providerNode, "endpoint"), GetString(providerNode, "apiEndpoint")),
+            ResourceUrl: FirstNonEmpty(GetString(providerNode, "resourceUrl"), GetString(providerNode, "baseUrl")));
+    }
+
+    private static IReadOnlyList<WebSearchProviderConfiguration> BuildEnvironmentProviders(
+        JsonObject mergedSettings,
+        IReadOnlyDictionary<string, string> settingsEnvironment)
+    {
+        var providers = new List<WebSearchProviderConfiguration>();
+        var tavilyKey = FirstNonEmpty(
+            ReadEnvironmentValue(settingsEnvironment, "TAVILY_API_KEY", "WEB_SEARCH_API_KEY"),
+            GetString(mergedSettings, "advanced", "tavilyApiKey"),
+            Environment.GetEnvironmentVariable("TAVILY_API_KEY"),
+            Environment.GetEnvironmentVariable("WEB_SEARCH_API_KEY"));
+        if (!string.IsNullOrWhiteSpace(tavilyKey))
+        {
+            providers.Add(CreateProvider("tavily", apiKey: tavilyKey));
+        }
+
+        var googleKey = FirstNonEmpty(
+            ReadEnvironmentValue(settingsEnvironment, "GOOGLE_SEARCH_API_KEY", "GOOGLE_API_KEY"),
+            Environment.GetEnvironmentVariable("GOOGLE_SEARCH_API_KEY"),
+            Environment.GetEnvironmentVariable("GOOGLE_API_KEY"));
+        var googleSearchEngineId = FirstNonEmpty(
+            ReadEnvironmentValue(settingsEnvironment, "GOOGLE_SEARCH_ENGINE_ID", "GOOGLE_CSE_ID"),
+            Environment.GetEnvironmentVariable("GOOGLE_SEARCH_ENGINE_ID"),
+            Environment.GetEnvironmentVariable("GOOGLE_CSE_ID"));
+        if (!string.IsNullOrWhiteSpace(googleKey) && !string.IsNullOrWhiteSpace(googleSearchEngineId))
+        {
+            providers.Add(CreateProvider(
+                "google",
+                apiKey: googleKey,
+                searchEngineId: googleSearchEngineId));
+        }
+
+        return providers;
+    }
+
+    private static void EnsureDashScopeProvider(
+        ICollection<WebSearchProviderConfiguration> providers,
+        string authType)
+    {
+        if (!IsQwenOAuth(authType) ||
+            providers.Any(static provider => provider.Type.Equals("dashscope", StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        providers.Add(CreateProvider("dashscope"));
+    }
+
+    private static bool IsProviderAvailable(WebSearchProviderConfiguration provider, string authType) =>
+        provider.Type switch
+        {
+            "tavily" => !string.IsNullOrWhiteSpace(provider.ApiKey),
+            "google" => !string.IsNullOrWhiteSpace(provider.ApiKey) &&
+                        !string.IsNullOrWhiteSpace(provider.SearchEngineId),
+            "dashscope" => IsQwenOAuth(authType),
+            _ => false
+        };
 
     private async Task<WebSearchResult> SearchWithTavilyAsync(
         string query,
@@ -586,6 +689,100 @@ Call web_fetch again with the redirect URL if you want to inspect that destinati
         return new WebSearchResult(null, results);
     }
 
+    private async Task<WebSearchResult> SearchWithDashScopeAsync(
+        string query,
+        WebSearchProviderConfiguration provider,
+        CancellationToken cancellationToken)
+    {
+        var authConfig = await ResolveDashScopeAuthConfigAsync(provider, cancellationToken);
+        if (string.IsNullOrWhiteSpace(authConfig.AccessToken))
+        {
+            throw new InvalidOperationException("DashScope web search requires an OAuth access token.");
+        }
+
+        using var linkedSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        linkedSource.CancelAfter(FetchTimeoutMilliseconds);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, authConfig.Endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authConfig.AccessToken);
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new
+            {
+                uq = query,
+                page = 1,
+                rows = provider.MaxResults <= 0 ? 10 : provider.MaxResults
+            }),
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await client.SendAsync(request, linkedSource.Token);
+        var body = await response.Content.ReadAsStringAsync(linkedSource.Token);
+        EnsureSuccess(response, body);
+
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        if (root.TryGetProperty("status", out var statusElement) &&
+            statusElement.ValueKind == JsonValueKind.Number &&
+            statusElement.TryGetInt32(out var status) &&
+            status != 0)
+        {
+            var message = TryGetString(root, "message");
+            throw new InvalidOperationException($"DashScope web search failed: {FirstNonEmpty(message, $"status {status}")}");
+        }
+
+        var results = root.TryGetProperty("data", out var dataElement) &&
+                      dataElement.ValueKind == JsonValueKind.Object &&
+                      dataElement.TryGetProperty("docs", out var docsElement) &&
+                      docsElement.ValueKind == JsonValueKind.Array
+            ? docsElement.EnumerateArray().Select(item => new WebSearchResultItem(
+                Title: TryGetString(item, "title") ?? "Untitled",
+                Url: TryGetString(item, "url") ?? string.Empty,
+                Content: TryGetString(item, "snippet"),
+                Score: TryGetDouble(item, "_score"),
+                PublishedDate: TryGetString(item, "timestamp_format"))).ToArray()
+            : [];
+
+        return new WebSearchResult(null, results);
+    }
+
+    private async Task<DashScopeAuthConfig> ResolveDashScopeAuthConfigAsync(
+        WebSearchProviderConfiguration provider,
+        CancellationToken cancellationToken)
+    {
+        var credentialStore = qwenOAuthCredentialStore ?? new FileQwenOAuthCredentialStore(environmentPaths);
+        var credentials = await credentialStore.ReadAsync(cancellationToken);
+        var accessToken = !string.IsNullOrWhiteSpace(credentials?.AccessToken) &&
+                          credentials.ExpiresAtUtc.GetValueOrDefault(DateTimeOffset.MaxValue) > DateTimeOffset.UtcNow
+            ? credentials.AccessToken
+            : provider.ApiKey;
+        var endpoint = FirstNonEmpty(
+            provider.Endpoint,
+            BuildDashScopeWebSearchEndpoint(FirstNonEmpty(provider.ResourceUrl, credentials?.ResourceUrl)));
+
+        if (string.IsNullOrWhiteSpace(endpoint))
+        {
+            throw new InvalidOperationException("DashScope web search requires a resource_url from OAuth credentials.");
+        }
+
+        return new DashScopeAuthConfig(accessToken, endpoint);
+    }
+
+    private static string BuildDashScopeWebSearchEndpoint(string resourceUrl)
+    {
+        if (string.IsNullOrWhiteSpace(resourceUrl))
+        {
+            return string.Empty;
+        }
+
+        var normalizedBaseUrl = resourceUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? resourceUrl
+            : $"https://{resourceUrl}";
+        normalizedBaseUrl = normalizedBaseUrl.TrimEnd('/');
+        return normalizedBaseUrl.EndsWith("/api/v1/indices/plugin/web_search", StringComparison.OrdinalIgnoreCase)
+            ? normalizedBaseUrl
+            : $"{normalizedBaseUrl}/api/v1/indices/plugin/web_search";
+    }
+
     private static string BuildSearchContent(WebSearchResult result)
     {
         var sources = result.Results
@@ -674,19 +871,83 @@ Call web_fetch again with the redirect URL if you want to inspect that destinati
         return current;
     }
 
-    private static WebSearchProviderConfiguration SelectProvider(WebSearchConfiguration configuration, string? requestedProvider)
+    private static IReadOnlyList<WebSearchProviderConfiguration> SelectProviderChain(
+        WebSearchConfiguration configuration,
+        string? requestedProvider)
     {
+        var ordered = new List<WebSearchProviderConfiguration>();
         if (!string.IsNullOrWhiteSpace(requestedProvider))
         {
-            return configuration.Providers.FirstOrDefault(provider =>
-                       provider.Type.Equals(requestedProvider, StringComparison.OrdinalIgnoreCase))
-                   ?? throw new InvalidOperationException($"The specified provider \"{requestedProvider}\" is not available.");
+            var requested = configuration.Providers.FirstOrDefault(provider =>
+                provider.Type.Equals(requestedProvider, StringComparison.OrdinalIgnoreCase));
+            if (requested is not null)
+            {
+                ordered.Add(requested);
+            }
         }
 
-        return configuration.Providers.FirstOrDefault(provider =>
-                   provider.Type.Equals(configuration.DefaultProvider, StringComparison.OrdinalIgnoreCase))
-               ?? configuration.Providers[0];
+        var defaultProvider = configuration.Providers.FirstOrDefault(provider =>
+            provider.Type.Equals(configuration.DefaultProvider, StringComparison.OrdinalIgnoreCase));
+        if (defaultProvider is not null && !ordered.Contains(defaultProvider))
+        {
+            ordered.Add(defaultProvider);
+        }
+
+        foreach (var provider in configuration.Providers)
+        {
+            if (!ordered.Contains(provider))
+            {
+                ordered.Add(provider);
+            }
+        }
+
+        return ordered.Count == 0
+            ? throw new InvalidOperationException("No web search providers are available.")
+            : ordered;
     }
+
+    private static string ResolveDefaultProvider(
+        string configuredDefault,
+        IReadOnlyList<WebSearchProviderConfiguration> providers)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredDefault) &&
+            providers.Any(provider => provider.Type.Equals(configuredDefault, StringComparison.OrdinalIgnoreCase)))
+        {
+            return configuredDefault.Trim().ToLowerInvariant();
+        }
+
+        foreach (var providerType in new[] { "tavily", "google", "dashscope" })
+        {
+            if (providers.Any(provider => provider.Type.Equals(providerType, StringComparison.OrdinalIgnoreCase)))
+            {
+                return providerType;
+            }
+        }
+
+        return providers[0].Type;
+    }
+
+    private static WebSearchProviderConfiguration CreateProvider(
+        string type,
+        string apiKey = "",
+        string searchEngineId = "",
+        int maxResults = DefaultSearchResultCount) =>
+        new(
+            Type: type,
+            ApiKey: apiKey,
+            SearchEngineId: searchEngineId,
+            MaxResults: maxResults,
+            SearchDepth: "advanced",
+            IncludeAnswer: true,
+            SafeSearch: "medium",
+            Language: string.Empty,
+            Country: string.Empty,
+            Endpoint: string.Empty,
+            ResourceUrl: string.Empty);
+
+    private static bool IsQwenOAuth(string authType) =>
+        string.Equals(authType, "qwen-oauth", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(authType, "qwen_oauth", StringComparison.OrdinalIgnoreCase);
 
     private static string RequireString(JsonElement arguments, string propertyName) =>
         TryGetString(arguments, propertyName) is { Length: > 0 } value
@@ -695,6 +956,11 @@ Call web_fetch again with the redirect URL if you want to inspect that destinati
 
     private static string GetString(JsonObject root, string propertyName) =>
         root[propertyName]?.GetValue<string>() ?? string.Empty;
+
+    private static string GetString(JsonObject root, params string[] path) =>
+        GetNode(root, path) is JsonValue value && value.TryGetValue<string>(out var result)
+            ? result ?? string.Empty
+            : string.Empty;
 
     private static int? TryGetInt(JsonObject root, string propertyName) =>
         root[propertyName]?.GetValue<int?>();
@@ -728,7 +994,13 @@ Call web_fetch again with the redirect URL if you want to inspect that destinati
         bool IncludeAnswer,
         string SafeSearch,
         string Language,
-        string Country);
+        string Country,
+        string Endpoint,
+        string ResourceUrl);
+
+    private sealed record DashScopeAuthConfig(
+        string AccessToken,
+        string Endpoint);
 
     private sealed record WebSearchResult(
         string? Answer,

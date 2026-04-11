@@ -815,6 +815,8 @@ public sealed class NativeToolHostTests
 
 file sealed class ThrowingWebToolService(Exception exception) : IWebToolService
 {
+    public bool IsSearchAvailable(QwenRuntimeProfile runtimeProfile) => true;
+
     public Task<string> FetchAsync(
         QwenRuntimeProfile runtimeProfile,
         JsonElement arguments,
