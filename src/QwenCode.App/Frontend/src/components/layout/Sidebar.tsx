@@ -7,18 +7,28 @@ import {
   Skeleton,
 } from '@chakra-ui/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle } from 'lucide-react';
+import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle, MessageCircle, Code2 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SessionPreview } from '@/types/desktop';
+import {
+  filterSessionsByNavigationMode,
+  groupProjectSessions,
+  type SessionNavigationMode,
+} from './sessionNavigation';
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   sessions: SessionPreview[];
   activeTurnSessions: Record<string, true>;
+  selectedSessionId?: string;
+  mode: SessionNavigationMode;
+  runtimeBaseDirectory?: string;
+  workspaceRoot?: string;
   onNewChat?: () => void;
   onSelectSession?: (sessionId: string) => void;
+  onToggleMode?: () => void;
   onOpenSettings?: () => void;
   onOpenSearch?: () => void;
   onOpenSkills?: () => void;
@@ -34,17 +44,6 @@ function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslation
   if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}${t('sidebar.hoursAgo')}`;
   if (diffMs < 604_800_000) return `${Math.floor(diffMs / 86_400_000)}${t('sidebar.daysAgo')}`;
   return `${Math.floor(diffMs / 604_800_000)}${t('sidebar.weeksAgo')}`;
-}
-
-function getProjectName(workingDir: string, t: ReturnType<typeof useTranslation>['t']): string {
-  if (!workingDir) return t('sidebar.otherProjects');
-  const parts = workingDir.replace(/\\/g, '/').split('/').filter(Boolean);
-  return parts[parts.length - 1] || t('sidebar.otherProjects');
-}
-
-interface ProjectGroup {
-  name: string;
-  sessions: SessionPreview[];
 }
 
 // Animation variants for group sessions list
@@ -82,40 +81,103 @@ export default function Sidebar({
   isOpen,
   sessions,
   activeTurnSessions,
+  selectedSessionId = '',
+  mode,
+  runtimeBaseDirectory = '',
+  workspaceRoot = '',
   onNewChat = () => console.log('New chat'),
   onSelectSession = (id: string) => console.log(`Selected conversation ${id}`),
+  onToggleMode = () => console.log('Sidebar mode toggled'),
   onOpenSettings = () => console.log('Settings clicked'),
   onOpenSearch = () => console.log('Search opened'),
   onOpenSkills = () => console.log('Skills clicked'),
 }: SidebarProps) {
-
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const { t } = useTranslation();
 
-  const groupedConversations = useMemo(() => {
-    const groups: Record<string, SessionPreview[]> = {};
-    for (const conv of sessions) {
-      const project = getProjectName(conv.workingDirectory, t);
-      if (!groups[project]) groups[project] = [];
-      groups[project].push(conv);
-    }
+  const visibleSessions = useMemo(
+    () => filterSessionsByNavigationMode(sessions, mode, { runtimeBaseDirectory, workspaceRoot }),
+    [mode, runtimeBaseDirectory, sessions, workspaceRoot],
+  );
 
-    const result: ProjectGroup[] = Object.entries(groups)
-      .sort((a, b) => {
-        const aLatest = Math.max(...a[1].map(s => new Date(s.lastActivity).getTime()));
-        const bLatest = Math.max(...b[1].map(s => new Date(s.lastActivity).getTime()));
-        return bLatest - aLatest;
-      })
-      .map(([name, sess]) => ({ name, sessions: sess }));
+  const groupedConversations = useMemo(
+    () => groupProjectSessions(visibleSessions, t('sidebar.otherProjects')),
+    [t, visibleSessions],
+  );
 
-    return result;
-  }, [sessions, t]);
+  const orderedChatSessions = useMemo(
+    () =>
+      [...visibleSessions].sort(
+        (left, right) => new Date(right.lastActivity).getTime() - new Date(left.lastActivity).getTime(),
+      ),
+    [visibleSessions],
+  );
 
   const toggleGroup = (name: string) => {
     setOpenGroups(prev => ({
       ...prev,
       [name]: !(prev[name] !== false),
     }));
+  };
+
+  const renderSessionButton = (conv: SessionPreview) => {
+    const isSelected = conv.sessionId === selectedSessionId;
+    const isRunning = conv.sessionId in activeTurnSessions;
+
+    return (
+      <Button
+        key={conv.sessionId}
+        variant="ghost"
+        colorScheme="gray"
+        onClick={() => onSelectSession(conv.sessionId)}
+        h="32px"
+        px={2}
+        py={0}
+        justifyContent="space-between"
+        w="full"
+        minW={0}
+        bg={isSelected ? 'gray.700' : 'transparent'}
+        color={isSelected ? 'white' : 'gray.200'}
+        _hover={{ bg: 'gray.700' }}
+        borderRadius="md"
+        whiteSpace="nowrap"
+        fontSize="sm"
+      >
+        {conv.title === null ? (
+          <Skeleton
+            h="14px"
+            w="120px"
+            borderRadius="sm"
+            startColor="gray.700"
+            endColor="gray.600"
+            flexShrink={0}
+          />
+        ) : (
+          <Text
+            color="inherit"
+            flex={1}
+            minW={0}
+            overflow="hidden"
+            textOverflow="ellipsis"
+            textAlign="left"
+            noOfLines={1}
+          >
+            {conv.title}
+          </Text>
+        )}
+        <HStack spacing={2} ml={2} flexShrink={0}>
+          <Text fontSize="xs" color={isSelected ? 'gray.300' : 'gray.500'}>
+            {formatRelativeTime(conv.lastActivity, t)}
+          </Text>
+          <Box
+            boxSize="6px"
+            borderRadius="full"
+            bg={isRunning ? 'green.400' : 'transparent'}
+            transition="background-color 0.2s ease"
+          />
+        </HStack>
+      </Button>
+    );
   };
 
   return (
@@ -144,6 +206,22 @@ export default function Sidebar({
         {/* Top: Settings & Skills */}
         <Box px={3} pt={3} pb={2}>
           <VStack spacing={1} align="stretch">
+            <Button
+              leftIcon={mode === 'projects' ? <MessageCircle size={15} /> : <Code2 size={15} />}
+              variant="ghost"
+              colorScheme="gray"
+              size="sm"
+              width="100%"
+              justifyContent="flex-start"
+              fontWeight="regular"
+              borderRadius="md"
+              h="36px"
+              onClick={onToggleMode}
+              color="gray.300"
+              _hover={{ bg: 'gray.700', color: 'white' }}
+            >
+              {mode === 'projects' ? t('top.chats') : t('top.coder')}
+            </Button>
             <Button
               leftIcon={<Puzzle size={15} />}
               variant="ghost"
@@ -251,11 +329,10 @@ export default function Sidebar({
           }}
         >
           <VStack spacing={1} align="stretch">
-            {groupedConversations.map((group) => {
+            {mode === 'projects' ? groupedConversations.map((group) => {
               const isGroupOpen = openGroups[group.name] !== false;
               return (
                 <Box key={group.name}>
-                  {/* Group header */}
                   <Button
                     variant="ghost"
                     w="full"
@@ -285,7 +362,6 @@ export default function Sidebar({
                     {group.name}
                   </Button>
 
-                  {/* Group sessions — animated */}
                   <AnimatePresence initial={false}>
                     {isGroupOpen && (
                       <motion.div
@@ -296,75 +372,43 @@ export default function Sidebar({
                         style={{ overflow: 'hidden', width: '100%' }}
                       >
                         <VStack spacing={0} align="stretch" pl={2}>
-                          {group.sessions.map((conv, idx) => {
-                            const isActive = conv.sessionId in activeTurnSessions;
-                            return (
-                              <motion.div
-                                key={conv.sessionId}
-                                variants={sessionItemVariants}
-                                initial="hidden"
-                                animate="visible"
-                                exit="exit"
-                                custom={idx}
-                                style={{ width: '100%' }}
-                              >
-                                <Button
-                                  variant="ghost"
-                                  colorScheme="gray"
-                                  onClick={() => onSelectSession(conv.sessionId)}
-                                  h="32px"
-                                  px={2}
-                                  py={0}
-                                  justifyContent="space-between"
-                                  w="full"
-                                  minW={0}
-                                  bg={isActive ? 'gray.700' : 'transparent'}
-                                  _hover={{ bg: 'gray.700' }}
-                                  borderRadius="md"
-                                  whiteSpace="nowrap"
-                                  fontSize="sm"
-                                >
-                                  {conv.title === null ? (
-                                    <Skeleton
-                                      h="14px"
-                                      w="120px"
-                                      borderRadius="sm"
-                                      startColor="gray.700"
-                                      endColor="gray.600"
-                                      flexShrink={0}
-                                    />
-                                  ) : (
-                                    <Text
-                                      color="gray.200"
-                                      flex={1}
-                                      minW={0}
-                                      overflow="hidden"
-                                      textOverflow="ellipsis"
-                                      textAlign="left"
-                                      noOfLines={1}
-                                    >
-                                      {conv.title}
-                                    </Text>
-                                  )}
-                                  <Text
-                                    fontSize="xs"
-                                    color="gray.500"
-                                    ml={2}
-                                    flexShrink={0}
-                                  >
-                                    {formatRelativeTime(conv.lastActivity, t)}
-                                  </Text>
-                                </Button>
-                              </motion.div>
-                            );
-                          })}
+                          {group.sessions.map((conv, idx) => (
+                            <motion.div
+                              key={conv.sessionId}
+                              variants={sessionItemVariants}
+                              initial="hidden"
+                              animate="visible"
+                              exit="exit"
+                              custom={idx}
+                              style={{ width: '100%' }}
+                            >
+                              {renderSessionButton(conv)}
+                            </motion.div>
+                          ))}
                         </VStack>
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </Box>
               );
-            })}
+            }) : orderedChatSessions.map((conv, idx) => (
+              <motion.div
+                key={conv.sessionId}
+                variants={sessionItemVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                custom={idx}
+                style={{ width: '100%' }}
+              >
+                {renderSessionButton(conv)}
+              </motion.div>
+            ))}
+            {visibleSessions.length === 0 && (
+              <Text px={2} py={3} fontSize="sm" color="gray.500">
+                {t('sidebar.noSessionsFound')}
+              </Text>
+            )}
           </VStack>
         </Box>
 

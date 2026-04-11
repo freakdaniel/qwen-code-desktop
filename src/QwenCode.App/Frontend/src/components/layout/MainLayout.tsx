@@ -7,21 +7,17 @@ import { useTranslation } from 'react-i18next';
 import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
 import TitleBar from './TitleBar';
-import type { SessionPreview } from '@/types/desktop';
-
-function getProjectName(workingDir: string): string {
-  if (!workingDir) return 'Другие';
-  const parts = workingDir.replace(/\\/g, '/').split('/').filter(Boolean);
-  return parts[parts.length - 1] || 'Другие';
-}
-
-interface ProjectGroup {
-  name: string;
-  sessions: SessionPreview[];
-}
+import {
+  filterSessionsByNavigationMode,
+  getProjectNameFromWorkingDirectory,
+  groupProjectSessions,
+  isProjectlessSession,
+  type SessionNavigationMode,
+} from './sessionNavigation';
 
 export default function MainLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [sidebarMode, setSidebarMode] = useState<SessionNavigationMode>('projects');
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -29,6 +25,13 @@ export default function MainLayout() {
   const { bootstrap, activeTurnSessions } = useBootstrap();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sessions = bootstrap?.recentSessions ?? [];
+  const sessionScopeOptions = useMemo(
+    () => ({
+      runtimeBaseDirectory: bootstrap?.qwenRuntime?.runtimeBaseDirectory ?? '',
+      workspaceRoot: bootstrap?.workspaceRoot ?? '',
+    }),
+    [bootstrap?.qwenRuntime?.runtimeBaseDirectory, bootstrap?.workspaceRoot],
+  );
 
   // Focus search input when modal opens
   useEffect(() => {
@@ -54,27 +57,35 @@ export default function MainLayout() {
     setSearchTerm('');
   };
 
-  const groupedAndFiltered = useMemo(() => {
-    const filtered = sessions.filter(conv =>
-      (conv.title ?? '').toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    const groups: Record<string, SessionPreview[]> = {};
-    for (const conv of filtered) {
-      const project = getProjectName(conv.workingDirectory);
-      if (!groups[project]) groups[project] = [];
-      groups[project].push(conv);
-    }
-    const result: ProjectGroup[] = Object.entries(groups)
-      .sort((a, b) => {
-        const aLatest = Math.max(...a[1].map(s => new Date(s.lastActivity).getTime()));
-        const bLatest = Math.max(...b[1].map(s => new Date(s.lastActivity).getTime()));
-        return bLatest - aLatest;
-      })
-      .map(([name, sess]) => ({ name, sessions: sess }));
-    return result;
-  }, [sessions, searchTerm]);
+  const filteredSessions = useMemo(
+    () => sessions.filter((conv) => (conv.title ?? '').toLowerCase().includes(searchTerm.toLowerCase())),
+    [searchTerm, sessions],
+  );
+
+  const visibleSearchSessions = useMemo(
+    () => filterSessionsByNavigationMode(filteredSessions, sidebarMode, sessionScopeOptions),
+    [filteredSessions, sessionScopeOptions, sidebarMode],
+  );
+
+  const groupedAndFiltered = useMemo(
+    () => groupProjectSessions(visibleSearchSessions, t('sidebar.otherProjects')),
+    [t, visibleSearchSessions],
+  );
+
+  const orderedChatSessions = useMemo(
+    () =>
+      [...visibleSearchSessions].sort(
+        (left, right) => new Date(right.lastActivity).getTime() - new Date(left.lastActivity).getTime(),
+      ),
+    [visibleSearchSessions],
+  );
 
   const handleSelectSession = (sessionId: string) => {
+    const nextSession = sessions.find((session) => session.sessionId === sessionId);
+    if (nextSession) {
+      setSidebarMode(isProjectlessSession(nextSession, sessionScopeOptions) ? 'chats' : 'projects');
+    }
+
     setSelectedSessionId(sessionId);
     setSearchModalOpen(false);
     setSearchTerm('');
@@ -97,8 +108,13 @@ export default function MainLayout() {
         onClose={() => setIsSidebarOpen(false)}
         sessions={sessions}
         activeTurnSessions={activeTurnSessions}
+        selectedSessionId={selectedSessionId}
+        mode={sidebarMode}
+        runtimeBaseDirectory={sessionScopeOptions.runtimeBaseDirectory}
+        workspaceRoot={sessionScopeOptions.workspaceRoot}
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
+        onToggleMode={() => setSidebarMode((current) => current === 'projects' ? 'chats' : 'projects')}
         onOpenSearch={openSearch}
         onOpenSkills={() => console.log('Skills & Integrations')}
       />
@@ -115,6 +131,7 @@ export default function MainLayout() {
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={() => setIsSidebarOpen(true)}
           selectedSessionId={selectedSessionId}
+          sidebarMode={sidebarMode}
           onSelectSession={handleSelectSession}
         />
       </Box>
@@ -207,39 +224,65 @@ export default function MainLayout() {
                     '&::-webkit-scrollbar-thumb': { background: '#5b5b67', borderRadius: '3px' },
                   }}
                 >
-                  {groupedAndFiltered.length > 0 ? (
-                    <VStack spacing={1} align="stretch">
-                      {groupedAndFiltered.map((group) => (
-                        <Box key={group.name}>
-                          <Text fontSize="xs" color="gray.500" fontWeight="medium" px={1} mb={1}>
-                            {group.name}
-                          </Text>
-                          <VStack spacing={0} align="stretch">
-                            {group.sessions.map((conv) => (
-                              <Button
-                                key={conv.sessionId}
-                                variant="ghost"
-                                colorScheme="gray"
-                                onClick={() => handleSelectSession(conv.sessionId)}
-                                h="32px"
-                                px={2}
-                                justifyContent="flex-start"
-                                bg="transparent"
-                                _hover={{ bg: 'gray.700' }}
-                                borderRadius="md"
-                                whiteSpace="nowrap"
-                                fontSize="sm"
-                                color="gray.200"
-                              >
-                                <Text overflow="hidden" textOverflow="ellipsis" flex={1} textAlign="left">
-                                  {conv.title ?? ''}
-                                </Text>
-                              </Button>
-                            ))}
-                          </VStack>
-                        </Box>
-                      ))}
-                    </VStack>
+                  {visibleSearchSessions.length > 0 ? (
+                    sidebarMode === 'projects' ? (
+                      <VStack spacing={1} align="stretch">
+                        {groupedAndFiltered.map((group) => (
+                          <Box key={group.name}>
+                            <Text fontSize="xs" color="gray.500" fontWeight="medium" px={1} mb={1}>
+                              {group.name}
+                            </Text>
+                            <VStack spacing={0} align="stretch">
+                              {group.sessions.map((conv) => (
+                                <Button
+                                  key={conv.sessionId}
+                                  variant="ghost"
+                                  colorScheme="gray"
+                                  onClick={() => handleSelectSession(conv.sessionId)}
+                                  h="32px"
+                                  px={2}
+                                  justifyContent="flex-start"
+                                  bg="transparent"
+                                  _hover={{ bg: 'gray.700' }}
+                                  borderRadius="md"
+                                  whiteSpace="nowrap"
+                                  fontSize="sm"
+                                  color="gray.200"
+                                >
+                                  <Text overflow="hidden" textOverflow="ellipsis" flex={1} textAlign="left">
+                                    {conv.title ?? ''}
+                                  </Text>
+                                </Button>
+                              ))}
+                            </VStack>
+                          </Box>
+                        ))}
+                      </VStack>
+                    ) : (
+                      <VStack spacing={0} align="stretch">
+                        {orderedChatSessions.map((conv) => (
+                          <Button
+                            key={conv.sessionId}
+                            variant="ghost"
+                            colorScheme="gray"
+                            onClick={() => handleSelectSession(conv.sessionId)}
+                            h="32px"
+                            px={2}
+                            justifyContent="space-between"
+                            bg="transparent"
+                            _hover={{ bg: 'gray.700' }}
+                            borderRadius="md"
+                            whiteSpace="nowrap"
+                            fontSize="sm"
+                            color="gray.200"
+                          >
+                            <Text overflow="hidden" textOverflow="ellipsis" flex={1} textAlign="left">
+                              {conv.title ?? getProjectNameFromWorkingDirectory(conv.workingDirectory, t('sidebar.otherProjects'))}
+                            </Text>
+                          </Button>
+                        ))}
+                      </VStack>
+                    )
                   ) : (
                     <Text textAlign="center" color="gray.500" fontSize="sm" py={4}>
                       {searchTerm ? t('search.noResults') : t('search.startTyping')}

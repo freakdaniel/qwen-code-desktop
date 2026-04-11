@@ -13,7 +13,9 @@
   },
   "top": {
     "settings": "设置",
-    "directConnect": "Remote connect"
+    "directConnect": "Remote connect",
+    "chats": "Chats",
+    "coder": "Coder"
   },
   "sidebar": {
     "newChat": "新聊天",
@@ -31,8 +33,10 @@
   "chat": {
     "newChat": "新聊天",
     "welcomeTitle": "我们要创建什么？",
+    "chatModeWelcomeTitle": "你想知道什么？",
     "sessionsAvailable": "个会话可用",
     "promptPlaceholder": "描述您要处理的任务...",
+    "chatModePromptPlaceholder": "你想知道什么？",
     "demoResponse": "收到您的请求：\"{{prompt}}\"。这是一个演示回复。",
     "disclaimer": "Qwen是AI，可能会犯错。请验证重要的更改、命令和回答。",
     "contextUsed": "已使用 {{used}} / {{total}} 令牌",

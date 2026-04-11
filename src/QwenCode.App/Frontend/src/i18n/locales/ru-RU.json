@@ -13,7 +13,7 @@
     "bypassPermissionsDesc": "Принимать все разрешения"
   },
   "status": { "connected": "IPC подключён", "local": "Локальный режим" },
-  "top": { "settings": "Настройки", "skills": "Навыки и интеграции", "directConnect": "Remote connect" },
+  "top": { "settings": "Настройки", "skills": "Навыки и интеграции", "directConnect": "Remote connect", "chats": "Чаты", "coder": "Coder" },
   "sidebar": {
     "newChat": "Новый чат",
     "search": "Поиск",
@@ -31,8 +31,10 @@
   "chat": {
     "newChat": "Новый чат",
     "welcomeTitle": "Что будем создавать?",
+    "chatModeWelcomeTitle": "Что хочешь узнать?",
     "sessionsAvailable": "сессий доступно",
     "promptPlaceholder": "Опишите задачу, над которой хотите работать...",
+    "chatModePromptPlaceholder": "Что хочешь узнать?",
     "demoResponse": "Получил ваш запрос: \"{{prompt}}\". Это демонстрационный ответ.",
     "disclaimer": "Qwen это ИИ, и он может допускать ошибки. Проверяй важные изменения, команды и ответы",
     "contextUsed": "Использовано {{used}} / {{total}} токенов",

@@ -13,7 +13,7 @@
     "bypassPermissionsDesc": "Accepts all permissions"
   },
   "status": { "connected": "IPC attached", "local": "Local preview" },
-  "top": { "settings": "Settings", "skills": "Skills & Integrations", "directConnect": "Remote connect" },
+  "top": { "settings": "Settings", "skills": "Skills & Integrations", "directConnect": "Remote connect", "chats": "Chats", "coder": "Coder" },
   "sidebar": {
     "newChat": "New Chat",
     "search": "Search",
@@ -31,8 +31,10 @@
   "chat": {
     "newChat": "New chat",
     "welcomeTitle": "What shall we create?",
+    "chatModeWelcomeTitle": "What do you want to know?",
     "sessionsAvailable": "sessions available",
     "promptPlaceholder": "Describe the task you want to work on...",
+    "chatModePromptPlaceholder": "What do you want to know?",
     "demoResponse": "Received your request: \"{{prompt}}\". This is a demo response.",
     "disclaimer": "Qwen is AI and may make mistakes. Verify important changes, commands, and answers",
     "contextUsed": "Used {{used}} / {{total}} tokens",

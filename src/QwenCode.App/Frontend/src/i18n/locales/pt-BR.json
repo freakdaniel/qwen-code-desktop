@@ -13,7 +13,9 @@
   },
   "top": {
     "settings": "Configurações",
-    "directConnect": "Remote connect"
+    "directConnect": "Remote connect",
+    "chats": "Chats",
+    "coder": "Coder"
   },
   "sidebar": {
     "newChat": "Novo Chat",
@@ -31,8 +33,10 @@
   "chat": {
     "newChat": "Novo chat",
     "welcomeTitle": "O que vamos criar?",
+    "chatModeWelcomeTitle": "O que você quer saber?",
     "sessionsAvailable": "sessões disponíveis",
     "promptPlaceholder": "Descreva a tarefa que deseja trabalhar...",
+    "chatModePromptPlaceholder": "O que você quer saber?",
     "demoResponse": "Recebi sua solicitação: \"{{prompt}}\". Esta é uma resposta de demonstração.",
     "disclaimer": "Qwen é IA e pode cometer erros. Verifique mudanças, comandos e respostas importantes",
     "contextUsed": "Usados {{used}} / {{total}} tokens",

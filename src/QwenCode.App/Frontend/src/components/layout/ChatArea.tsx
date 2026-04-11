@@ -47,11 +47,13 @@ import { useBootstrap } from '@/hooks/useBootstrap';
 import { useTranslation } from 'react-i18next';
 import type { DesktopSessionDetail, DesktopSessionEntry, SessionPreview } from '@/types/desktop';
 import qwenLogo from '@/assets/qwen-logo.svg';
+import type { SessionNavigationMode } from './sessionNavigation';
 
 interface ChatAreaProps {
   onToggleSidebar?: () => void;
   isSidebarOpen: boolean;
   selectedSessionId?: string;
+  sidebarMode?: SessionNavigationMode;
   onSelectSession?: (sessionId: string) => void;
 }
 
@@ -172,10 +174,6 @@ function getProjectPickerSearchPlaceholder(locale: string): string {
   if (locale.startsWith('pt')) return 'Pesquisar projetos';
   if (locale.startsWith('zh')) return '搜索项目';
   return 'Search projects';
-}
-
-function getContinueWithoutProjectLabel(locale: string): string {
-  return locale.startsWith('ru') ? 'Продолжить без проекта' : 'Continue without project';
 }
 
 function getAddProjectLabel(locale: string): string {
@@ -1670,7 +1668,11 @@ function getToolArgSummary(entry: DesktopSessionEntry): string {
   }
 }
 
-export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAreaProps) {
+export default function ChatArea({
+  selectedSessionId,
+  sidebarMode = 'projects',
+  onSelectSession,
+}: ChatAreaProps) {
   const { t } = useTranslation();
   const {
     bootstrap,
@@ -1817,9 +1819,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
     );
   }, [projectOptions, projectPickerQuery, topProjectOptions]);
 
-  const selectedProjectLabel = selectedProjectMode === 'no-project'
-    ? getContinueWithoutProjectLabel(locale)
-    : getProjectDisplayName(selectedProjectPath, locale);
+  const selectedProjectLabel = getProjectDisplayName(selectedProjectPath, locale);
   const selectedProjectWorkingDirectory = selectedProjectMode === 'no-project'
     ? getProjectlessTempDirectory(bootstrap?.qwenRuntime?.runtimeBaseDirectory ?? '', bootstrap?.workspaceRoot ?? '')
     : selectedProjectPath;
@@ -2036,6 +2036,12 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
   }, [activeTurnSessions, selectedSessionId]);
 
   useEffect(() => {
+    if (sidebarMode === 'chats' && projectPickerOpen) {
+      setProjectPickerOpen(false);
+    }
+  }, [projectPickerOpen, sidebarMode]);
+
+  useEffect(() => {
     if (!projectPickerOpen) return;
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -2095,6 +2101,47 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
       setSelectedProjectPath(fallbackProjectPath);
     }
   }, [bootstrap?.workspaceRoot, runtimeTempRoot, selectedProjectPath, sessions]);
+
+  useEffect(() => {
+    if (selectedSession?.workingDirectory) {
+      if (pathStartsWith(selectedSession.workingDirectory, getProjectlessTempDirectory(bootstrap?.qwenRuntime?.runtimeBaseDirectory ?? '', bootstrap?.workspaceRoot ?? ''))) {
+        if (selectedProjectMode !== 'no-project') {
+          setSelectedProjectMode('no-project');
+        }
+
+        return;
+      }
+
+      if (selectedProjectMode !== 'project') {
+        setSelectedProjectMode('project');
+      }
+
+      if (normalizePathKey(selectedProjectPath) !== normalizePathKey(selectedSession.workingDirectory)) {
+        setSelectedProjectPath(selectedSession.workingDirectory);
+      }
+
+      return;
+    }
+
+    if (sidebarMode === 'chats') {
+      if (selectedProjectMode !== 'no-project') {
+        setSelectedProjectMode('no-project');
+      }
+
+      return;
+    }
+
+    if (selectedProjectMode !== 'project') {
+      setSelectedProjectMode('project');
+    }
+  }, [
+    bootstrap?.qwenRuntime?.runtimeBaseDirectory,
+    bootstrap?.workspaceRoot,
+    selectedProjectMode,
+    selectedProjectPath,
+    selectedSession?.workingDirectory,
+    sidebarMode,
+  ]);
 
   useEffect(() => {
     if (!selectedSessionId) {
@@ -3061,212 +3108,192 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
               draggable={false}
             />
             <Text fontSize="2xl" fontWeight="semibold" color="white" letterSpacing="tight">
-              {t('chat.welcomeTitle')}
+              {sidebarMode === 'chats' ? t('chat.chatModeWelcomeTitle') : t('chat.welcomeTitle')}
             </Text>
-            <Box mt={2} position="relative">
-              <Button
-                ref={projectPickerButtonRef}
-                onClick={() => {
-                  setProjectPickerQuery('');
-                  if (!projectPickerOpen) {
-                    updateProjectPickerPosition();
-                  }
+            {sidebarMode === 'projects' && (
+              <>
+                <Box mt={2} position="relative">
+                  <Button
+                    ref={projectPickerButtonRef}
+                    onClick={() => {
+                      setProjectPickerQuery('');
+                      if (!projectPickerOpen) {
+                        updateProjectPickerPosition();
+                      }
 
-                  setProjectPickerOpen((current) => !current);
-                }}
-                variant="unstyled"
-                h="auto"
-                px={0}
-                display="inline-flex"
-                flexDirection="column"
-                alignItems="stretch"
-                justifyContent="center"
-                gap={1}
-                color="gray.500"
-                _hover={{ color: 'gray.300' }}
-                _active={{ color: 'gray.300' }}
-              >
-                <Text fontSize="2xl" lineHeight="1" fontWeight="medium" color="inherit" textAlign="center">
-                  {selectedProjectLabel}
-                </Text>
-                <Box
-                  h="0"
-                  borderBottom="1px dashed"
-                  borderColor="currentColor"
-                  opacity={projectPickerOpen ? 0.9 : 0.65}
-                />
-              </Button>
-
-            </Box>
-            <Portal>
-              <AnimatePresence>
-                {projectPickerOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                    transition={{ duration: 0.16, ease: 'easeOut' }}
-                    style={{
-                      position: 'fixed',
-                      top: `${projectPickerPosition.top}px`,
-                      left: `${projectPickerPosition.left}px`,
-                      width: `${projectPickerPosition.width}px`,
-                      zIndex: 2000,
+                      setProjectPickerOpen((current) => !current);
                     }}
+                    variant="unstyled"
+                    h="auto"
+                    px={0}
+                    display="inline-flex"
+                    flexDirection="column"
+                    alignItems="stretch"
+                    justifyContent="center"
+                    gap={1}
+                    color="gray.500"
+                    _hover={{ color: 'gray.300' }}
+                    _active={{ color: 'gray.300' }}
                   >
+                    <Text fontSize="2xl" lineHeight="1" fontWeight="medium" color="inherit" textAlign="center">
+                      {selectedProjectLabel}
+                    </Text>
                     <Box
-                      ref={projectPickerMenuRef}
-                      display="flex"
-                      flexDirection="column"
-                      maxH={`${projectPickerPosition.maxHeight}px`}
-                      bg="gray.800"
-                      border="1px solid"
-                      borderColor="gray.700"
-                      borderRadius="2xl"
-                      shadow="2xl"
-                      overflow="hidden"
-                    >
-                      <HStack px={3} py={1.5} spacing={3} minH="38px">
-                        <Search size={13} color="#9494a2" />
-                        <Input
-                          value={projectPickerQuery}
-                          onChange={(e) => setProjectPickerQuery(e.target.value)}
-                          placeholder={getProjectPickerSearchPlaceholder(locale)}
-                          bg="transparent"
-                          border="none"
-                          color="white"
-                          fontSize="sm"
-                          fontWeight="normal"
-                          h="20px"
-                          minH="20px"
-                          p={0}
-                          _placeholder={{ color: 'gray.500' }}
-                          _focusVisible={{ boxShadow: 'none' }}
-                        />
-                      </HStack>
+                      h="0"
+                      borderBottom="1px dashed"
+                      borderColor="currentColor"
+                      opacity={projectPickerOpen ? 0.9 : 0.65}
+                    />
+                  </Button>
 
-                      <Box borderTop="1px solid" borderColor="gray.700" />
-
-                      <Box
-                        h={`${projectListHeight}px`}
-                        overflowY="auto"
-                        px={2}
-                        py={2}
-                        sx={{
-                          '&::-webkit-scrollbar': { width: '8px' },
-                          '&::-webkit-scrollbar-track': { background: 'rgba(255,255,255,0.04)' },
-                          '&::-webkit-scrollbar-thumb': { background: '#5b5b67', borderRadius: '999px' },
-                          '&::-webkit-scrollbar-thumb:hover': { background: '#72727f' },
+                </Box>
+                <Portal>
+                  <AnimatePresence>
+                    {projectPickerOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                        style={{
+                          position: 'fixed',
+                          top: `${projectPickerPosition.top}px`,
+                          left: `${projectPickerPosition.left}px`,
+                          width: `${projectPickerPosition.width}px`,
+                          zIndex: 2000,
                         }}
                       >
-                        <VStack spacing={1} align="stretch">
-                          {filteredProjectOptions.length > 0 ? (
-                            filteredProjectOptions.map((project) => (
-                              <Button
-                                key={project.path}
-                                variant="ghost"
-                                justifyContent="space-between"
-                                h="40px"
-                                px={3}
-                                borderRadius="xl"
-                                color="gray.200"
-                                fontWeight="normal"
-                                _hover={{ bg: 'gray.700' }}
-                                onClick={() => {
-                                  setSelectedProjectMode('project');
-                                  setSelectedProjectPath(project.path);
-                                  setProjectPickerOpen(false);
-                                  setProjectPickerQuery('');
-                                }}
-                              >
-                                <HStack spacing={3} minW={0}>
-                                  <FolderOpen size={14} />
-                                  <Text fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
-                                    {project.name}
+                        <Box
+                          ref={projectPickerMenuRef}
+                          display="flex"
+                          flexDirection="column"
+                          maxH={`${projectPickerPosition.maxHeight}px`}
+                          bg="gray.800"
+                          border="1px solid"
+                          borderColor="gray.700"
+                          borderRadius="2xl"
+                          shadow="2xl"
+                          overflow="hidden"
+                        >
+                          <HStack px={3} py={1.5} spacing={3} minH="38px">
+                            <Search size={13} color="#9494a2" />
+                            <Input
+                              value={projectPickerQuery}
+                              onChange={(e) => setProjectPickerQuery(e.target.value)}
+                              placeholder={getProjectPickerSearchPlaceholder(locale)}
+                              bg="transparent"
+                              border="none"
+                              color="white"
+                              fontSize="sm"
+                              fontWeight="normal"
+                              h="20px"
+                              minH="20px"
+                              p={0}
+                              _placeholder={{ color: 'gray.500' }}
+                              _focusVisible={{ boxShadow: 'none' }}
+                            />
+                          </HStack>
+
+                          <Box borderTop="1px solid" borderColor="gray.700" />
+
+                          <Box
+                            h={`${projectListHeight}px`}
+                            overflowY="auto"
+                            px={2}
+                            py={2}
+                            sx={{
+                              '&::-webkit-scrollbar': { width: '8px' },
+                              '&::-webkit-scrollbar-track': { background: 'rgba(255,255,255,0.04)' },
+                              '&::-webkit-scrollbar-thumb': { background: '#5b5b67', borderRadius: '999px' },
+                              '&::-webkit-scrollbar-thumb:hover': { background: '#72727f' },
+                            }}
+                          >
+                            <VStack spacing={1} align="stretch">
+                              {filteredProjectOptions.length > 0 ? (
+                                filteredProjectOptions.map((project) => (
+                                  <Button
+                                    key={project.path}
+                                    variant="ghost"
+                                    justifyContent="space-between"
+                                    h="40px"
+                                    px={3}
+                                    borderRadius="xl"
+                                    color="gray.200"
+                                    fontWeight="normal"
+                                    _hover={{ bg: 'gray.700' }}
+                                    onClick={() => {
+                                      setSelectedProjectMode('project');
+                                      setSelectedProjectPath(project.path);
+                                      setProjectPickerOpen(false);
+                                      setProjectPickerQuery('');
+                                    }}
+                                  >
+                                    <HStack spacing={3} minW={0}>
+                                      <FolderOpen size={14} />
+                                      <Text fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                        {project.name}
+                                      </Text>
+                                    </HStack>
+                                    {selectedProjectMode === 'project' && normalizePathKey(project.path) === normalizePathKey(selectedProjectPath) && (
+                                      <Check size={16} color={ACCENT} />
+                                    )}
+                                  </Button>
+                                ))
+                              ) : (
+                                <Center py={4}>
+                                  <Text fontSize="sm" color="gray.500">
+                                    {getNoProjectsLabel(locale)}
                                   </Text>
-                                </HStack>
-                                {selectedProjectMode === 'project' && normalizePathKey(project.path) === normalizePathKey(selectedProjectPath) && (
-                                  <Check size={16} color={ACCENT} />
-                                )}
-                              </Button>
-                            ))
-                          ) : (
-                            <Center py={4}>
-                              <Text fontSize="sm" color="gray.500">
-                                {getNoProjectsLabel(locale)}
-                              </Text>
-                            </Center>
-                          )}
-                        </VStack>
-                      </Box>
+                                </Center>
+                              )}
+                            </VStack>
+                          </Box>
 
-                      <Box borderTop="1px solid" borderColor="gray.700" />
+                          <Box borderTop="1px solid" borderColor="gray.700" />
 
-                      <VStack spacing={1} align="stretch" px={2} py={2}>
-                        <Button
-                          variant="ghost"
-                          justifyContent="space-between"
-                          h="40px"
-                          px={3}
-                          borderRadius="xl"
-                          color="gray.200"
-                          fontWeight="normal"
-                          _hover={{ bg: 'gray.700' }}
-                          onClick={() => {
-                            setSelectedProjectMode('no-project');
-                            setProjectPickerOpen(false);
-                            setProjectPickerQuery('');
-                          }}
-                        >
-                          <HStack spacing={3} minW={0}>
-                            <MessageCircle size={14} />
-                            <Text fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
-                              {getContinueWithoutProjectLabel(locale)}
-                            </Text>
-                          </HStack>
-                          {selectedProjectMode === 'no-project' && <Check size={16} color={ACCENT} />}
-                        </Button>
+                          <VStack spacing={1} align="stretch" px={2} py={2}>
+                            <Button
+                              variant="ghost"
+                              justifyContent="space-between"
+                              h="40px"
+                              px={3}
+                              borderRadius="xl"
+                              color="gray.200"
+                              fontWeight="normal"
+                              _hover={{ bg: 'gray.700' }}
+                              onClick={async () => {
+                                const result = await window.qwenDesktop?.selectProjectDirectory?.();
+                                if (!result || result.cancelled || !result.selectedPath) {
+                                  return;
+                                }
 
-                        <Button
-                          variant="ghost"
-                          justifyContent="space-between"
-                          h="40px"
-                          px={3}
-                          borderRadius="xl"
-                          color="gray.200"
-                          fontWeight="normal"
-                          _hover={{ bg: 'gray.700' }}
-                          onClick={async () => {
-                            const result = await window.qwenDesktop?.selectProjectDirectory?.();
-                            if (!result || result.cancelled || !result.selectedPath) {
-                              return;
-                            }
-
-                            setCustomProjectPaths((current) =>
-                              current.some((path) => normalizePathKey(path) === normalizePathKey(result.selectedPath))
-                                ? current
-                                : [result.selectedPath, ...current],
-                            );
-                            setSelectedProjectMode('project');
-                            setSelectedProjectPath(result.selectedPath);
-                            setProjectPickerOpen(false);
-                            setProjectPickerQuery('');
-                          }}
-                        >
-                          <HStack spacing={3} minW={0}>
-                            <FilePlus size={14} />
-                            <Text fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
-                              {getAddProjectLabel(locale)}
-                            </Text>
-                          </HStack>
-                          <Box boxSize="16px" flexShrink={0} />
-                        </Button>
-                      </VStack>
-                    </Box>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </Portal>
+                                setCustomProjectPaths((current) =>
+                                  current.some((path) => normalizePathKey(path) === normalizePathKey(result.selectedPath))
+                                    ? current
+                                    : [result.selectedPath, ...current],
+                                );
+                                setSelectedProjectMode('project');
+                                setSelectedProjectPath(result.selectedPath);
+                                setProjectPickerOpen(false);
+                                setProjectPickerQuery('');
+                              }}
+                            >
+                              <HStack spacing={3} minW={0}>
+                                <FilePlus size={14} />
+                                <Text fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                  {getAddProjectLabel(locale)}
+                                </Text>
+                              </HStack>
+                              <Box boxSize="16px" flexShrink={0} />
+                            </Button>
+                          </VStack>
+                        </Box>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </Portal>
+              </>
+            )}
           </Flex>
         )}
       </Box>
@@ -3329,7 +3356,7 @@ export default function ChatArea({ selectedSessionId, onSelectSession }: ChatAre
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={t('chat.promptPlaceholder')}
+              placeholder={sidebarMode === 'chats' ? t('chat.chatModePromptPlaceholder') : t('chat.promptPlaceholder')}
               rows={1}
               minH="96px"
               resize="none"

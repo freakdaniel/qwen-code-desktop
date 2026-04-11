@@ -13,7 +13,9 @@
   },
   "top": {
     "settings": "설정",
-    "directConnect": "Remote connect"
+    "directConnect": "Remote connect",
+    "chats": "Chats",
+    "coder": "Coder"
   },
   "sidebar": {
     "newChat": "새 채팅",
@@ -31,8 +33,10 @@
   "chat": {
     "newChat": "새 채팅",
     "welcomeTitle": "무엇을 만들까요?",
+    "chatModeWelcomeTitle": "무엇이 궁금한가요?",
     "sessionsAvailable": "세션 사용 가능",
     "promptPlaceholder": "처리할 작업을 설명하세요...",
+    "chatModePromptPlaceholder": "무엇이 궁금한가요?",
     "demoResponse": "요청을 받았습니다: \"{{prompt}}\". 이것은 데모 응답입니다.",
     "disclaimer": "Qwen은 AI이며 실수를 할 수 있습니다. 중요한 변경, 명령 및 답변을 확인하세요",
     "contextUsed": "{{used}} / {{total}} 토큰 사용됨",
