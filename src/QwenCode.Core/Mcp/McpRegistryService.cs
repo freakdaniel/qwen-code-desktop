@@ -1,6 +1,4 @@
-﻿using System.Text.Json;
-using System.Text.Json.Nodes;
-using QwenCode.Core.Compatibility;
+﻿using QwenCode.Core.Compatibility;
 using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Mcp;
@@ -137,6 +135,10 @@ public sealed class McpRegistryService(
             server["command"]?.GetValue<string?>() ??
             string.Empty;
 
+        var headers = ReadStringDictionary(server["headers"]);
+        var hasPersistedToken = tokenStore.HasToken(name);
+        var hasStaticAuthorizationHeader = headers.ContainsKey("Authorization");
+
         return new McpServerDefinition
         {
             Name = name,
@@ -145,7 +147,7 @@ public sealed class McpRegistryService(
             CommandOrUrl = commandOrUrl,
             Arguments = ReadStringArray(server["args"]),
             EnvironmentVariables = ReadStringDictionary(server["env"]),
-            Headers = ReadStringDictionary(server["headers"]),
+            Headers = headers,
             TimeoutMs = server["timeout"]?.GetValue<int?>(),
             Trust = server["trust"]?.GetValue<bool?>() ?? false,
             Description = server["description"]?.GetValue<string?>() ?? string.Empty,
@@ -153,9 +155,16 @@ public sealed class McpRegistryService(
             IncludeTools = ReadStringArray(server["includeTools"]),
             ExcludeTools = ReadStringArray(server["excludeTools"]),
             SettingsPath = settingsPath,
-            HasPersistedToken = tokenStore.HasToken(name)
+            HasPersistedToken = hasPersistedToken,
+            HasStaticAuthorizationHeader = hasStaticAuthorizationHeader,
+            AuthenticationStatus = BuildAuthenticationStatus(hasPersistedToken, hasStaticAuthorizationHeader)
         };
     }
+
+    private static string BuildAuthenticationStatus(bool hasPersistedToken, bool hasStaticAuthorizationHeader) =>
+        hasPersistedToken ? "persisted-token" :
+        hasStaticAuthorizationHeader ? "static-header" :
+        "none";
 
     private static JsonObject BuildServerObject(McpServerRegistrationRequest request)
     {

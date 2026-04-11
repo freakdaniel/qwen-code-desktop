@@ -32,6 +32,8 @@ export type {
   DesktopQuestionAnswer,
   DesktopQuestionOption,
   DesktopQuestionPrompt,
+  DirectConnectServerState,
+  DirectConnectSessionState,
   DisconnectAuthRequest,
   ExecuteNativeToolRequest,
   ExtensionDefinition,

@@ -17,9 +17,14 @@ public sealed class IpcGenerationParityTests
         Assert.Contains("export interface AppBootstrapPayload", output);
         Assert.Contains("export interface AuthStatusSnapshot", output);
         Assert.Contains("export interface DesktopSessionDetail", output);
+        Assert.Contains("export interface DirectConnectServerState", output);
+        Assert.Contains("export interface DirectConnectSessionState", output);
         Assert.Contains("export interface RuntimeModelSnapshot", output);
         Assert.Contains("export interface AssistantExecutionStats", output);
         Assert.Contains("bootstrap(): Promise<AppBootstrapPayload>;", output);
+        Assert.Contains("createDirectConnectSession(request: CreateDirectConnectSessionRequest): Promise<DirectConnectSessionState>;", output);
+        Assert.Contains("getDirectConnectServer(): Promise<DirectConnectServerState>;", output);
+        Assert.Contains("readDirectConnectSessionEvents(request: ReadDirectConnectSessionEventsRequest): Promise<DirectConnectSessionEventBatch>;", output);
         Assert.Contains("getSession(request: GetDesktopSessionRequest): Promise<DesktopSessionDetail>;", output);
         Assert.DoesNotContain("bootstrap(): Promise<unknown>;", output);
         Assert.DoesNotContain("getSession(request: unknown): Promise<unknown>;", output);

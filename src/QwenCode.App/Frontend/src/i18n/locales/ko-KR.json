@@ -12,7 +12,8 @@
     "local": "로컬 모드"
   },
   "top": {
-    "settings": "설정"
+    "settings": "설정",
+    "directConnect": "Remote connect"
   },
   "sidebar": {
     "newChat": "새 채팅",
@@ -49,6 +50,26 @@
     "close": "검색 닫기",
     "noResults": "세션을 찾을 수 없음",
     "startTyping": "입력하여 검색..."
+  },
+  "directConnect": {
+    "title": "Remote connect",
+    "subtitle": "Local protected API for external clients and live session events.",
+    "online": "online",
+    "starting": "starting",
+    "offline": "offline",
+    "refresh": "Refresh",
+    "baseUrl": "URL",
+    "token": "Token",
+    "sse": "SSE",
+    "curl": "curl",
+    "unavailable": "Unavailable",
+    "copyFailed": "Could not copy to clipboard",
+    "sessions": "Direct sessions",
+    "sessionsHint": "Create connections for external clients or close inactive ones.",
+    "create": "Create",
+    "noSessions": "No direct-connect sessions yet",
+    "noWorkingDir": "No working directory",
+    "closeSession": "Close session"
   },
   "auth": {
     "welcomeTitle": "Qwen Code에 오신 것을 환영합니다",

@@ -14,13 +14,15 @@ namespace QwenCode.Core.Followup;
 /// <param name="arenaSessionRegistry">The arena session registry</param>
 /// <param name="runtimeProfileService">The runtime profile service</param>
 /// <param name="providerBackedGenerator">The provider backed generator</param>
+/// <param name="suggestionCache">The suggestion cache</param>
 public sealed class FollowupSuggestionService(
     ITranscriptStore transcriptStore,
     IActiveTurnRegistry activeTurnRegistry,
     IInterruptedTurnStore interruptedTurnStore,
     IArenaSessionRegistry arenaSessionRegistry,
     QwenRuntimeProfileService runtimeProfileService,
-    IFollowupSuggestionGenerator? providerBackedGenerator = null) : IFollowupSuggestionService
+    IFollowupSuggestionGenerator? providerBackedGenerator = null,
+    IFollowupSuggestionCache? suggestionCache = null) : IFollowupSuggestionService
 {
     /// <summary>
     /// Gets suggestions async
@@ -57,8 +59,24 @@ public sealed class FollowupSuggestionService(
         }
 
         var runtimeProfile = runtimeProfileService.Inspect(paths);
-        var suggestions = new List<FollowupSuggestion>();
         var session = detail.Session;
+        var hasActiveTurn = activeTurnRegistry.ListActiveTurns()
+            .Any(item => string.Equals(item.SessionId, sessionId, StringComparison.Ordinal));
+        var hasRecoverableTurn = interruptedTurnStore.ListRecoverableTurns(runtimeProfile.ChatsDirectory)
+            .Any(item => string.Equals(item.SessionId, sessionId, StringComparison.Ordinal));
+        var hasActiveArenaSession = arenaSessionRegistry.ListActiveSessions()
+            .Any(item => string.Equals(item.WorkingDirectory, session.WorkingDirectory, StringComparison.OrdinalIgnoreCase));
+        var maxCount = request.MaxCount <= 0 ? 3 : request.MaxCount;
+        var fingerprint = BuildFingerprint(detail, hasActiveTurn, hasRecoverableTurn, hasActiveArenaSession);
+
+        if (!hasActiveTurn &&
+            suggestionCache is not null &&
+            suggestionCache.TryGet(sessionId, fingerprint, out var cachedSnapshot))
+        {
+            return SliceSnapshot(cachedSnapshot, maxCount, "hit");
+        }
+
+        var suggestions = new List<FollowupSuggestion>();
 
         if (providerBackedGenerator is not null)
         {
@@ -69,13 +87,12 @@ public sealed class FollowupSuggestionService(
             }
         }
 
-        if (activeTurnRegistry.ListActiveTurns().Any(item => string.Equals(item.SessionId, sessionId, StringComparison.Ordinal)))
+        if (hasActiveTurn)
         {
             AddSuggestion(suggestions, "wait for the current turn to finish", "active-turn", "runtime", 95);
         }
 
-        if (interruptedTurnStore.ListRecoverableTurns(runtimeProfile.ChatsDirectory)
-            .Any(item => string.Equals(item.SessionId, sessionId, StringComparison.Ordinal)))
+        if (hasRecoverableTurn)
         {
             AddSuggestion(suggestions, "resume the interrupted turn", "resume", "runtime", 100);
         }
@@ -90,8 +107,7 @@ public sealed class FollowupSuggestionService(
             AddSuggestion(suggestions, "approve the pending tool", "pending-approval", "session", 100);
         }
 
-        if (arenaSessionRegistry.ListActiveSessions()
-            .Any(item => string.Equals(item.WorkingDirectory, session.WorkingDirectory, StringComparison.OrdinalIgnoreCase)))
+        if (hasActiveArenaSession)
         {
             AddSuggestion(suggestions, "check arena status", "arena", "arena", 80);
         }
@@ -133,16 +149,25 @@ public sealed class FollowupSuggestionService(
             AddSuggestion(suggestions, "select a winner", "arena-followup", "arena", 80);
         }
 
-        var maxCount = request.MaxCount <= 0 ? 3 : request.MaxCount;
-        return new FollowupSuggestionSnapshot
+        var snapshot = new FollowupSuggestionSnapshot
         {
             SessionId = sessionId,
+            GeneratedAtUtc = DateTimeOffset.UtcNow.ToString("O"),
+            IsSpeculative = request.Speculative,
+            CacheStatus = "miss",
+            Fingerprint = fingerprint,
             SuppressedReason = suggestions.Count == 0 ? "no_obvious_next_step" : string.Empty,
             Suggestions = suggestions
                 .OrderByDescending(static item => item.Confidence)
-                .Take(maxCount)
                 .ToArray()
         };
+
+        if (!hasActiveTurn)
+        {
+            suggestionCache?.Set(sessionId, fingerprint, snapshot);
+        }
+
+        return SliceSnapshot(snapshot, maxCount, "miss");
     }
 
     private string ResolveSessionId(WorkspacePaths paths, string? sessionId)
@@ -154,6 +179,37 @@ public sealed class FollowupSuggestionService(
 
         return transcriptStore.ListSessions(paths, 1).FirstOrDefault()?.SessionId ?? string.Empty;
     }
+
+    private static string BuildFingerprint(
+        DesktopSessionDetail detail,
+        bool hasActiveTurn,
+        bool hasRecoverableTurn,
+        bool hasActiveArenaSession) =>
+        string.Join(
+            "|",
+            detail.Session.SessionId,
+            detail.Session.LastUpdatedAt,
+            detail.Session.MessageCount,
+            detail.Summary.PendingApprovalCount,
+            detail.Summary.PendingQuestionCount,
+            hasActiveTurn,
+            hasRecoverableTurn,
+            hasActiveArenaSession);
+
+    private static FollowupSuggestionSnapshot SliceSnapshot(
+        FollowupSuggestionSnapshot snapshot,
+        int maxCount,
+        string cacheStatus) =>
+        new()
+        {
+            SessionId = snapshot.SessionId,
+            SuppressedReason = snapshot.SuppressedReason,
+            GeneratedAtUtc = snapshot.GeneratedAtUtc,
+            IsSpeculative = snapshot.IsSpeculative,
+            CacheStatus = cacheStatus,
+            Fingerprint = snapshot.Fingerprint,
+            Suggestions = snapshot.Suggestions.Take(maxCount).ToArray()
+        };
 
     private static void AddSuggestion(
         IList<FollowupSuggestion> suggestions,

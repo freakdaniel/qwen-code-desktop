@@ -17,7 +17,7 @@ public sealed class ApproveDesktopSessionToolRequest
 
     /// <summary>
     /// Gets or sets the approval resolution decision.
-    /// Supported values: allow-once, always-allow, deny.
+    /// Supported values: allow-once, always-allow, always-allow-project, always-allow-user, always-allow-session, deny.
     /// </summary>
     public string Decision { get; init; } = "allow-once";
 

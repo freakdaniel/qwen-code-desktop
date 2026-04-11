@@ -18,7 +18,7 @@ internal static class Program
     private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(5);
     private static int _shutdownInitiated;
     private static int _runtimeStopped;
-    private static int _processExitCleanupCompleted;
+    private static int _processCleanupCompleted;
     private static int _consoleCancelCount;
 
     private static async Task Main(string[] args)
@@ -78,19 +78,13 @@ internal static class Program
             await runtimeController.WaitStoppedTask;
             Interlocked.Exchange(ref _runtimeStopped, 1);
             logger.LogInformation("Electron.NET runtime stopped");
+            RunProcessCleanupOnce(logger, "runtime-stopped");
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Fatal error while running desktop host");
-            try
-            {
-                await runtimeController.Stop().ConfigureAwait(false);
-                Interlocked.Exchange(ref _runtimeStopped, 1);
-            }
-            catch (Exception stopException)
-            {
-                logger.LogWarning(stopException, "Electron.NET runtime stop was skipped because the runtime was already stopping or stopped");
-            }
+            await StopRuntimeAsync(runtimeController, logger, "fatal-error").ConfigureAwait(false);
+            RunProcessCleanupOnce(logger, "fatal-error");
             throw;
         }
         finally
@@ -119,25 +113,8 @@ internal static class Program
 
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
-            HandleProcessExit(runtimeController, logger);
+            RunProcessCleanupOnce(logger, "process-exit");
         };
-    }
-
-    private static void HandleProcessExit(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger)
-    {
-        if (Interlocked.Exchange(ref _processExitCleanupCompleted, 1) != 0)
-        {
-            return;
-        }
-
-        if (Volatile.Read(ref _runtimeStopped) != 0)
-        {
-            ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, "process-exit");
-            return;
-        }
-
-        // Use sync version for ProcessExit since async handlers don't work here
-        RequestShutdown(runtimeController, logger, "process-exit");
     }
 
     private static async Task RequestShutdownAsync(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
@@ -147,10 +124,27 @@ internal static class Program
             return;
         }
 
+        Bootstrapper.NotifyRuntimeStopping(reason);
+        await StopRuntimeAsync(runtimeController, logger, reason).ConfigureAwait(false);
+        RunProcessCleanupOnce(logger, reason);
+    }
+
+    private static async Task StopRuntimeAsync(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
+    {
+        if (Volatile.Read(ref _runtimeStopped) != 0)
+        {
+            return;
+        }
+
         try
         {
             logger.LogInformation("Stopping Electron.NET runtime due to {Reason}", reason);
-            var stopTask = runtimeController.Stop();
+            var stopTask = Task.Run(async () =>
+            {
+                Task runtimeStopTask = runtimeController.Stop();
+                await runtimeStopTask.ConfigureAwait(false);
+            });
+
             var completedTask = await Task.WhenAny(stopTask, Task.Delay(ShutdownTimeout)).ConfigureAwait(false);
             if (completedTask != stopTask)
             {
@@ -169,41 +163,11 @@ internal static class Program
                 "Graceful Electron.NET runtime stop failed during {Reason}. Falling back to process cleanup",
                 reason);
         }
-        finally
-        {
-            ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, reason);
-        }
     }
 
-    private static void RequestShutdown(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
+    private static void RunProcessCleanupOnce(Microsoft.Extensions.Logging.ILogger logger, string reason)
     {
-        if (Interlocked.Exchange(ref _shutdownInitiated, 1) != 0)
-        {
-            return;
-        }
-
-        try
-        {
-            logger.LogInformation("Stopping Electron.NET runtime due to {Reason}", reason);
-            var stopTask = (Task)runtimeController.Stop();
-            if (!stopTask.Wait(ShutdownTimeout))
-            {
-                logger.LogError("Electron.NET runtime stop timed out after {TimeoutMs} ms during {Reason}", ShutdownTimeout.TotalMilliseconds, reason);
-                ForceTerminateCurrentProcess(logger, $"{reason}-timeout");
-                return;
-            }
-
-            stopTask.GetAwaiter().GetResult();
-            Interlocked.Exchange(ref _runtimeStopped, 1);
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning(
-                exception,
-                "Graceful Electron.NET runtime stop failed during {Reason}. Falling back to process cleanup",
-                reason);
-        }
-        finally
+        if (Interlocked.Exchange(ref _processCleanupCompleted, 1) == 0)
         {
             ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, reason);
         }
@@ -213,7 +177,7 @@ internal static class Program
     {
         try
         {
-            ElectronProcessJanitor.CleanupCurrentUnpackedHost(logger, reason);
+            RunProcessCleanupOnce(logger, reason);
         }
         catch (Exception exception)
         {

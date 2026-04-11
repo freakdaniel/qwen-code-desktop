@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-
-namespace QwenCode.Core.Hooks;
+﻿namespace QwenCode.Core.Hooks;
 
 /// <summary>
 /// Provides extension members for Hook Service Collection

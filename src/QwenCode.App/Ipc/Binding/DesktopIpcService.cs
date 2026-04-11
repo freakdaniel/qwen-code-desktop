@@ -1,5 +1,6 @@
 ﻿using QwenCode.App.Ipc.Attributes;
 using QwenCode.App.Desktop;
+using QwenCode.App.Desktop.DirectConnect;
 using QwenCode.Core.Models;
 using ElectronNET.API.Entities;
 using ElectronApi = ElectronNET.API.Electron;
@@ -11,9 +12,13 @@ namespace QwenCode.App.Ipc;
 /// </summary>
 /// <param name="services">The services</param>
 /// <param name="desktopProjectionService">The desktop projection service</param>
+/// <param name="directConnectSessionService">The direct-connect session service</param>
+/// <param name="directConnectServerHost">The direct-connect server host</param>
 public sealed class DesktopIpcService(
     IServiceProvider services,
-    IDesktopProjectionService desktopProjectionService) : IpcServiceBase(services)
+    IDesktopProjectionService desktopProjectionService,
+    IDirectConnectSessionService directConnectSessionService,
+    IDirectConnectServerHost directConnectServerHost) : IpcServiceBase(services)
 {
     /// <summary>
     /// Executes bootstrap
@@ -245,6 +250,24 @@ public sealed class DesktopIpcService(
         => desktopProjectionService.InvokeRegisteredPromptAsync(request);
 
     /// <summary>
+    /// Gets mcp resource registry
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to mcp resource registry snapshot</returns>
+    [IpcInvoke("qwen-desktop:mcp-resources:get-registry")]
+    public Task<McpResourceRegistrySnapshot> GetMcpResourceRegistry(GetMcpResourceRegistryRequest request)
+        => desktopProjectionService.GetMcpResourceRegistryAsync(request);
+
+    /// <summary>
+    /// Reads registered mcp resource
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to mcp resource read result</returns>
+    [IpcInvoke("qwen-desktop:mcp-resources:read")]
+    public Task<McpResourceReadResult> ReadRegisteredMcpResource(ReadMcpResourceRegistryEntryRequest request)
+        => desktopProjectionService.ReadRegisteredMcpResourceAsync(request);
+
+    /// <summary>
     /// Gets extension settings
     /// </summary>
     /// <param name="request">The request payload</param>
@@ -378,6 +401,115 @@ public sealed class DesktopIpcService(
     [IpcInvoke("qwen-desktop:sessions:dismiss-interrupted")]
     public Task<DismissInterruptedTurnResult> DismissInterruptedTurn(DismissInterruptedTurnRequest request)
         => desktopProjectionService.DismissInterruptedTurnAsync(request);
+
+    /// <summary>
+    /// Creates a direct-connect session
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to direct-connect session state</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:create-session")]
+    public Task<DirectConnectSessionState> CreateDirectConnectSession(CreateDirectConnectSessionRequest request)
+        => directConnectSessionService.CreateSessionAsync(request);
+
+    /// <summary>
+    /// Gets the local direct-connect server state
+    /// </summary>
+    /// <returns>A task that resolves to direct-connect server state</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:get-server")]
+    public Task<DirectConnectServerState> GetDirectConnectServer()
+        => Task.FromResult(directConnectServerHost.State);
+
+    /// <summary>
+    /// Lists direct-connect sessions
+    /// </summary>
+    /// <returns>A task that resolves to direct-connect session states</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:list-sessions")]
+    public Task<IReadOnlyList<DirectConnectSessionState>> ListDirectConnectSessions()
+        => directConnectSessionService.ListSessionsAsync();
+
+    /// <summary>
+    /// Gets one direct-connect session
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to direct-connect session state</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:get-session")]
+    public Task<DirectConnectSessionState?> GetDirectConnectSession(GetDirectConnectSessionRequest request)
+        => directConnectSessionService.GetSessionAsync(request.DirectConnectSessionId);
+
+    /// <summary>
+    /// Reads buffered direct-connect session events
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to a direct-connect session event batch</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:read-events")]
+    public Task<DirectConnectSessionEventBatch> ReadDirectConnectSessionEvents(ReadDirectConnectSessionEventsRequest request)
+        => directConnectSessionService.ReadEventsAsync(
+            request.DirectConnectSessionId,
+            request.AfterSequence,
+            request.MaxCount);
+
+    /// <summary>
+    /// Starts a turn through a direct-connect session
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to desktop session turn result</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:start-turn")]
+    public Task<DesktopSessionTurnResult> StartDirectConnectSessionTurn(StartDirectConnectSessionTurnRequest request)
+        => directConnectSessionService.StartTurnAsync(request.DirectConnectSessionId, request.Turn);
+
+    /// <summary>
+    /// Approves a pending tool through a direct-connect session
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to desktop session turn result</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:approve-tool")]
+    public Task<DesktopSessionTurnResult> ApproveDirectConnectSessionTool(ApproveDirectConnectSessionToolRequest request)
+        => directConnectSessionService.ApprovePendingToolAsync(request.DirectConnectSessionId, request.Approval);
+
+    /// <summary>
+    /// Answers a pending question through a direct-connect session
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to desktop session turn result</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:answer-question")]
+    public Task<DesktopSessionTurnResult> AnswerDirectConnectSessionQuestion(AnswerDirectConnectSessionQuestionRequest request)
+        => directConnectSessionService.AnswerPendingQuestionAsync(request.DirectConnectSessionId, request.Answer);
+
+    /// <summary>
+    /// Cancels an active turn through a direct-connect session
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to cancel desktop session turn result</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:cancel-turn")]
+    public Task<CancelDesktopSessionTurnResult> CancelDirectConnectSessionTurn(CancelDirectConnectSessionTurnRequest request)
+        => directConnectSessionService.CancelTurnAsync(request.DirectConnectSessionId, request.Turn);
+
+    /// <summary>
+    /// Resumes an interrupted turn through a direct-connect session
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to desktop session turn result</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:resume-interrupted")]
+    public Task<DesktopSessionTurnResult> ResumeDirectConnectSessionTurn(ResumeDirectConnectSessionTurnRequest request)
+        => directConnectSessionService.ResumeInterruptedTurnAsync(request.DirectConnectSessionId, request.Turn);
+
+    /// <summary>
+    /// Dismisses an interrupted turn through a direct-connect session
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to dismiss interrupted turn result</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:dismiss-interrupted")]
+    public Task<DismissInterruptedTurnResult> DismissDirectConnectSessionTurn(DismissDirectConnectSessionTurnRequest request)
+        => directConnectSessionService.DismissInterruptedTurnAsync(request.DirectConnectSessionId, request.Turn);
+
+    /// <summary>
+    /// Closes a direct-connect session
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to direct-connect session state</returns>
+    [IpcInvoke("qwen-desktop:direct-connect:close-session")]
+    public Task<DirectConnectSessionState> CloseDirectConnectSession(CloseDirectConnectSessionRequest request)
+        => directConnectSessionService.CloseSessionAsync(request.DirectConnectSessionId);
 
     /// <summary>
     /// Opens a native directory picker for selecting a project folder.

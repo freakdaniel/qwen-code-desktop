@@ -391,8 +391,105 @@ public sealed class AssistantPromptAssemblerTests
             Assert.Contains("Most recent assistant answer", promptContext.Messages[2].Content);
             Assert.Contains("Transcript messages loaded: 3", promptContext.SessionSummary);
             Assert.Contains("Transcript messages retained for this turn: 3", promptContext.SessionGuidanceSummary);
+            Assert.Contains("Compression checkpoint: summarized earlier transcript entries.", promptContext.SessionMemorySummary);
+            Assert.Contains("Session memory checkpoint retained", promptContext.SessionGuidanceSummary);
             Assert.True(string.IsNullOrWhiteSpace(promptContext.UserInstructionSummary));
             Assert.True(string.IsNullOrWhiteSpace(promptContext.WorkspaceInstructionSummary));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task AssistantPromptAssembler_AssembleAsync_RetainsCompressionCheckpointAsSessionMemoryWhenHistoryIsTrimmed()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-session-memory-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var runtimeRoot = Path.Combine(root, "runtime");
+            var homeRoot = Path.Combine(root, "home");
+            var chatsRoot = Path.Combine(runtimeRoot, "projects", "project-a", "chats");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(chatsRoot);
+
+            var transcriptPath = Path.Combine(chatsRoot, "session-memory.jsonl");
+            var lines = new List<string>
+            {
+                """{"uuid":"1","sessionId":"session-memory","timestamp":"2026-04-03T10:00:00Z","type":"user","message":{"parts":[{"text":"Very old request before compaction"}]}}""",
+                """{"uuid":"2","sessionId":"session-memory","timestamp":"2026-04-03T10:05:00Z","type":"system","status":"chat-compression","messageText":"Compression checkpoint: preserve the direct-connect SSE contract and approval fix context."}"""
+            };
+            lines.AddRange(
+                Enumerable.Range(3, 24)
+                    .Select(index => $"{{\"uuid\":\"{index}\",\"sessionId\":\"session-memory\",\"timestamp\":\"2026-04-03T10:{index:00}:00Z\",\"type\":\"user\",\"message\":{{\"parts\":[{{\"text\":\"Recent request {index} {new string('x', 180)}\"}}]}}}}"));
+            File.WriteAllLines(transcriptPath, lines);
+
+            var assembler = new AssistantPromptAssembler(new ProjectSummaryService());
+            var promptContext = await assembler.AssembleAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "session-memory",
+                    Prompt = "Continue with tiny context",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = transcriptPath,
+                    RuntimeProfile = new QwenRuntimeProfile
+                    {
+                        ProjectRoot = workspaceRoot,
+                        GlobalQwenDirectory = Path.Combine(homeRoot, ".qwen"),
+                        RuntimeBaseDirectory = runtimeRoot,
+                        RuntimeSource = "test",
+                        ProjectDataDirectory = Path.Combine(runtimeRoot, "projects", "project-a"),
+                        ChatsDirectory = chatsRoot,
+                        HistoryDirectory = Path.Combine(runtimeRoot, "history", "project-a"),
+                        ContextFileNames = ["QWEN.md"],
+                        ContextFilePaths = [],
+                        CurrentLocale = "en",
+                        CurrentLanguage = "English",
+                        FolderTrustEnabled = true,
+                        IsWorkspaceTrusted = true,
+                        WorkspaceTrustSource = "file",
+                        ApprovalProfile = new ApprovalProfile
+                        {
+                            DefaultMode = "default",
+                            ConfirmShellCommands = true,
+                            ConfirmFileEdits = true,
+                            AllowRules = [],
+                            AskRules = [],
+                            DenyRules = []
+                        }
+                    },
+                    GitBranch = "main",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = string.Empty,
+                        Status = "not-requested",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = string.Empty,
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    }
+                },
+                new ResolvedTokenLimits
+                {
+                    Model = "tiny-budget-model",
+                    NormalizedModel = "tiny-budget-model",
+                    InputTokenLimit = 1024,
+                    OutputTokenLimit = 512,
+                    HasExplicitOutputLimit = true
+                });
+
+            Assert.True(promptContext.TrimmedTranscriptMessageCount > 0);
+            Assert.DoesNotContain(promptContext.Messages, message => message.Content.Contains("direct-connect SSE contract", StringComparison.Ordinal));
+            Assert.Contains("Recorded at 2026-04-03T10:05:00Z", promptContext.SessionMemorySummary);
+            Assert.Contains("direct-connect SSE contract", promptContext.SessionMemorySummary);
+            Assert.Contains("Session memory checkpoint retained", promptContext.SessionGuidanceSummary);
         }
         finally
         {

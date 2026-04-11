@@ -12,7 +12,8 @@
     "local": "Modo local"
   },
   "top": {
-    "settings": "Configurações"
+    "settings": "Configurações",
+    "directConnect": "Remote connect"
   },
   "sidebar": {
     "newChat": "Novo Chat",
@@ -49,6 +50,26 @@
     "close": "Fechar pesquisa",
     "noResults": "Nenhuma sessão encontrada",
     "startTyping": "Digite para pesquisar..."
+  },
+  "directConnect": {
+    "title": "Remote connect",
+    "subtitle": "Local protected API for external clients and live session events.",
+    "online": "online",
+    "starting": "starting",
+    "offline": "offline",
+    "refresh": "Refresh",
+    "baseUrl": "URL",
+    "token": "Token",
+    "sse": "SSE",
+    "curl": "curl",
+    "unavailable": "Unavailable",
+    "copyFailed": "Could not copy to clipboard",
+    "sessions": "Direct sessions",
+    "sessionsHint": "Create connections for external clients or close inactive ones.",
+    "create": "Create",
+    "noSessions": "No direct-connect sessions yet",
+    "noWorkingDir": "No working directory",
+    "closeSession": "Close session"
   },
   "auth": {
     "welcomeTitle": "Bem-vindo ao Qwen Code",

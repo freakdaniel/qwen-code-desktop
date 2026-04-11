@@ -41,8 +41,8 @@ public sealed class ToolCatalogTests
             Assert.Equal("native-contracts", snapshot.SourceMode);
             Assert.True(snapshot.TotalCount >= 7);
             Assert.Contains(snapshot.Tools, tool => tool.Name == "read_file" && tool.ApprovalState == "allow");
-            Assert.Contains(snapshot.Tools, tool => tool.Name == "edit" && tool.ApprovalState == "ask");
-            Assert.Contains(snapshot.Tools, tool => tool.Name == "run_shell_command" && tool.ApprovalState == "deny");
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "edit" && tool.ApprovalState == "ask" && tool.IsExplicitAskRule);
+            Assert.Contains(snapshot.Tools, tool => tool.Name == "run_shell_command" && tool.ApprovalState == "deny" && !tool.IsEnabled);
             Assert.Contains(snapshot.Tools, tool => tool.Name == "read_file" && tool.SourcePath == "native://tools/read_file");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "todo_write" && tool.SourcePath == "native://tools/todo_write");
             Assert.Contains(snapshot.Tools, tool => tool.Name == "task_create" && tool.SourcePath == "native://tools/task_create");

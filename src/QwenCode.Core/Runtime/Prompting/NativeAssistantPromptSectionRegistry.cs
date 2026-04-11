@@ -1,7 +1,4 @@
-﻿using QwenCode.Core.Models;
-using QwenCode.Core.Tools;
-
-namespace QwenCode.Core.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 internal static class NativeAssistantPromptSectionRegistry
 {
@@ -714,6 +711,17 @@ internal static class NativeAssistantPromptSectionRegistry
                     : $"# Durable Memory{Environment.NewLine}{durableMemorySummary}";
             },
             Order: 1010,
+            IsDynamic: true),
+        new(
+            "session_memory",
+            static context =>
+            {
+                var sessionMemorySummary = context.PromptContext.SessionMemorySummary.Trim();
+                return string.IsNullOrWhiteSpace(sessionMemorySummary)
+                    ? null
+                    : $"# Session Memory{Environment.NewLine}{sessionMemorySummary}";
+            },
+            Order: 1015,
             IsDynamic: true),
         new(
             "language_preferences",

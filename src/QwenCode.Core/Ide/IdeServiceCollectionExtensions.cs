@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-
-namespace QwenCode.Core.Ide;
+﻿namespace QwenCode.Core.Ide;
 
 /// <summary>
 /// Provides extension members for Ide Service Collection

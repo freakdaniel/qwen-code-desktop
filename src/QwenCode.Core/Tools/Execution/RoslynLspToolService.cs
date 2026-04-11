@@ -1,14 +1,4 @@
-﻿using System.Collections.Immutable;
-using System.Text;
-using System.Text.Json;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.FindSymbols;
-using Microsoft.CodeAnalysis.Operations;
-using Microsoft.CodeAnalysis.Text;
-using QwenCode.Core.Compatibility;
-using QwenCode.Core.Models;
+﻿using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Tools;
 

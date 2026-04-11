@@ -1,11 +1,4 @@
-﻿using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using System.Diagnostics;
-using System.Net.Http;
-using System.Security.Authentication;
-using System.Text.RegularExpressions;
-using QwenCode.Core.Agents;
+﻿using QwenCode.Core.Agents;
 using QwenCode.Core.Compatibility;
 using QwenCode.Core.Hooks;
 using QwenCode.Core.Infrastructure;
@@ -33,6 +26,7 @@ namespace QwenCode.Core.Tools;
 /// <param name="hookLifecycleService">The hook lifecycle service</param>
 /// <param name="shellExecutionService">The shell execution service</param>
 /// <param name="telemetryService">The telemetry service</param>
+/// <param name="approvalSessionRuleStore">The approval session rule store</param>
 public sealed class NativeToolHostService(
     QwenRuntimeProfileService runtimeProfileService,
     IApprovalPolicyEngine approvalPolicyService,
@@ -46,7 +40,8 @@ public sealed class NativeToolHostService(
     IAgentArenaService? agentArenaService = null,
     IHookLifecycleService? hookLifecycleService = null,
     IShellExecutionService? shellExecutionService = null,
-    ITelemetryService? telemetryService = null) : IToolExecutor
+    ITelemetryService? telemetryService = null,
+    IApprovalSessionRuleStore? approvalSessionRuleStore = null) : IToolExecutor
 {
     private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", ".electron", "dist"];
     private readonly ISubagentCoordinator agents = subagentCoordinator ?? CreateFallbackSubagentCoordinator(runtimeProfileService, approvalPolicyService);
@@ -87,7 +82,9 @@ public sealed class NativeToolHostService(
                     Kind = tool.Kind,
                     IsImplemented = true,
                     ApprovalState = approval.State,
-                    ApprovalReason = approval.Reason
+                    ApprovalReason = approval.Reason,
+                    IsEnabled = !approval.IsWholeToolDenyRule,
+                    IsExplicitAskRule = approval.IsExplicitAskRule
                 };
             })
             .OrderBy(static tool => tool.Name, StringComparer.OrdinalIgnoreCase)
@@ -137,10 +134,12 @@ public sealed class NativeToolHostService(
         using (document)
         {
             var approvalContext = BuildApprovalContext(request.ToolName, tool.Kind, runtimeProfile, document.RootElement);
-            var approval = approvalPolicyService.Evaluate(approvalContext, runtimeProfile.ApprovalProfile);
+            var approvalProfile = approvalSessionRuleStore?.Apply(runtimeProfile.ApprovalProfile, request.SessionId) ??
+                                  runtimeProfile.ApprovalProfile;
+            var approval = approvalPolicyService.Evaluate(approvalContext, approvalProfile);
             if (string.Equals(request.ToolName, "mcp-tool", StringComparison.OrdinalIgnoreCase))
             {
-                var mcpApproval = await EvaluateMcpToolApprovalAsync(paths, runtimeProfile, document.RootElement, cancellationToken);
+                var mcpApproval = await EvaluateMcpToolApprovalAsync(paths, runtimeProfile, approvalProfile, document.RootElement, cancellationToken);
                 if (mcpApproval.ErrorResult is not null)
                 {
                     return mcpApproval.ErrorResult;
@@ -158,6 +157,8 @@ public sealed class NativeToolHostService(
                     ApprovalState = approval.State,
                     WorkingDirectory = approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot,
                     ErrorMessage = approval.Reason,
+                    IsExplicitAskRule = approval.IsExplicitAskRule,
+                    MatchedApprovalRule = approval.MatchedRule,
                     ChangedFiles = []
                 };
             }
@@ -179,6 +180,8 @@ public sealed class NativeToolHostService(
                     ApprovalState = approval.State,
                     WorkingDirectory = approvalContext.WorkingDirectory ?? runtimeProfile.ProjectRoot,
                     ErrorMessage = approval.Reason,
+                    IsExplicitAskRule = approval.IsExplicitAskRule,
+                    MatchedApprovalRule = approval.MatchedRule,
                     ChangedFiles = []
                 };
                 var gatedResult = await ApplyPermissionRequestHooksAsync(runtimeProfile, request, document.RootElement, approvalRequiredResult, cancellationToken);
@@ -597,6 +600,7 @@ public sealed class NativeToolHostService(
     private async Task<McpApprovalEvaluation> EvaluateMcpToolApprovalAsync(
         WorkspacePaths paths,
         QwenRuntimeProfile runtimeProfile,
+        ApprovalProfile approvalProfile,
         JsonElement arguments,
         CancellationToken cancellationToken)
     {
@@ -633,7 +637,7 @@ public sealed class NativeToolHostService(
                     WorkingDirectory = runtimeProfile.ProjectRoot,
                     Specifier = tool.FullyQualifiedName
                 },
-                runtimeProfile.ApprovalProfile);
+                approvalProfile);
 
             if (!decision.Reason.Contains("explicit", StringComparison.OrdinalIgnoreCase))
             {

@@ -1,12 +1,10 @@
 ﻿using QwenCode.Core.Models;
 using QwenCode.Core.Compatibility;
+using QwenCode.Core.Followup;
 using QwenCode.Core.Hooks;
-using QwenCode.Core.Permissions;
 using QwenCode.Core.Runtime;
 using QwenCode.Core.Telemetry;
 using QwenCode.Core.Tools;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace QwenCode.Core.Sessions;
 
@@ -29,6 +27,9 @@ namespace QwenCode.Core.Sessions;
 /// <param name="sessionEventFactory">The session event factory</param>
 /// <param name="sessionMessageBus">The session message bus</param>
 /// <param name="telemetryService">The telemetry service</param>
+/// <param name="followupSuggestionService">The followup suggestion service</param>
+/// <param name="runtimeOptions">The runtime options</param>
+/// <param name="approvalSessionRuleStore">The approval session rule store</param>
 public sealed class DesktopSessionHostService(
     QwenRuntimeProfileService runtimeProfileService,
     ICommandActionRuntime commandActionRuntime,
@@ -45,7 +46,10 @@ public sealed class DesktopSessionHostService(
     ISessionTranscriptWriter transcriptWriter,
     ISessionEventFactory sessionEventFactory,
     ISessionMessageBus sessionMessageBus,
-    ITelemetryService? telemetryService = null) : ISessionHost
+    ITelemetryService? telemetryService = null,
+    IFollowupSuggestionService? followupSuggestionService = null,
+    IOptions<NativeAssistantRuntimeOptions>? runtimeOptions = null,
+    IApprovalSessionRuleStore? approvalSessionRuleStore = null) : ISessionHost
 {
     /// <summary>
     /// Occurs when Session Event
@@ -420,6 +424,7 @@ public sealed class DesktopSessionHostService(
                 {
                     ToolName = request.ToolName,
                     ArgumentsJson = string.IsNullOrWhiteSpace(request.ToolArgumentsJson) ? "{}" : request.ToolArgumentsJson,
+                    SessionId = sessionId,
                     ApproveExecution = request.ApproveToolExecution
                 },
                 cancellationToken: cancellationToken);
@@ -441,13 +446,15 @@ public sealed class DesktopSessionHostService(
                     args = string.IsNullOrWhiteSpace(request.ToolArgumentsJson) ? "{}" : request.ToolArgumentsJson,
                     approvalState = toolExecution.ApprovalState,
                     status = toolExecution.Status,
-                    output = toolExecution.Output,
-                    errorMessage = toolExecution.ErrorMessage,
-                    exitCode = toolExecution.ExitCode,
-                    changedFiles = toolExecution.ChangedFiles,
-                    questions = toolExecution.Questions,
-                    answers = toolExecution.Answers
-                },
+                output = toolExecution.Output,
+                errorMessage = toolExecution.ErrorMessage,
+                exitCode = toolExecution.ExitCode,
+                changedFiles = toolExecution.ChangedFiles,
+                isExplicitAskRule = toolExecution.IsExplicitAskRule,
+                matchedApprovalRule = toolExecution.MatchedApprovalRule,
+                questions = toolExecution.Questions,
+                answers = toolExecution.Answers
+            },
                 cancellationToken);
 
             parentUuid = toolUuid;
@@ -621,7 +628,42 @@ public sealed class DesktopSessionHostService(
             assistantSummary,
             cancellationToken);
 
+        QueueSpeculativeFollowupSuggestion(paths, sessionId, completionStatus);
         return result;
+    }
+
+    private void QueueSpeculativeFollowupSuggestion(
+        WorkspacePaths paths,
+        string sessionId,
+        string completionStatus)
+    {
+        if (followupSuggestionService is null ||
+            runtimeOptions?.Value.EnableSpeculativeFollowupSuggestions != true ||
+            !string.Equals(completionStatus, "completed", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var workspaceRoot = paths.WorkspaceRoot;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await followupSuggestionService.GetSuggestionsAsync(
+                    new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                    new GetFollowupSuggestionsRequest
+                    {
+                        SessionId = sessionId,
+                        MaxCount = 3,
+                        Speculative = true
+                    },
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Speculative follow-up suggestion failed: {ex.Message}");
+            }
+        });
     }
 
     /// <summary>
@@ -650,12 +692,13 @@ public sealed class DesktopSessionHostService(
         var detail = approvalContext.Detail;
         var workingDirectory = approvalContext.WorkingDirectory;
         var gitBranch = approvalContext.GitBranch;
+        var titleHint = detail.Session.Title ?? request.SessionId;
 
         return await activeTurnRegistry.RunAsync(
             request.SessionId,
             CreateActiveTurnState(
                 request.SessionId,
-                detail.Session.Title,
+                titleHint,
                 detail.TranscriptPath,
                 workingDirectory,
                 gitBranch,
@@ -667,7 +710,7 @@ public sealed class DesktopSessionHostService(
                 detail.TranscriptPath,
                 workingDirectory,
                 gitBranch,
-                detail.Session.Title,
+                titleHint,
                 CreateCancelledToolExecutionResult(workingDirectory),
                 createdNewSession: false,
                 resolvedCommand: null,
@@ -702,12 +745,13 @@ public sealed class DesktopSessionHostService(
         var detail = answerContext.Detail;
         var workingDirectory = answerContext.WorkingDirectory;
         var gitBranch = answerContext.GitBranch;
+        var titleHint = detail.Session.Title ?? request.SessionId;
 
         return await activeTurnRegistry.RunAsync(
             request.SessionId,
             CreateActiveTurnState(
                 request.SessionId,
-                detail.Session.Title,
+                titleHint,
                 detail.TranscriptPath,
                 workingDirectory,
                 gitBranch,
@@ -719,7 +763,7 @@ public sealed class DesktopSessionHostService(
                 detail.TranscriptPath,
                 workingDirectory,
                 gitBranch,
-                detail.Session.Title,
+                titleHint,
                 CreateCancelledToolExecutionResult(workingDirectory),
                 createdNewSession: false,
                 resolvedCommand: null,
@@ -741,15 +785,17 @@ public sealed class DesktopSessionHostService(
         var detail = approvalContext.Detail;
         var pendingTool = approvalContext.PendingTool;
         var normalizedDecision = NormalizePendingToolDecision(request.Decision);
-        var projectRoot = runtimeProfileService.Inspect(paths).ProjectRoot;
+        var runtimeProfile = runtimeProfileService.Inspect(paths);
+        var projectRoot = runtimeProfile.ProjectRoot;
+        string? allowRule = null;
 
-        if (normalizedDecision == "always-allow" &&
-            ApprovalRuleSuggestionService.SuggestProjectAllowRule(pendingTool, projectRoot) is { Length: > 0 } allowRule)
+        if (IsAlwaysAllowDecision(normalizedDecision) &&
+            ApprovalRuleSuggestionService.SuggestProjectAllowRule(pendingTool, projectRoot) is { Length: > 0 } suggestedAllowRule)
         {
-            TryAppendProjectAllowRule(projectRoot, allowRule);
+            allowRule = suggestedAllowRule;
+            ApplyAllowRuleForDecision(runtimeProfile, request.SessionId, normalizedDecision, allowRule);
         }
 
-        var runtimeProfile = runtimeProfileService.Inspect(paths);
         var execution = normalizedDecision == "deny"
             ? CreateDeniedToolExecutionResult(
                 pendingTool.ToolName,
@@ -761,6 +807,7 @@ public sealed class DesktopSessionHostService(
                 {
                     ToolName = pendingTool.ToolName,
                     ArgumentsJson = string.IsNullOrWhiteSpace(pendingTool.Arguments) ? "{}" : pendingTool.Arguments,
+                    SessionId = request.SessionId,
                     ApproveExecution = true
                 },
                 cancellationToken: cancellationToken);
@@ -815,6 +862,8 @@ public sealed class DesktopSessionHostService(
                 errorMessage = execution.ErrorMessage,
                 exitCode = execution.ExitCode,
                 changedFiles = execution.ChangedFiles,
+                isExplicitAskRule = execution.IsExplicitAskRule,
+                matchedApprovalRule = execution.MatchedApprovalRule,
                 questions = execution.Questions,
                 answers = execution.Answers,
                 resolutionStatus = normalizedDecision == "deny" ? "blocked-by-user" : "executed-after-approval",
@@ -831,6 +880,20 @@ public sealed class DesktopSessionHostService(
             state.Status = execution.Status;
         });
 
+        if (allowRule is not null)
+        {
+            parentUuid = await AutoResolveMatchingPendingApprovalsAsync(
+                paths,
+                detail,
+                request.SessionId,
+                parentUuid,
+                gitBranch,
+                projectRoot,
+                allowRule,
+                pendingTool.Id,
+                cancellationToken);
+        }
+
         var assistantResponse = await assistantTurnRuntime.GenerateAsync(
             CreateAssistantTurnRequest(
                 request.SessionId,
@@ -842,7 +905,8 @@ public sealed class DesktopSessionHostService(
                 commandInvocation: null,
                 resolvedCommand: null,
                 execution,
-                isApprovalResolution: true),
+                isApprovalResolution: true,
+                toolArgumentsJson: pendingTool.Arguments),
             runtimeEvent =>
             {
                 activeTurnRegistry.Update(request.SessionId, state => ApplyRuntimeEvent(state, runtimeEvent));
@@ -964,7 +1028,95 @@ public sealed class DesktopSessionHostService(
             assistantSummary,
             cancellationToken);
 
+        QueueSpeculativeFollowupSuggestion(paths, request.SessionId, completionStatus);
         return result;
+    }
+
+    private async Task<string?> AutoResolveMatchingPendingApprovalsAsync(
+        WorkspacePaths paths,
+        DesktopSessionDetail detail,
+        string sessionId,
+        string? parentUuid,
+        string gitBranch,
+        string projectRoot,
+        string allowRule,
+        string selectedEntryId,
+        CancellationToken cancellationToken)
+    {
+        var matchingPendingTools = detail.Entries
+            .Where(entry =>
+                entry.Type == "tool" &&
+                string.Equals(entry.Status, "approval-required", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(entry.ResolutionStatus) &&
+                !string.Equals(entry.Id, selectedEntryId, StringComparison.Ordinal) &&
+                string.Equals(
+                    ApprovalRuleSuggestionService.SuggestProjectAllowRule(entry, projectRoot),
+                    allowRule,
+                    StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        foreach (var pendingTool in matchingPendingTools)
+        {
+            var execution = await nativeToolHostService.ExecuteAsync(
+                paths,
+                new ExecuteNativeToolRequest
+                {
+                    ToolName = pendingTool.ToolName,
+                    ArgumentsJson = string.IsNullOrWhiteSpace(pendingTool.Arguments) ? "{}" : pendingTool.Arguments,
+                    SessionId = sessionId,
+                    ApproveExecution = true
+                },
+                cancellationToken: cancellationToken);
+            var resolutionTimestamp = DateTime.UtcNow;
+            await transcriptWriter.MarkToolEntryResolvedAsync(
+                detail.TranscriptPath,
+                pendingTool.Id,
+                "auto-approved",
+                resolutionTimestamp,
+                cancellationToken);
+
+            var toolUuid = Guid.NewGuid().ToString();
+            await transcriptWriter.AppendEntryAsync(
+                detail.TranscriptPath,
+                new
+                {
+                    uuid = toolUuid,
+                    parentUuid,
+                    sessionId,
+                    timestamp = resolutionTimestamp,
+                    type = "tool",
+                    cwd = execution.WorkingDirectory,
+                    version = "0.1.0",
+                    gitBranch,
+                    toolName = execution.ToolName,
+                    args = string.IsNullOrWhiteSpace(pendingTool.Arguments) ? "{}" : pendingTool.Arguments,
+                    approvalState = execution.ApprovalState,
+                    status = execution.Status,
+                    output = execution.Output,
+                    errorMessage = execution.ErrorMessage,
+                    exitCode = execution.ExitCode,
+                    changedFiles = execution.ChangedFiles,
+                    isExplicitAskRule = execution.IsExplicitAskRule,
+                    matchedApprovalRule = execution.MatchedApprovalRule,
+                    questions = execution.Questions,
+                    answers = execution.Answers,
+                    resolutionStatus = "executed-after-auto-approval",
+                    sourcePath = pendingTool.SourcePath,
+                    scope = pendingTool.Scope
+                },
+                cancellationToken);
+
+            PublishSessionEvent(sessionEventFactory.CreateToolApproved(
+                sessionId,
+                pendingTool.ToolName,
+                execution.WorkingDirectory,
+                gitBranch,
+                resolutionTimestamp));
+            PublishSessionEvent(sessionEventFactory.CreateToolEvent(sessionId, execution, gitBranch));
+            parentUuid = toolUuid;
+        }
+
+        return parentUuid;
     }
 
     private async Task<DesktopSessionTurnResult> AnswerPendingQuestionCoreAsync(
@@ -1037,6 +1189,8 @@ public sealed class DesktopSessionHostService(
                 errorMessage = execution.ErrorMessage,
                 exitCode = execution.ExitCode,
                 changedFiles = execution.ChangedFiles,
+                isExplicitAskRule = execution.IsExplicitAskRule,
+                matchedApprovalRule = execution.MatchedApprovalRule,
                 questions = execution.Questions,
                 answers = execution.Answers,
                 resolutionStatus = "answered-by-user",
@@ -1065,7 +1219,8 @@ public sealed class DesktopSessionHostService(
                 commandInvocation: null,
                 resolvedCommand: null,
                 execution,
-                isApprovalResolution: true),
+                isApprovalResolution: true,
+                toolArgumentsJson: pendingQuestion.Arguments),
             runtimeEvent =>
             {
                 activeTurnRegistry.Update(request.SessionId, state => ApplyRuntimeEvent(state, runtimeEvent));
@@ -1187,6 +1342,7 @@ public sealed class DesktopSessionHostService(
             assistantSummary,
             cancellationToken);
 
+        QueueSpeculativeFollowupSuggestion(paths, request.SessionId, completionStatus);
         return result;
     }
 
@@ -1708,7 +1864,8 @@ public sealed class DesktopSessionHostService(
         CommandInvocationResult? commandInvocation,
         ResolvedCommand? resolvedCommand,
         NativeToolExecutionResult toolExecution,
-        bool isApprovalResolution) =>
+        bool isApprovalResolution,
+        string toolArgumentsJson = "{}") =>
         new()
         {
             SessionId = sessionId,
@@ -1720,6 +1877,7 @@ public sealed class DesktopSessionHostService(
             CommandInvocation = commandInvocation,
             ResolvedCommand = resolvedCommand,
             ToolExecution = toolExecution,
+            ToolArgumentsJson = string.IsNullOrWhiteSpace(toolArgumentsJson) ? "{}" : toolArgumentsJson,
             IsApprovalResolution = isApprovalResolution,
             PromptMode = ResolvePromptMode(runtimeProfile)
         };
@@ -1863,11 +2021,16 @@ public sealed class DesktopSessionHostService(
         var normalized = decision?.Trim().ToLowerInvariant();
         return normalized switch
         {
-            "always-allow" => "always-allow",
+            "always-allow" or "always-allow-project" => "always-allow-project",
+            "always-allow-user" => "always-allow-user",
+            "always-allow-session" => "always-allow-session",
             "deny" => "deny",
             _ => "allow-once"
         };
     }
+
+    private static bool IsAlwaysAllowDecision(string decision) =>
+        decision is "always-allow-project" or "always-allow-user" or "always-allow-session";
 
     private static string BuildPendingToolResolutionPrompt(
         DesktopSessionEntry pendingTool,
@@ -1888,14 +2051,31 @@ public sealed class DesktopSessionHostService(
             return $"The user approved tool '{pendingTool.ToolName}'. Continue from the updated tool result and finish the turn.";
     }
 
-    private static void TryAppendProjectAllowRule(string projectRoot, string allowRule)
+    private void ApplyAllowRuleForDecision(
+        QwenRuntimeProfile runtimeProfile,
+        string sessionId,
+        string decision,
+        string allowRule)
     {
-        if (string.IsNullOrWhiteSpace(projectRoot) || string.IsNullOrWhiteSpace(allowRule))
+        if (decision == "always-allow-session")
+        {
+            approvalSessionRuleStore?.AddAllowRule(sessionId, allowRule);
+            return;
+        }
+
+        var settingsPath = decision == "always-allow-user"
+            ? Path.Combine(runtimeProfile.GlobalQwenDirectory, "settings.json")
+            : Path.Combine(runtimeProfile.ProjectRoot, ".qwen", "settings.json");
+        TryAppendAllowRule(settingsPath, allowRule);
+    }
+
+    private static void TryAppendAllowRule(string settingsPath, string allowRule)
+    {
+        if (string.IsNullOrWhiteSpace(settingsPath) || string.IsNullOrWhiteSpace(allowRule))
         {
             return;
         }
 
-        var settingsPath = Path.Combine(projectRoot, ".qwen", "settings.json");
         Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
 
         JsonObject root;

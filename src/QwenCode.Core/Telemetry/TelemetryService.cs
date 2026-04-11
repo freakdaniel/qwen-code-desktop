@@ -1,8 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using Microsoft.Extensions.Logging;
-using QwenCode.Core.Models;
+﻿using QwenCode.Core.Models;
 using QwenCode.Core.Runtime;
 
 namespace QwenCode.Core.Telemetry;

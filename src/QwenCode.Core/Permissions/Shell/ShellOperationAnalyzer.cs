@@ -1,7 +1,4 @@
-﻿using System.Text;
-using QwenCode.Core.Models;
-
-namespace QwenCode.Core.Permissions;
+﻿namespace QwenCode.Core.Permissions;
 
 internal static class ShellOperationAnalyzer
 {
@@ -97,6 +94,72 @@ internal static class ShellOperationAnalyzer
         return operations;
     }
 
+    public static bool ContainsCommandSubstitution(string? command)
+    {
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return false;
+        }
+
+        var inSingleQuote = false;
+        var inDoubleQuote = false;
+        var escaped = false;
+
+        for (var index = 0; index < command.Length; index++)
+        {
+            var character = command[index];
+
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+
+            if (character == '\\' && !inSingleQuote)
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (character == '\'' && !inDoubleQuote)
+            {
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+
+            if (character == '"' && !inSingleQuote)
+            {
+                inDoubleQuote = !inDoubleQuote;
+                continue;
+            }
+
+            if (inSingleQuote)
+            {
+                continue;
+            }
+
+            if (character == '`' ||
+                character == '$' && index + 1 < command.Length && command[index + 1] == '(' ||
+                (character == '<' || character == '>') && index + 1 < command.Length && command[index + 1] == '(')
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static bool IsReadOnlyCommand(string? command, string workingDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(command) || ContainsCommandSubstitution(command))
+        {
+            return false;
+        }
+
+        var segments = SplitCompoundCommands(command);
+        return segments.Count > 0 && segments.All(segment => IsReadOnlySimpleCommand(segment, workingDirectory));
+    }
+
     private static IReadOnlyList<ShellOperation> ExtractFromSimpleCommand(string simpleCommand, string workingDirectory)
     {
         if (string.IsNullOrWhiteSpace(simpleCommand))
@@ -117,7 +180,7 @@ internal static class ShellOperationAnalyzer
             return redirectOperations;
         }
 
-        var commandName = tokens[commandIndex];
+        var commandName = NormalizeCommandName(tokens[commandIndex]);
         if (string.IsNullOrWhiteSpace(commandName) || commandName.Contains('=', StringComparison.Ordinal))
         {
             return redirectOperations;
@@ -167,11 +230,52 @@ internal static class ShellOperationAnalyzer
         else if (WebCommands.Contains(commandName))
         {
             operations.AddRange(WebOps(args));
+            operations.AddRange(WebDownloadOps(args, workingDirectory));
         }
 
         operations.AddRange(redirectOperations);
         return operations;
     }
+
+    private static bool IsReadOnlySimpleCommand(string simpleCommand, string workingDirectory)
+    {
+        var operations = ExtractFromSimpleCommand(simpleCommand, workingDirectory);
+        if (operations.Any(IsMutatingOperation))
+        {
+            return false;
+        }
+
+        var tokens = Tokenize(simpleCommand);
+        _ = ExtractRedirectOperations(tokens, workingDirectory);
+        var commandIndex = FindActualCommandIndex(tokens);
+        if (commandIndex < 0 || commandIndex >= tokens.Count)
+        {
+            return operations.Count > 0 && operations.All(static operation => !IsMutatingOperation(operation));
+        }
+
+        var commandName = NormalizeCommandName(tokens[commandIndex]);
+        if (PrefixCommands.Contains(commandName))
+        {
+            return IsReadOnlyCommand(string.Join(' ', tokens.Skip(commandIndex + 1)), workingDirectory);
+        }
+
+        var args = tokens.Skip(commandIndex + 1).ToArray();
+        return commandName switch
+        {
+            "cd" or "pwd" or "echo" or "printf" or "true" or "false" or "test" or "which" or "where" or "whoami" or "uname" or "date" => true,
+            "git" => IsReadOnlyGitCommand(args),
+            "npm" => IsReadOnlyPackageManagerCommand(args, "view", "info", "list", "ls", "search", "outdated", "version"),
+            "pnpm" or "yarn" => IsReadOnlyPackageManagerCommand(args, "view", "info", "list", "why", "outdated", "version"),
+            "dotnet" => IsReadOnlyDotnetCommand(args),
+            _ => ReadCommands.Contains(commandName) ||
+                 ListCommands.Contains(commandName) ||
+                 SearchCommands.Contains(commandName) ||
+                 WebCommands.Contains(commandName)
+        };
+    }
+
+    private static bool IsMutatingOperation(ShellOperation operation) =>
+        operation.VirtualTool is "edit" or "write_file";
 
     private static IReadOnlyList<string> SplitCompoundCommands(string command)
     {
@@ -566,6 +670,35 @@ internal static class ShellOperationAnalyzer
         }
     }
 
+    private static IEnumerable<ShellOperation> WebDownloadOps(string[] args, string workingDirectory)
+    {
+        for (var index = 0; index < args.Length; index++)
+        {
+            var argument = args[index];
+            string? target = null;
+
+            if ((argument == "-o" || argument == "--output") && index + 1 < args.Length)
+            {
+                target = args[index + 1];
+            }
+            else if (argument.StartsWith("--output=", StringComparison.Ordinal))
+            {
+                target = argument["--output=".Length..];
+            }
+
+            if (string.IsNullOrWhiteSpace(target) || target == "-" || !LooksLikePath(target))
+            {
+                continue;
+            }
+
+            yield return new ShellOperation
+            {
+                VirtualTool = "write_file",
+                FilePath = ResolvePath(target, workingDirectory)
+            };
+        }
+    }
+
     private static IEnumerable<string> GetPositionalArgs(string[] args)
     {
         var positional = new List<string>();
@@ -595,7 +728,65 @@ internal static class ShellOperationAnalyzer
     }
 
     private static bool FlagConsumesValue(string argument) =>
-        argument is "-n" or "-c" or "--lines" or "--bytes" or "-p" or "--path" or "-e" or "-f" or "-o" or "--output" or "-d" or "--data" or "-H" or "--header" or "-X" or "--request" or "-F" or "--form";
+        argument is "-n" or "-c" or "-C" or "--lines" or "--bytes" or "-p" or "--path" or "-e" or "-f" or "-o" or "--output" or "-d" or "--data" or "-H" or "--header" or "-X" or "--request" or "-F" or "--form";
+
+    private static string NormalizeCommandName(string commandName)
+    {
+        if (string.IsNullOrWhiteSpace(commandName))
+        {
+            return string.Empty;
+        }
+
+        var fileName = Path.GetFileName(commandName);
+        var normalized = OperatingSystem.IsWindows()
+            ? Path.GetFileNameWithoutExtension(fileName)
+            : fileName;
+        return normalized.ToLowerInvariant();
+    }
+
+    private static bool IsReadOnlyGitCommand(string[] args)
+    {
+        var positional = GetPositionalArgs(args).ToArray();
+        if (positional.Length == 0)
+        {
+            return false;
+        }
+
+        return positional[0] switch
+        {
+            "status" or "diff" or "log" or "show" or "ls-files" or "grep" or "describe" or "rev-parse" or "remote" => true,
+            "branch" => !args.Any(static argument => argument is "-d" or "-D" or "-m" or "-M" or "-c" or "-C"),
+            _ => false
+        };
+    }
+
+    private static bool IsReadOnlyPackageManagerCommand(string[] args, params string[] safeSubcommands)
+    {
+        var positional = GetPositionalArgs(args).ToArray();
+        if (positional.Length == 0)
+        {
+            return false;
+        }
+
+        return safeSubcommands.Contains(positional[0], StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool IsReadOnlyDotnetCommand(string[] args)
+    {
+        var positional = GetPositionalArgs(args).ToArray();
+        if (positional.Length == 0)
+        {
+            return false;
+        }
+
+        return positional[0] switch
+        {
+            "--info" or "--version" or "--list-sdks" or "--list-runtimes" or "list" => true,
+            "sln" => positional.Length > 1 && string.Equals(positional[1], "list", StringComparison.OrdinalIgnoreCase),
+            "tool" => positional.Length > 1 && string.Equals(positional[1], "list", StringComparison.OrdinalIgnoreCase),
+            _ => false
+        };
+    }
 
     private static bool LooksLikePath(string value)
     {

@@ -140,6 +140,9 @@ public sealed class DesktopProjectionServiceTests
             var promptRegistryService = new PromptRegistryService(
                 mcpConnectionManager,
                 new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
+            var mcpResourceRegistryService = new McpResourceRegistryService(
+                mcpConnectionManager,
+                new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
             var modelRegistry = new ModelRegistryService(
                 new RuntimeConfigService(environmentPaths),
                 new TokenLimitService(),
@@ -213,6 +216,10 @@ public sealed class DesktopProjectionServiceTests
                     shellOptions,
                     workspacePathResolver,
                     promptRegistryService),
+                new McpResourceProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    mcpResourceRegistryService),
                 new FollowupProjectionService(
                     shellOptions,
                     workspacePathResolver,
@@ -364,6 +371,9 @@ public sealed class DesktopProjectionServiceTests
             var promptRegistryService = new PromptRegistryService(
                 mcpConnectionManager,
                 new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
+            var mcpResourceRegistryService = new McpResourceRegistryService(
+                mcpConnectionManager,
+                new McpToolRuntimeService(mcpRegistry, mcpTokenStore, new HttpClient(), runtimeProfileService));
             var gitHistoryService = new GitHistoryService(new GitCliService(), runtimeProfileService);
             var modelRegistry = new ModelRegistryService(
                 new RuntimeConfigService(environmentPaths),
@@ -462,6 +472,10 @@ public sealed class DesktopProjectionServiceTests
                     shellOptions,
                     workspacePathResolver,
                     promptRegistryService),
+                new McpResourceProjectionService(
+                    shellOptions,
+                    workspacePathResolver,
+                    mcpResourceRegistryService),
                 new FollowupProjectionService(
                     shellOptions,
                     workspacePathResolver,

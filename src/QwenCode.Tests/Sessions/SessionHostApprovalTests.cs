@@ -326,7 +326,7 @@ public sealed class SessionHostApprovalTests
                     Prompt = "Queue a shell approval.",
                     WorkingDirectory = workspaceRoot,
                     ToolName = "run_shell_command",
-                    ToolArgumentsJson = """{"command":"echo first approval"}""",
+                    ToolArgumentsJson = """{"command":"dotnet help"}""",
                     ApproveToolExecution = false
                 });
 
@@ -353,7 +353,7 @@ public sealed class SessionHostApprovalTests
 
             var settingsPath = Path.Combine(workspaceRoot, ".qwen", "settings.json");
             var settingsJson = await File.ReadAllTextAsync(settingsPath);
-            Assert.Contains("Bash(echo *)", settingsJson, StringComparison.Ordinal);
+            Assert.Contains("Bash(dotnet *)", settingsJson, StringComparison.Ordinal);
 
             var secondTurn = await sessionHost.StartTurnAsync(
                 new WorkspacePaths { WorkspaceRoot = workspaceRoot },
@@ -362,7 +362,7 @@ public sealed class SessionHostApprovalTests
                     Prompt = "Run the same shell family again.",
                     WorkingDirectory = workspaceRoot,
                     ToolName = "run_shell_command",
-                    ToolArgumentsJson = """{"command":"echo second approval"}""",
+                    ToolArgumentsJson = """{"command":"dotnet help"}""",
                     ApproveToolExecution = false
                 });
 
@@ -376,6 +376,227 @@ public sealed class SessionHostApprovalTests
                 });
             Assert.NotNull(secondDetail);
             Assert.Equal(0, secondDetail!.Summary.PendingApprovalCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DesktopSessionHostService_ApprovePendingToolAsync_AlwaysAllowSession_SkipsMatchingFutureApprovalOnlyForSession()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-session-approval-rule-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "permissions": {
+                    "defaultMode": "default"
+                  }
+                }
+                """);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
+            var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
+
+            var firstTurn = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Queue a session-scoped shell approval.",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "run_shell_command",
+                    ToolArgumentsJson = """{"command":"dotnet help"}""",
+                    ApproveToolExecution = false
+                });
+
+            var pendingDetail = sessionCatalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = firstTurn.Session.SessionId
+                });
+            Assert.NotNull(pendingDetail);
+            var pendingEntry = Assert.Single(
+                pendingDetail!.Entries,
+                entry => entry.Type == "tool" && entry.Status == "approval-required");
+            var extraPendingEntryId = Guid.NewGuid().ToString();
+            await File.AppendAllTextAsync(
+                pendingDetail.Session.TranscriptPath,
+                JsonSerializer.Serialize(new
+                {
+                    uuid = extraPendingEntryId,
+                    parentUuid = pendingEntry.Id,
+                    sessionId = firstTurn.Session.SessionId,
+                    timestamp = DateTime.UtcNow,
+                    type = "tool",
+                    cwd = workspaceRoot,
+                    version = "0.1.0",
+                    gitBranch = string.Empty,
+                    toolName = "run_shell_command",
+                    args = """{"command":"dotnet help"}""",
+                    approvalState = "ask",
+                    status = "approval-required",
+                    output = string.Empty,
+                    errorMessage = "Approval is required for run_shell_command.",
+                    exitCode = 0,
+                    changedFiles = Array.Empty<string>()
+                }) + Environment.NewLine);
+
+            await sessionHost.ApprovePendingToolAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new ApproveDesktopSessionToolRequest
+                {
+                    SessionId = firstTurn.Session.SessionId,
+                    EntryId = pendingEntry.Id,
+                    Decision = "always-allow-session"
+                });
+
+            var settingsJson = await File.ReadAllTextAsync(Path.Combine(workspaceRoot, ".qwen", "settings.json"));
+            Assert.DoesNotContain("Bash(dotnet *)", settingsJson, StringComparison.Ordinal);
+
+            var sameSessionTurn = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    SessionId = firstTurn.Session.SessionId,
+                    Prompt = "Run the same shell family in the same session.",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "run_shell_command",
+                    ToolArgumentsJson = """{"command":"dotnet help"}""",
+                    ApproveToolExecution = false
+                });
+
+            Assert.NotEqual("approval-required", sameSessionTurn.ToolExecution.Status);
+            var finalDetail = sessionCatalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = firstTurn.Session.SessionId
+                });
+            Assert.NotNull(finalDetail);
+            Assert.Equal("auto-approved", finalDetail!.Entries.First(entry => entry.Id == extraPendingEntryId).ResolutionStatus);
+            Assert.Contains(
+                finalDetail.Entries,
+                entry => entry.Type == "tool" &&
+                         entry.ToolName == "run_shell_command" &&
+                         entry.ResolutionStatus == "executed-after-auto-approval");
+
+            var otherSessionTurn = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Run the same shell family in another session.",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "run_shell_command",
+                    ToolArgumentsJson = """{"command":"dotnet help"}""",
+                    ApproveToolExecution = false
+                });
+
+            Assert.Equal("approval-required", otherSessionTurn.ToolExecution.Status);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DesktopSessionHostService_ApprovePendingToolAsync_AlwaysAllowUser_PersistsUserRuleAndSkipsMatchingFutureApproval()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-user-approval-rule-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            File.WriteAllText(
+                Path.Combine(workspaceRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "permissions": {
+                    "defaultMode": "default"
+                  }
+                }
+                """);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var compatibilityService = new QwenCompatibilityService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var sessionCatalog = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
+            var sessionHost = CreateSessionHost(runtimeProfileService, compatibilityService, sessionCatalog);
+
+            var firstTurn = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Queue a user-scoped shell approval.",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "run_shell_command",
+                    ToolArgumentsJson = """{"command":"dotnet help"}""",
+                    ApproveToolExecution = false
+                });
+
+            var pendingDetail = sessionCatalog.GetSession(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetDesktopSessionRequest
+                {
+                    SessionId = firstTurn.Session.SessionId
+                });
+            Assert.NotNull(pendingDetail);
+            var pendingEntry = Assert.Single(
+                pendingDetail!.Entries,
+                entry => entry.Type == "tool" && entry.Status == "approval-required");
+
+            await sessionHost.ApprovePendingToolAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new ApproveDesktopSessionToolRequest
+                {
+                    SessionId = firstTurn.Session.SessionId,
+                    EntryId = pendingEntry.Id,
+                    Decision = "always-allow-user"
+                });
+
+            var userSettingsPath = Path.Combine(homeRoot, ".qwen", "settings.json");
+            Assert.Contains("Bash(dotnet *)", await File.ReadAllTextAsync(userSettingsPath), StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Bash(dotnet *)",
+                await File.ReadAllTextAsync(Path.Combine(workspaceRoot, ".qwen", "settings.json")),
+                StringComparison.Ordinal);
+
+            var secondTurn = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Run the same shell family after a user-scoped allow.",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "run_shell_command",
+                    ToolArgumentsJson = """{"command":"dotnet help"}""",
+                    ApproveToolExecution = false
+                });
+
+            Assert.NotEqual("approval-required", secondTurn.ToolExecution.Status);
         }
         finally
         {

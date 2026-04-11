@@ -46,6 +46,16 @@ public sealed class NativeToolExecutionResult
     public required IReadOnlyList<string> ChangedFiles { get; init; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether the approval was forced by an explicit ask rule.
+    /// </summary>
+    public bool IsExplicitAskRule { get; init; }
+
+    /// <summary>
+    /// Gets or sets the matched approval rule.
+    /// </summary>
+    public string MatchedApprovalRule { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the questions
     /// </summary>
     public IReadOnlyList<DesktopQuestionPrompt> Questions { get; init; } = [];

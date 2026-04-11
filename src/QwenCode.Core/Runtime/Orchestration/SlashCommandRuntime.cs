@@ -1,5 +1,4 @@
-﻿using System.Text.RegularExpressions;
-using QwenCode.Core.Compatibility;
+﻿using QwenCode.Core.Compatibility;
 using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Runtime;

@@ -48,6 +48,11 @@ public sealed class AssistantPromptContext
     public string DurableMemorySummary { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the session memory summary
+    /// </summary>
+    public string SessionMemorySummary { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the user instruction summary
     /// </summary>
     public string UserInstructionSummary { get; init; } = string.Empty;

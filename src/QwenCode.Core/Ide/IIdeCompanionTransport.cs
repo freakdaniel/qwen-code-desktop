@@ -1,5 +1,4 @@
-﻿using System.Text.Json.Nodes;
-using QwenCode.Core.Models;
+﻿using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Ide;
 

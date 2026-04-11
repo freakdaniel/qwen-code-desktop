@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using QwenCode.Core.Models;
+﻿using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Mcp;
 
@@ -52,11 +51,14 @@ public sealed class McpConnectionManagerService(
                     ExcludeTools = server.ExcludeTools,
                     SettingsPath = server.SettingsPath,
                     HasPersistedToken = server.HasPersistedToken,
+                    HasStaticAuthorizationHeader = server.HasStaticAuthorizationHeader,
+                    AuthenticationStatus = server.AuthenticationStatus,
                     Status = state.Status,
                     LastReconnectAttemptUtc = state.AttemptedAtUtc,
                     LastError = state.Status == "connected" ? string.Empty : state.Message,
                     DiscoveredToolsCount = state.DiscoveredToolsCount,
                     DiscoveredPromptsCount = state.DiscoveredPromptsCount,
+                    DiscoveredResourcesCount = state.DiscoveredResourcesCount,
                     SupportsPrompts = state.SupportsPrompts,
                     SupportsResources = state.SupportsResources,
                     LastDiscoveryUtc = state.LastDiscoveryUtc
@@ -128,6 +130,7 @@ public sealed class McpConnectionManagerService(
                 Message = result.Message,
                 DiscoveredToolsCount = result.DiscoveredToolsCount,
                 DiscoveredPromptsCount = result.DiscoveredPromptsCount,
+                DiscoveredResourcesCount = result.DiscoveredResourcesCount,
                 SupportsPrompts = result.SupportsPrompts,
                 SupportsResources = result.SupportsResources,
                 LastDiscoveryUtc = result.LastDiscoveryUtc

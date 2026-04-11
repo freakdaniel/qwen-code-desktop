@@ -1,6 +1,4 @@
-﻿using QwenCode.Core.Runtime;
-
-namespace QwenCode.Core.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Represents the Native Assistant Runtime Options
@@ -61,4 +59,9 @@ public sealed class NativeAssistantRuntimeOptions
     /// Gets or sets the output token limit
     /// </summary>
     public int? OutputTokenLimit { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether follow-up suggestions are generated after completed turns
+    /// </summary>
+    public bool EnableSpeculativeFollowupSuggestions { get; set; }
 }

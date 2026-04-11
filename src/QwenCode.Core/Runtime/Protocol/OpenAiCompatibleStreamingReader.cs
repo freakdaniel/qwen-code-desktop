@@ -1,8 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-using System.Text;
-using System.Text.Json;
-
-namespace QwenCode.Core.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 internal static class OpenAiCompatibleStreamingReader
 {

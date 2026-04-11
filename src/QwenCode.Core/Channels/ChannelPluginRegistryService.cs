@@ -1,5 +1,4 @@
-﻿using System.Text.Json.Nodes;
-using QwenCode.Core.Extensions;
+﻿using QwenCode.Core.Extensions;
 using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Channels;

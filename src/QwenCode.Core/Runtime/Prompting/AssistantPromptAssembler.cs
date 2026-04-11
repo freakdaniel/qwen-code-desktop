@@ -1,6 +1,4 @@
-﻿using System.Text.Json;
-using System.Runtime.InteropServices;
-using QwenCode.Core.Models;
+﻿using QwenCode.Core.Models;
 using QwenCode.Core.Mcp;
 using QwenCode.Core.Prompts;
 using QwenCode.Core.Sessions;
@@ -23,6 +21,8 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
     private const int MaxContextCharacters = 6000;
     private const int MaxHistoryHighlights = 8;
     private const int MaxImportDepth = 6;
+    private const int MaxSessionMemoryCharacters = 4000;
+    private const string ChatCompressionStatus = "chat-compression";
     private static readonly string[] DefaultContextFileNames = ["QWEN.md", "AGENTS.md"];
     private readonly IProjectSummaryService _projectSummaryService;
     private readonly ISessionService? _sessionService;
@@ -68,14 +68,18 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
         var projectSummary = _projectSummaryService.Read(request.RuntimeProfile);
         var sessionSummary = BuildSessionSummary(request, transcriptMessages, contextFiles, projectSummary);
         var environmentSummary = BuildEnvironmentSummary(request);
+        var trimmedTranscriptMessageCount = Math.Max(0, allTranscriptMessages.Count - transcriptMessages.Count);
+        var trimmedContextFileCount = Math.Max(0, allContextFiles.Count - contextFiles.Count);
+        var sessionMemorySummary = BuildSessionMemorySummary(request);
         var sessionGuidanceSummary = BuildSessionGuidanceSummary(
             request,
             transcriptMessages,
             contextFiles,
             projectSummary,
             promptBudget,
-            trimmedTranscriptMessageCount: Math.Max(0, allTranscriptMessages.Count - transcriptMessages.Count),
-            trimmedContextFileCount: Math.Max(0, allContextFiles.Count - contextFiles.Count));
+            sessionMemorySummary,
+            trimmedTranscriptMessageCount,
+            trimmedContextFileCount);
         var userInstructionSummary = BuildInstructionSummary(request.RuntimeProfile, request.WorkingDirectory, scope: "global");
         var workspaceInstructionSummary = BuildInstructionSummary(request.RuntimeProfile, request.WorkingDirectory, scope: "workspace");
         var durableMemorySummary = BuildDurableMemorySummary(request.RuntimeProfile);
@@ -84,8 +88,6 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
         var scratchpadSummary = BuildScratchpadSummary(request);
         var languageSummary = BuildLanguageSummary(request);
         var outputStyleSummary = BuildOutputStyleSummary(request);
-        var trimmedTranscriptMessageCount = Math.Max(0, allTranscriptMessages.Count - transcriptMessages.Count);
-        var trimmedContextFileCount = Math.Max(0, allContextFiles.Count - contextFiles.Count);
 
         return new AssistantPromptContext
         {
@@ -99,6 +101,7 @@ public sealed class AssistantPromptAssembler : IAssistantPromptAssembler
             EnvironmentSummary = environmentSummary,
             SessionGuidanceSummary = sessionGuidanceSummary,
             DurableMemorySummary = durableMemorySummary,
+            SessionMemorySummary = sessionMemorySummary,
             UserInstructionSummary = userInstructionSummary,
             WorkspaceInstructionSummary = workspaceInstructionSummary,
             McpServerSummary = mcpServerSummary,
@@ -222,6 +225,66 @@ Trimmed context files: {{trimmedContextFileCount}}
         }
 
         return messages.TakeLast(MaxTranscriptMessages).ToArray();
+    }
+
+    private static string BuildSessionMemorySummary(AssistantTurnRequest request)
+    {
+        var checkpoint = ReadLatestCompressionCheckpoint(request.TranscriptPath);
+        if (string.IsNullOrWhiteSpace(checkpoint))
+        {
+            return string.Empty;
+        }
+
+        return $$"""
+Latest chat compression checkpoint for this session:
+{{checkpoint}}
+""";
+    }
+
+    private static string? ReadLatestCompressionCheckpoint(string transcriptPath)
+    {
+        if (string.IsNullOrWhiteSpace(transcriptPath) || !File.Exists(transcriptPath))
+        {
+            return null;
+        }
+
+        string? latestCheckpoint = null;
+        foreach (var line in File.ReadLines(transcriptPath))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                if (!string.Equals(TryGetString(root, "type"), "system", StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(TryGetString(root, "status"), ChatCompressionStatus, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var messageText = TryGetString(root, "messageText");
+                if (string.IsNullOrWhiteSpace(messageText))
+                {
+                    continue;
+                }
+
+                var timestamp = TryGetString(root, "timestamp");
+                var trimmedMessage = Trim(messageText.Trim(), MaxSessionMemoryCharacters);
+                latestCheckpoint = string.IsNullOrWhiteSpace(timestamp)
+                    ? trimmedMessage
+                    : $"Recorded at {timestamp}: {trimmedMessage}";
+            }
+            catch
+            {
+                // Keep session memory assembly resilient to malformed transcript lines.
+            }
+        }
+
+        return latestCheckpoint;
     }
 
     private static IReadOnlyList<string> ReadContextFiles(QwenRuntimeProfile runtimeProfile, string workingDirectory)
@@ -558,6 +621,7 @@ Declared context file names: {{contextFileNames}}
         IReadOnlyList<string> contextFiles,
         ProjectSummarySnapshot? projectSummary,
         PromptBudget promptBudget,
+        string sessionMemorySummary,
         int trimmedTranscriptMessageCount,
         int trimmedContextFileCount)
     {
@@ -570,10 +634,14 @@ Declared context file names: {{contextFileNames}}
         var projectSummaryStatus = projectSummary is null
             ? "No project summary is available."
             : $"Project summary available from '{projectSummary.FilePath}' with {projectSummary.PendingTasks.Count} pending task(s).";
+        var sessionMemoryStatus = string.IsNullOrWhiteSpace(sessionMemorySummary)
+            ? "No session memory checkpoint is available."
+            : "Session memory checkpoint retained in the system prompt.";
 
         return $$"""
 Transcript messages retained for this turn: {{transcriptMessages.Count}}
 Workspace context files retained for this turn: {{contextFiles.Count}}
+{{sessionMemoryStatus}}
 {{projectSummaryStatus}}
 {{commandSummary}}
 {{toolSummary}}

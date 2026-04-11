@@ -1,6 +1,4 @@
-﻿using QwenCode.Core.Models;
-
-namespace QwenCode.Core.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 internal static class NativeAssistantRuntimePromptBuilder
 {
@@ -115,6 +113,7 @@ Tool loop guidance:
                 ContextFiles = [],
                 HistoryHighlights = [],
                 DurableMemorySummary = string.Empty,
+                SessionMemorySummary = string.Empty,
                 UserInstructionSummary = string.Empty,
                 WorkspaceInstructionSummary = string.Empty,
                 McpServerSummary = string.Empty,

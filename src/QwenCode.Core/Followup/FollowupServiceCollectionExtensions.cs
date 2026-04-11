@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-
-namespace QwenCode.Core.Followup;
+﻿namespace QwenCode.Core.Followup;
 
 /// <summary>
 /// Provides extension members for Followup Service Collection
@@ -14,6 +12,7 @@ public static class FollowupServiceCollectionExtensions
     /// <returns>The resulting i service collection</returns>
     public static IServiceCollection AddFollowupServices(this IServiceCollection services)
     {
+        services.AddSingleton<IFollowupSuggestionCache, InMemoryFollowupSuggestionCache>();
         services.AddSingleton<IFollowupSuggestionGenerator, ProviderBackedFollowupSuggestionGenerator>();
         services.AddSingleton<IFollowupSuggestionService, FollowupSuggestionService>();
         return services;

@@ -5,6 +5,7 @@ using ElectronNET.API.Entities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using QwenCode.App.Desktop.DirectConnect;
 using QwenCode.App.Ipc;
 using ElectronApi = ElectronNET.API.Electron;
 
@@ -27,13 +28,23 @@ public static class Bootstrapper
     private static BrowserWindowOptions? _browserWindowOptions;
     private static DateTimeOffset _mainWindowCreatedAtUtc;
     private static int _startupRecoveryAttempts;
-    private static bool _shutdownRequested;
+    private static int _shutdownRequested;
+    private static int _mainWindowCloseRequested;
     private static int _appHooksRegistered;
 
     /// <summary>
     /// Occurs when the Electron application requests the .NET host to shut down.
     /// </summary>
     public static event Action<string>? ShutdownRequested;
+
+    /// <summary>
+    /// Marks the Electron runtime as stopping so window diagnostics do not try to recover or request another shutdown.
+    /// </summary>
+    /// <param name="reason">The reason the runtime is stopping.</param>
+    public static void NotifyRuntimeStopping(string reason)
+    {
+        MarkShutdownRequested(reason, notifyHost: false);
+    }
 
     /// <summary>
     /// Starts async
@@ -46,6 +57,16 @@ public static class Bootstrapper
         IConfiguration configuration)
     {
         _logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("QwenCode.App.Bootstrapper");
+        var directConnectState = await services.GetRequiredService<IDirectConnectServerHost>().StartAsync();
+        if (directConnectState.Listening)
+        {
+            _logger.LogInformation("Direct-connect server listening at {BaseUrl}", directConnectState.BaseUrl);
+        }
+        else if (directConnectState.Enabled)
+        {
+            _logger.LogWarning("Direct-connect server is not listening: {Error}", directConnectState.Error);
+        }
+
         _logger.LogInformation("Registering Desktop IPC handlers");
         services.GetRequiredService<DesktopIpcService>().RegisterAll();
         _logger.LogInformation("Desktop IPC handlers registered");
@@ -83,20 +104,9 @@ public static class Bootstrapper
             return;
         }
 
+        // Let Electron finish its native quit path after the final window closes.
+        // The .NET host still owns managed cleanup via BrowserWindow close events.
         ElectronApi.WindowManager.IsQuitOnWindowAllClosed = true;
-
-        ElectronApi.App.WindowAllClosed += () =>
-        {
-            _logger?.LogInformation("Electron app reported window-all-closed");
-            RequestApplicationShutdown("window-all-closed");
-        };
-
-        ElectronApi.App.WillQuit += _ =>
-        {
-            _logger?.LogInformation("Electron app reported will-quit");
-            RequestApplicationShutdown("will-quit");
-            return Task.CompletedTask;
-        };
     }
 
     private static BrowserWindowOptions CreateMainWindowOptions(string productName, string preloadPath) =>
@@ -130,8 +140,7 @@ public static class Bootstrapper
             _logger?.LogError(
                 "Main window closed unexpectedly during startup more than {MaxAttempts} times. Aborting recovery",
                 MaxStartupRecoveryAttempts);
-            _shutdownRequested = true;
-            ElectronApi.App.Quit();
+            RequestApplicationShutdown("startup-recovery-exhausted");
             return;
         }
 
@@ -171,6 +180,7 @@ public static class Bootstrapper
             var mainWindow = await CreateWindowWhenBridgeReadyAsync(_browserWindowOptions, _indexUri, reason);
             _mainWindow = mainWindow;
             _mainWindowCreatedAtUtc = DateTimeOffset.UtcNow;
+            Interlocked.Exchange(ref _mainWindowCloseRequested, 0);
 
             if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
             {
@@ -206,6 +216,8 @@ public static class Bootstrapper
         mainWindow.OnClose += () =>
         {
             _logger?.LogWarning("Main window #{WindowId} received a close event", windowId);
+            Interlocked.Exchange(ref _mainWindowCloseRequested, 1);
+            RequestApplicationShutdown("main-window-close");
         };
 
         mainWindow.OnClosed += () =>
@@ -215,17 +227,19 @@ public static class Bootstrapper
                 "Main window #{WindowId} closed after {LifetimeMs} ms. Shutdown requested: {ShutdownRequested}",
                 windowId,
                 lifetime.TotalMilliseconds,
-                _shutdownRequested);
+                IsShutdownRequested());
 
             _mainWindow = null;
 
-            if (!_shutdownRequested && ShouldRecoverStartupWindow(lifetime))
+            if (!IsShutdownRequested() &&
+                Volatile.Read(ref _mainWindowCloseRequested) == 0 &&
+                ShouldRecoverStartupWindow(lifetime))
             {
                 _ = Task.Run(async () => await RecoverMainWindowAsync("window-closed"));
                 return;
             }
 
-            if (!_shutdownRequested)
+            if (!IsShutdownRequested())
             {
                 _logger?.LogInformation("Main window #{WindowId} closed; requesting application shutdown", windowId);
                 RequestApplicationShutdown("main-window-closed");
@@ -281,12 +295,22 @@ public static class Bootstrapper
 
     private static void RequestApplicationShutdown(string reason)
     {
-        if (_shutdownRequested)
+        MarkShutdownRequested(reason, notifyHost: true);
+    }
+
+    private static bool IsShutdownRequested() => Volatile.Read(ref _shutdownRequested) != 0;
+
+    private static void MarkShutdownRequested(string reason, bool notifyHost)
+    {
+        if (Interlocked.Exchange(ref _shutdownRequested, 1) != 0)
         {
             return;
         }
 
-        _shutdownRequested = true;
-        ShutdownRequested?.Invoke(reason);
+        _logger?.LogInformation("Application shutdown requested by {Reason}", reason);
+        if (notifyHost)
+        {
+            ShutdownRequested?.Invoke(reason);
+        }
     }
 }

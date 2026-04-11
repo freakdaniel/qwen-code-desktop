@@ -1,5 +1,4 @@
-﻿using System.Text.Json;
-using QwenCode.Core.Models;
+﻿using QwenCode.Core.Models;
 using QwenCode.Core.Compatibility;
 using QwenCode.Core.Runtime;
 
@@ -417,6 +416,11 @@ public sealed class DesktopSessionCatalogService(
             ? value.GetString()
             : null;
 
+    private static bool? TryGetBoolean(JsonElement root, string propertyName) =>
+        TryGetProperty(root, propertyName, out var value) && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False)
+            ? value.GetBoolean()
+            : null;
+
     private static DesktopSessionEntry ParseEntry(JsonElement root)
     {
         var type = TryGetString(root, "type") ?? "unknown";
@@ -468,6 +472,8 @@ public sealed class DesktopSessionCatalogService(
             Arguments = TryGetString(root, "args") ?? string.Empty,
             Scope = TryGetString(root, "scope") ?? string.Empty,
             SourcePath = TryGetString(root, "sourcePath") ?? string.Empty,
+            IsExplicitAskRule = TryGetBoolean(root, "isExplicitAskRule") ?? false,
+            MatchedApprovalRule = TryGetString(root, "matchedApprovalRule") ?? string.Empty,
             ResolutionStatus = TryGetString(root, "resolutionStatus") ?? string.Empty,
             ResolvedAt = TryGetString(root, "resolvedAt") ?? string.Empty,
             ChangedFiles = TryGetStringArray(root, "changedFiles"),
@@ -542,6 +548,8 @@ public sealed class DesktopSessionCatalogService(
             Arguments = Truncate(entry.Arguments, MaximumArgumentsLength),
             Scope = entry.Scope,
             SourcePath = Truncate(entry.SourcePath, MaximumSourcePathLength),
+            IsExplicitAskRule = entry.IsExplicitAskRule,
+            MatchedApprovalRule = Truncate(entry.MatchedApprovalRule, MaximumSourcePathLength),
             ResolutionStatus = entry.ResolutionStatus,
             ResolvedAt = entry.ResolvedAt,
             ChangedFiles = entry.ChangedFiles.Take(MaximumChangedFileCount).ToArray(),

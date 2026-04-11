@@ -94,6 +94,104 @@ public sealed class FollowupSuggestionServiceTests
     }
 
     [Fact]
+    public async Task FollowupSuggestionService_GetSuggestionsAsync_ReusesSpeculativeProviderSuggestionFromCache()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-followup-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var generateCount = 0;
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+
+            Directory.CreateDirectory(Path.Combine(workspaceRoot, ".qwen"));
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var environmentPaths = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
+            var compatibilityService = new QwenCompatibilityService(environmentPaths);
+            var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService, new ChatRecordingService());
+            var interruptedStore = new InterruptedTurnStore();
+            var activeTurnRegistry = new ActiveTurnRegistry(interruptedStore);
+            var arenaRegistry = new ArenaSessionRegistry();
+            var sessionHost = CreateSessionHost(
+                runtimeProfileService,
+                compatibilityService,
+                transcriptStore,
+                activeTurnRegistry,
+                interruptedStore);
+            var generator = new ProviderBackedFollowupSuggestionGenerator(
+                runtimeProfileService,
+                new AssistantPromptAssembler(new ProjectSummaryService()),
+                new StaticContentGenerator(_ =>
+                {
+                    generateCount++;
+                    return new LlmContentResponse
+                    {
+                        Content = "run the tests",
+                        ProviderName = "qwen-compatible",
+                        Model = "qwen3-coder-plus",
+                        StopReason = "completed"
+                    };
+                }),
+                Options.Create(new NativeAssistantRuntimeOptions
+                {
+                    Provider = "qwen-compatible"
+                }));
+            var service = new FollowupSuggestionService(
+                transcriptStore,
+                activeTurnRegistry,
+                interruptedStore,
+                arenaRegistry,
+                runtimeProfileService,
+                generator,
+                new InMemoryFollowupSuggestionCache());
+
+            var targetFile = Path.Combine(workspaceRoot, "notes.txt");
+            var turnResult = await sessionHost.StartTurnAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new StartDesktopSessionTurnRequest
+                {
+                    Prompt = "Write the implementation notes.",
+                    SessionId = "followup-cache",
+                    WorkingDirectory = workspaceRoot,
+                    ToolName = "write_file",
+                    ToolArgumentsJson = $$"""{"file_path":"{{targetFile.Replace("\\", "\\\\")}}","content":"implementation notes"}""",
+                    ApproveToolExecution = true
+                });
+
+            var speculativeSnapshot = await service.GetSuggestionsAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetFollowupSuggestionsRequest
+                {
+                    SessionId = turnResult.Session.SessionId,
+                    Speculative = true
+                });
+            var cachedSnapshot = await service.GetSuggestionsAsync(
+                new WorkspacePaths { WorkspaceRoot = workspaceRoot },
+                new GetFollowupSuggestionsRequest
+                {
+                    SessionId = turnResult.Session.SessionId
+                });
+
+            Assert.Equal(1, generateCount);
+            Assert.Equal("miss", speculativeSnapshot.CacheStatus);
+            Assert.True(speculativeSnapshot.IsSpeculative);
+            Assert.Equal("hit", cachedSnapshot.CacheStatus);
+            Assert.True(cachedSnapshot.IsSpeculative);
+            Assert.Equal("run the tests", cachedSnapshot.Suggestions[0].Text);
+            Assert.False(string.IsNullOrWhiteSpace(cachedSnapshot.Fingerprint));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task FollowupSuggestionService_GetSuggestionsAsync_FallsBackWhenProviderSuggestionIsFiltered()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-followup-provider-filter-{Guid.NewGuid():N}");

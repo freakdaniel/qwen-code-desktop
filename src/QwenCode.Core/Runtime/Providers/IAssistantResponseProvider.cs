@@ -1,7 +1,4 @@
-﻿using QwenCode.Core.Runtime;
-using QwenCode.Core.Models;
-
-namespace QwenCode.Core.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Defines the contract for Assistant Response Provider

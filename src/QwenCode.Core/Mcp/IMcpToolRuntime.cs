@@ -1,5 +1,4 @@
-﻿using System.Text.Json;
-using QwenCode.Core.Models;
+﻿using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Mcp;
 
@@ -52,6 +51,18 @@ public interface IMcpToolRuntime
     /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
     /// <returns>A task that resolves to i read only list mcp prompt definition</returns>
     Task<IReadOnlyList<McpPromptDefinition>> ListPromptsAsync(
+        WorkspacePaths paths,
+        string serverName,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists resources async
+    /// </summary>
+    /// <param name="paths">The paths to process</param>
+    /// <param name="serverName">The server name</param>
+    /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
+    /// <returns>A task that resolves to i read only list mcp resource definition</returns>
+    Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(
         WorkspacePaths paths,
         string serverName,
         CancellationToken cancellationToken = default);

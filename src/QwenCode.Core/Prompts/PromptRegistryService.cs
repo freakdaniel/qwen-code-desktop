@@ -1,5 +1,4 @@
-﻿using System.Text.Json;
-using QwenCode.Core.Mcp;
+﻿using QwenCode.Core.Mcp;
 using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Prompts;

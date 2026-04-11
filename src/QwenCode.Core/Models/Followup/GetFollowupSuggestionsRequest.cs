@@ -14,4 +14,9 @@ public sealed class GetFollowupSuggestionsRequest
     /// Gets or sets the max count
     /// </summary>
     public int MaxCount { get; init; } = 3;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this request is speculative
+    /// </summary>
+    public bool Speculative { get; init; }
 }

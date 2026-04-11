@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using QwenCode.Core.Models;
-using QwenCode.Core.Runtime;
+﻿using QwenCode.Core.Runtime;
 
 namespace QwenCode.Core.Compatibility;
 

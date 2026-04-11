@@ -1,10 +1,4 @@
-﻿using System.Diagnostics;
-using System.Collections.Concurrent;
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using QwenCode.Core.Compatibility;
+﻿using QwenCode.Core.Compatibility;
 using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Mcp;
@@ -45,14 +39,16 @@ public sealed class McpToolRuntimeService(
         var session = await GetOrCreateSessionAsync(paths, server, forceReconnect: true, cancellationToken);
         var tools = await session.ListToolsAsync(cancellationToken);
         var prompts = await session.ListPromptsAsync(cancellationToken);
+        var resources = await session.ListResourcesAsync(cancellationToken);
         return new McpReconnectResult
         {
             Name = server.Name,
             Status = "connected",
             AttemptedAtUtc = DateTimeOffset.UtcNow,
-            Message = BuildConnectedMessage(server.Name, tools.Count, prompts.Count),
+            Message = BuildConnectedMessage(server.Name, tools.Count, prompts.Count, resources.Count),
             DiscoveredToolsCount = tools.Count,
             DiscoveredPromptsCount = prompts.Count,
+            DiscoveredResourcesCount = resources.Count,
             SupportsPrompts = session.SupportsPrompts,
             SupportsResources = session.SupportsResources,
             LastDiscoveryUtc = session.LastDiscoveryUtc
@@ -76,6 +72,7 @@ public sealed class McpToolRuntimeService(
         var session = await GetOrCreateSessionAsync(paths, server, forceReconnect: false, cancellationToken);
         var tools = await session.ListToolsAsync(cancellationToken);
         var prompts = await session.ListPromptsAsync(cancellationToken);
+        var resources = await session.ListResourcesAsync(cancellationToken);
         return new McpReconnectResult
         {
             Name = server.Name,
@@ -84,6 +81,7 @@ public sealed class McpToolRuntimeService(
             Message = $"MCP server '{server.Name}' is healthy.",
             DiscoveredToolsCount = tools.Count,
             DiscoveredPromptsCount = prompts.Count,
+            DiscoveredResourcesCount = resources.Count,
             SupportsPrompts = session.SupportsPrompts,
             SupportsResources = session.SupportsResources,
             LastDiscoveryUtc = session.LastDiscoveryUtc
@@ -150,7 +148,8 @@ public sealed class McpToolRuntimeService(
             {
                 var tools = await ListToolsForServerAsync(paths, server, cancellationToken);
                 var prompts = await ListPromptsForServerAsync(paths, server, cancellationToken);
-                sections.Add(FormatServerSummary(server, tools, prompts, includeSchema));
+                var resources = await ListResourcesForServerAsync(paths, server, cancellationToken);
+                sections.Add(FormatServerSummary(server, tools, prompts, resources, includeSchema));
             }
             catch (Exception exception)
             {
@@ -180,6 +179,23 @@ public sealed class McpToolRuntimeService(
         EnsureWorkspaceTrust(paths, "MCP prompts are unavailable in untrusted folders.");
         var server = ResolveServer(paths, serverName);
         return await ListPromptsForServerAsync(paths, server, cancellationToken);
+    }
+
+    /// <summary>
+    /// Lists resources async
+    /// </summary>
+    /// <param name="paths">The paths to process</param>
+    /// <param name="serverName">The server name</param>
+    /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
+    /// <returns>A task that resolves to i read only list mcp resource definition</returns>
+    public async Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(
+        WorkspacePaths paths,
+        string serverName,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureWorkspaceTrust(paths, "MCP resources are unavailable in untrusted folders.");
+        var server = ResolveServer(paths, serverName);
+        return await ListResourcesForServerAsync(paths, server, cancellationToken);
     }
 
     /// <summary>
@@ -346,6 +362,19 @@ public sealed class McpToolRuntimeService(
             .ToArray();
     }
 
+    private async Task<IReadOnlyList<McpResourceDefinition>> ListResourcesForServerAsync(
+        WorkspacePaths paths,
+        McpServerDefinition server,
+        CancellationToken cancellationToken)
+    {
+        var session = await GetOrCreateSessionAsync(paths, server, forceReconnect: false, cancellationToken);
+        var resources = await session.ListResourcesAsync(cancellationToken);
+        return resources
+            .OrderBy(static resource => resource.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static resource => resource.Uri, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     private async Task<PooledSession> GetOrCreateSessionAsync(
         WorkspacePaths paths,
         McpServerDefinition server,
@@ -390,6 +419,7 @@ public sealed class McpToolRuntimeService(
         McpServerDefinition server,
         IReadOnlyList<McpToolDefinition> tools,
         IReadOnlyList<McpPromptDefinition> prompts,
+        IReadOnlyList<McpResourceDefinition> resources,
         bool includeSchema)
     {
         var lines = new List<string> { FormatServerHeader(server) };
@@ -399,9 +429,9 @@ public sealed class McpToolRuntimeService(
             lines.Add(server.Description);
         }
 
-        if (prompts.Count == 0 && tools.Count == 0)
+        if (prompts.Count == 0 && resources.Count == 0 && tools.Count == 0)
         {
-            lines.Add("No tools or prompts discovered.");
+            lines.Add("No tools, prompts, or resources discovered.");
             return string.Join(Environment.NewLine, lines);
         }
 
@@ -419,6 +449,24 @@ public sealed class McpToolRuntimeService(
                 if (includeSchema)
                 {
                     lines.Add($"  arguments: {prompt.ArgumentsJson}");
+                }
+            }
+        }
+
+        if (resources.Count > 0)
+        {
+            lines.Add("Resources:");
+            foreach (var resource in resources)
+            {
+                lines.Add($"- {server.Name}/{resource.Uri}");
+                if (!string.IsNullOrWhiteSpace(resource.Description))
+                {
+                    lines.Add($"  {resource.Description}");
+                }
+
+                if (includeSchema && !string.IsNullOrWhiteSpace(resource.MimeType))
+                {
+                    lines.Add($"  mimeType: {resource.MimeType}");
                 }
             }
         }
@@ -469,12 +517,17 @@ public sealed class McpToolRuntimeService(
     private static string FormatServerHeader(McpServerDefinition server) =>
         $"Server {server.Name} ({server.Transport}, trust={server.Trust.ToString().ToLowerInvariant()})";
 
-    private static string BuildConnectedMessage(string serverName, int toolCount, int promptCount)
+    private static string BuildConnectedMessage(string serverName, int toolCount, int promptCount, int resourceCount)
     {
         var parts = new List<string> { $"{toolCount} tool(s)" };
         if (promptCount > 0)
         {
             parts.Add($"{promptCount} prompt(s)");
+        }
+
+        if (resourceCount > 0)
+        {
+            parts.Add($"{resourceCount} resource(s)");
         }
 
         return $"Connected to MCP server '{serverName}' and discovered {string.Join(" and ", parts)}.";
@@ -647,6 +700,29 @@ public sealed class McpToolRuntimeService(
             .ToArray();
     }
 
+    private static IReadOnlyList<McpResourceDefinition> ParseResources(string serverName, JsonArray? resources)
+    {
+        if (resources is null)
+        {
+            return [];
+        }
+
+        return resources
+            .OfType<JsonObject>()
+            .Select(resource => new McpResourceDefinition
+            {
+                ServerName = serverName,
+                Uri = resource["uri"]?.GetValue<string?>() ?? "unknown",
+                Name = resource["name"]?.GetValue<string?>()
+                    ?? resource["uri"]?.GetValue<string?>()
+                    ?? "unknown",
+                Description = resource["description"]?.GetValue<string?>() ?? string.Empty,
+                MimeType = resource["mimeType"]?.GetValue<string?>() ?? string.Empty
+            })
+            .Where(static resource => !string.Equals(resource.Uri, "unknown", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+    }
+
     private static string? TryGetString(JsonElement element, string propertyName) =>
         element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
             ? property.GetString()
@@ -691,6 +767,8 @@ public sealed class McpToolRuntimeService(
         Task<IReadOnlyList<McpToolDefinition>> ListToolsAsync(CancellationToken cancellationToken);
 
         Task<IReadOnlyList<McpPromptDefinition>> ListPromptsAsync(CancellationToken cancellationToken);
+
+        Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(CancellationToken cancellationToken);
 
         Task<McpReadResourceResponse> ReadResourceAsync(string uri, CancellationToken cancellationToken);
 
@@ -767,6 +845,14 @@ public sealed class McpToolRuntimeService(
         /// <returns>A task that resolves to i read only list mcp prompt definition</returns>
         public Task<IReadOnlyList<McpPromptDefinition>> ListPromptsAsync(CancellationToken cancellationToken) =>
             transport.ListPromptsAsync(cancellationToken);
+
+        /// <summary>
+        /// Lists resources async
+        /// </summary>
+        /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
+        /// <returns>A task that resolves to i read only list mcp resource definition</returns>
+        public Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(CancellationToken cancellationToken) =>
+            transport.ListResourcesAsync(cancellationToken);
 
         /// <summary>
         /// Reads resource async
@@ -898,6 +984,22 @@ public sealed class McpToolRuntimeService(
 
             var result = await SendRequestAsync("prompts/list", new JsonObject(), cancellationToken);
             return ParsePrompts(server.Name, result["prompts"] as JsonArray);
+        }
+
+        /// <summary>
+        /// Lists resources async
+        /// </summary>
+        /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
+        /// <returns>A task that resolves to i read only list mcp resource definition</returns>
+        public async Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(CancellationToken cancellationToken)
+        {
+            if (!supportsResources)
+            {
+                return [];
+            }
+
+            var result = await SendRequestAsync("resources/list", new JsonObject(), cancellationToken);
+            return ParseResources(server.Name, result["resources"] as JsonArray);
         }
 
         /// <summary>
@@ -1159,6 +1261,22 @@ public sealed class McpToolRuntimeService(
 
             var result = await SendRequestAsync("prompts/list", new JsonObject(), cancellationToken);
             return ParsePrompts(server.Name, result["prompts"] as JsonArray);
+        }
+
+        /// <summary>
+        /// Lists resources async
+        /// </summary>
+        /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
+        /// <returns>A task that resolves to i read only list mcp resource definition</returns>
+        public async Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(CancellationToken cancellationToken)
+        {
+            if (!supportsResources)
+            {
+                return [];
+            }
+
+            var result = await SendRequestAsync("resources/list", new JsonObject(), cancellationToken);
+            return ParseResources(server.Name, result["resources"] as JsonArray);
         }
 
         /// <summary>
@@ -1503,6 +1621,22 @@ public sealed class McpToolRuntimeService(
 
             var result = await SendRequestAsync("prompts/list", new JsonObject(), cancellationToken);
             return ParsePrompts(server.Name, result["prompts"] as JsonArray);
+        }
+
+        /// <summary>
+        /// Lists resources async
+        /// </summary>
+        /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
+        /// <returns>A task that resolves to i read only list mcp resource definition</returns>
+        public async Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(CancellationToken cancellationToken)
+        {
+            if (!supportsResources)
+            {
+                return [];
+            }
+
+            var result = await SendRequestAsync("resources/list", new JsonObject(), cancellationToken);
+            return ParseResources(server.Name, result["resources"] as JsonArray);
         }
 
         /// <summary>
@@ -1914,6 +2048,30 @@ public sealed class McpToolRuntimeService(
             {
                 LastDiscoveryUtc = DateTimeOffset.UtcNow;
                 return await session.ListPromptsAsync(cancellationToken);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        /// <summary>
+        /// Lists resources async
+        /// </summary>
+        /// <param name="cancellationToken">The token that can be used to cancel the operation</param>
+        /// <returns>A task that resolves to i read only list mcp resource definition</returns>
+        public async Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(CancellationToken cancellationToken)
+        {
+            if (session is null)
+            {
+                throw new InvalidOperationException($"MCP server '{server.Name}' is not connected.");
+            }
+
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                LastDiscoveryUtc = DateTimeOffset.UtcNow;
+                return await session.ListResourcesAsync(cancellationToken);
             }
             finally
             {

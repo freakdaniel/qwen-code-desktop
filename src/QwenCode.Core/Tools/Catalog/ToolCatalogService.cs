@@ -56,7 +56,9 @@ public sealed class ToolCatalogService(
                     Kind = tool.Kind,
                     SourcePath = tool.ContractPath,
                     ApprovalState = approval.State,
-                    ApprovalReason = approval.Reason
+                    ApprovalReason = approval.Reason,
+                    IsEnabled = !approval.IsWholeToolDenyRule,
+                    IsExplicitAskRule = approval.IsExplicitAskRule
                 };
             })
             .ToArray();

@@ -205,6 +205,20 @@ public interface IDesktopProjectionService
     Task<McpPromptInvocationResult> InvokeRegisteredPromptAsync(InvokePromptRegistryEntryRequest request);
 
     /// <summary>
+    /// Gets mcp resource registry async
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to mcp resource registry snapshot</returns>
+    Task<McpResourceRegistrySnapshot> GetMcpResourceRegistryAsync(GetMcpResourceRegistryRequest request);
+
+    /// <summary>
+    /// Reads registered mcp resource async
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to mcp resource read result</returns>
+    Task<McpResourceReadResult> ReadRegisteredMcpResourceAsync(ReadMcpResourceRegistryEntryRequest request);
+
+    /// <summary>
     /// Gets extension settings async
     /// </summary>
     /// <param name="request">The request payload</param>

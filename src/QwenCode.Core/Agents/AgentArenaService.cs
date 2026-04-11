@@ -1,11 +1,7 @@
-﻿using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using QwenCode.Core.Compatibility;
+﻿using QwenCode.Core.Compatibility;
 using QwenCode.Core.Infrastructure;
 using QwenCode.Core.Models;
 using QwenCode.Core.Runtime;
-using QwenCode.Core.Tools;
 
 namespace QwenCode.Core.Agents;
 

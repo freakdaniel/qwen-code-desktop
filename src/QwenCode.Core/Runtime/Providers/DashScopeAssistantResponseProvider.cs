@@ -1,12 +1,4 @@
-﻿using System.Diagnostics;
-using System.IO;
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using QwenCode.Core.Models;
-using QwenCode.Core.Runtime;
-using QwenCode.Core.Telemetry;
+﻿using QwenCode.Core.Telemetry;
 
 namespace QwenCode.Core.Runtime;
 

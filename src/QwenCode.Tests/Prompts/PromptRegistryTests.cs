@@ -165,6 +165,9 @@ public sealed class PromptRegistryTests
         public Task<IReadOnlyList<McpPromptDefinition>> ListPromptsAsync(WorkspacePaths paths, string serverName, CancellationToken cancellationToken = default) =>
             Task.FromResult(promptsByServer.TryGetValue(serverName, out var prompts) ? prompts : (IReadOnlyList<McpPromptDefinition>)[]);
 
+        public Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(WorkspacePaths paths, string serverName, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<string> DescribeAsync(WorkspacePaths paths, JsonElement arguments, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

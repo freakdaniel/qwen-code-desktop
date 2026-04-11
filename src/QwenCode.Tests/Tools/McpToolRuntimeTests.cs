@@ -17,6 +17,10 @@ public sealed class McpToolRuntimeTests
             prompts:
             [
                 CreatePrompt("workspace-summary", "Summarizes the workspace")
+            ],
+            resources:
+            [
+                CreateResource("README", "file://README.md", "Workspace README")
             ]);
 
         var root = Path.Combine(Path.GetTempPath(), $"qwen-mcp-runtime-{Guid.NewGuid():N}");
@@ -39,6 +43,8 @@ public sealed class McpToolRuntimeTests
             Assert.Contains("Server docs (http, trust=false)", output);
             Assert.Contains("Prompts:", output);
             Assert.Contains("docs/workspace-summary", output);
+            Assert.Contains("Resources:", output);
+            Assert.Contains("docs/file://README.md", output);
             Assert.Contains("mcp__docs__read-doc [read-only]", output);
             Assert.Contains("mcp__docs__write-doc [destructive]", output);
             Assert.Contains("\"type\":\"object\"", output);
@@ -221,6 +227,46 @@ public sealed class McpToolRuntimeTests
             Assert.Equal("docs", result.ServerName);
             Assert.Equal("file://README.md", result.Uri);
             Assert.Contains("resource content for file://README.md", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task McpToolRuntimeService_ListResourcesAsync_ReturnsResourceDefinitions()
+    {
+        await using var server = await FakeMcpHttpServer.StartAsync(
+            [CreateTool("read-doc", "Reads docs", readOnlyHint: true)],
+            resources:
+            [
+                CreateResource("README", "file://README.md", "Workspace README")
+            ]);
+
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-mcp-resource-list-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var (paths, _, _, registry, runtime) = CreateRuntime(root);
+            registry.AddServer(paths, new McpServerRegistrationRequest
+            {
+                Name = "docs",
+                Scope = "project",
+                Transport = "http",
+                CommandOrUrl = server.Url,
+                Trust = true
+            });
+
+            var resources = await runtime.ListResourcesAsync(paths, "docs");
+
+            var resource = Assert.Single(resources);
+            Assert.Equal("docs", resource.ServerName);
+            Assert.Equal("README", resource.Name);
+            Assert.Equal("file://README.md", resource.Uri);
+            Assert.Equal("Workspace README", resource.Description);
+            Assert.Equal("text/plain", resource.MimeType);
         }
         finally
         {
@@ -431,6 +477,15 @@ public sealed class McpToolRuntimeTests
             })
         };
 
+    private static JsonObject CreateResource(string name, string uri, string description) =>
+        new()
+        {
+            ["name"] = name,
+            ["uri"] = uri,
+            ["description"] = description,
+            ["mimeType"] = "text/plain"
+        };
+
     private static string BuildTrustedFoldersJson(string workspaceRoot, string trustValue) =>
         $$"""
         {
@@ -447,19 +502,22 @@ public sealed class McpToolRuntimeTests
         private readonly Func<string, JsonObject?, JsonObject> callHandler;
         private readonly IReadOnlyList<JsonObject> prompts;
         private readonly Func<string, JsonObject?, JsonObject> promptHandler;
+        private readonly IReadOnlyList<JsonObject> resources;
 
         private FakeMcpHttpServer(
             string url,
             IReadOnlyList<JsonObject> tools,
             Func<string, JsonObject?, JsonObject> callHandler,
             IReadOnlyList<JsonObject> prompts,
-            Func<string, JsonObject?, JsonObject> promptHandler)
+            Func<string, JsonObject?, JsonObject> promptHandler,
+            IReadOnlyList<JsonObject> resources)
         {
             Url = url;
             this.tools = tools;
             this.callHandler = callHandler;
             this.prompts = prompts;
             this.promptHandler = promptHandler;
+            this.resources = resources;
             var uri = new Uri(url, UriKind.Absolute);
             listener = new TcpListener(IPAddress.Parse(uri.Host), uri.Port);
             listener.Start();
@@ -472,7 +530,8 @@ public sealed class McpToolRuntimeTests
             IReadOnlyList<JsonObject> tools,
             Func<string, JsonObject?, JsonObject>? callHandler = null,
             IReadOnlyList<JsonObject>? prompts = null,
-            Func<string, JsonObject?, JsonObject>? promptHandler = null)
+            Func<string, JsonObject?, JsonObject>? promptHandler = null,
+            IReadOnlyList<JsonObject>? resources = null)
         {
             var port = GetFreePort();
             var url = $"http://127.0.0.1:{port}/";
@@ -507,7 +566,8 @@ public sealed class McpToolRuntimeTests
                     tools,
                     effectiveHandler,
                     prompts ?? [],
-                    effectivePromptHandler));
+                    effectivePromptHandler,
+                    resources ?? []));
         }
 
         public async ValueTask DisposeAsync()
@@ -586,6 +646,10 @@ public sealed class McpToolRuntimeTests
                 "prompts/list" => CreateResponse(idNode, new JsonObject
                 {
                     ["prompts"] = new JsonArray(prompts.Select(prompt => JsonNode.Parse(prompt.ToJsonString())!).ToArray())
+                }),
+                "resources/list" => CreateResponse(idNode, new JsonObject
+                {
+                    ["resources"] = new JsonArray(resources.Select(resource => JsonNode.Parse(resource.ToJsonString())!).ToArray())
                 }),
                 "prompts/get" => CreateResponse(
                     idNode,
@@ -832,6 +896,10 @@ public sealed class McpToolRuntimeTests
                 "tools/list" => CreateResponse(idNode, new JsonObject
                 {
                     ["tools"] = new JsonArray(tools.Select(tool => JsonNode.Parse(tool.ToJsonString())!).ToArray())
+                }),
+                "resources/list" => CreateResponse(idNode, new JsonObject
+                {
+                    ["resources"] = new JsonArray()
                 }),
                 "resources/read" => CreateResponse(idNode, new JsonObject
                 {

@@ -13,6 +13,7 @@ namespace QwenCode.App.Desktop;
 /// <param name="workspaceProjectionService">The workspace projection service</param>
 /// <param name="mcpProjectionService">The mcp projection service</param>
 /// <param name="promptProjectionService">The prompt projection service</param>
+/// <param name="mcpResourceProjectionService">The mcp resource projection service</param>
 /// <param name="followupProjectionService">The followup projection service</param>
 /// <param name="extensionProjectionService">The extension projection service</param>
 /// <param name="sessionProjectionService">The session projection service</param>
@@ -25,6 +26,7 @@ public sealed class DesktopAppService(
     IDesktopWorkspaceProjectionService workspaceProjectionService,
     IDesktopMcpProjectionService mcpProjectionService,
     IDesktopPromptProjectionService promptProjectionService,
+    IDesktopMcpResourceProjectionService mcpResourceProjectionService,
     IDesktopFollowupProjectionService followupProjectionService,
     IDesktopExtensionProjectionService extensionProjectionService,
     IDesktopSessionProjectionService sessionProjectionService) : IDesktopProjectionService
@@ -244,6 +246,22 @@ public sealed class DesktopAppService(
     /// <returns>A task that resolves to mcp prompt invocation result</returns>
     public Task<McpPromptInvocationResult> InvokeRegisteredPromptAsync(InvokePromptRegistryEntryRequest request) =>
         promptProjectionService.InvokeRegisteredPromptAsync(request);
+
+    /// <summary>
+    /// Gets MCP resource registry async
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to MCP resource registry snapshot</returns>
+    public Task<McpResourceRegistrySnapshot> GetMcpResourceRegistryAsync(GetMcpResourceRegistryRequest request) =>
+        mcpResourceProjectionService.GetResourceRegistryAsync(request);
+
+    /// <summary>
+    /// Reads registered MCP resource async
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to MCP resource read result</returns>
+    public Task<McpResourceReadResult> ReadRegisteredMcpResourceAsync(ReadMcpResourceRegistryEntryRequest request) =>
+        mcpResourceProjectionService.ReadRegisteredResourceAsync(request);
 
     /// <summary>
     /// Gets extension settings async

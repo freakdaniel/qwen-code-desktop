@@ -1,9 +1,6 @@
-﻿using System.Text.Json;
-using System.Text.Json.Nodes;
-using QwenCode.Core.Auth;
+﻿using QwenCode.Core.Auth;
 using QwenCode.Core.Config;
 using QwenCode.Core.Infrastructure;
-using QwenCode.Core.Runtime;
 using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Runtime;

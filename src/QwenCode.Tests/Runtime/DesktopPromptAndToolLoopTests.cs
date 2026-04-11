@@ -16,6 +16,7 @@ public sealed class DesktopPromptAndToolLoopTests
             UserInstructionSummary = "From ~/.qwen/QWEN.md:\n- Prefer native runtime integrations.",
             WorkspaceInstructionSummary = "From QWEN.md:\n- Keep reconnect flow stable.",
             DurableMemorySummary = "Project durable memory (QWEN.md):\n- Remember reconnect state.",
+            SessionMemorySummary = "Latest chat compression checkpoint for this session:\nCompression checkpoint: keep the approval UI fix in working memory.",
             McpServerSummary = "- docs (project): 3 tool(s), 2 prompt(s), resources available",
             McpPromptRegistrySummary = "Discovered MCP prompts: 2 across 1 server(s).\n- `docs/workspace-summary`. Summarizes the workspace. Args: scope.\n- `docs/release-notes`. Reads release notes. Args: version.",
             ScratchpadSummary = "Use `D:\\runtime\\tmp\\scratchpad\\desktop-prompt-session` for temporary files.",
@@ -73,10 +74,12 @@ public sealed class DesktopPromptAndToolLoopTests
         Assert.Contains("# User Instructions", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Workspace Instructions", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Durable Memory", systemContent, StringComparison.Ordinal);
+        Assert.Contains("# Session Memory", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Language Preferences", systemContent, StringComparison.Ordinal);
         Assert.Contains("# Output Expectations", systemContent, StringComparison.Ordinal);
         Assert.Contains("OpenAI-compatible function calling", systemContent, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("docs (project): 3 tool(s), 2 prompt(s), resources available", systemContent, StringComparison.Ordinal);
+        Assert.Contains("Compression checkpoint: keep the approval UI fix in working memory.", systemContent, StringComparison.Ordinal);
         Assert.Contains("Discovered MCP prompts: 2 across 1 server(s).", systemContent, StringComparison.Ordinal);
         Assert.Contains("scratchpad", systemContent, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("old raw tool output", systemContent, StringComparison.OrdinalIgnoreCase);
@@ -517,6 +520,7 @@ public sealed class DesktopPromptAndToolLoopTests
             UserInstructionSummary = "From ~/.qwen/QWEN.md:\n- Prefer native runtime integrations.",
             WorkspaceInstructionSummary = "From QWEN.md:\n- Keep reconnect flow stable.",
             DurableMemorySummary = "Project durable memory (QWEN.md):\n- Remember reconnect state.",
+            SessionMemorySummary = "Latest chat compression checkpoint for this session:\nCompression checkpoint: keep the approval UI fix in working memory.",
             McpServerSummary = "- docs (project): 3 tool(s), 2 prompt(s), resources available",
             ScratchpadSummary = "Use `D:\\runtime\\tmp\\scratchpad\\desktop-prompt-session` for temporary files.",
             LanguageSummary = "Preferred locale: en\nPreferred language: English",

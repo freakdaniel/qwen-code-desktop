@@ -13,7 +13,7 @@
     "bypassPermissionsDesc": "Принимать все разрешения"
   },
   "status": { "connected": "IPC подключён", "local": "Локальный режим" },
-  "top": { "settings": "Настройки", "skills": "Навыки и интеграции" },
+  "top": { "settings": "Настройки", "skills": "Навыки и интеграции", "directConnect": "Remote connect" },
   "sidebar": {
     "newChat": "Новый чат",
     "search": "Поиск",
@@ -50,6 +50,26 @@
     "close": "Закрыть поиск",
     "noResults": "Сессии не найдены",
     "startTyping": "Начните вводить текст..."
+  },
+  "directConnect": {
+    "title": "Remote connect",
+    "subtitle": "Локальный защищенный API для внешних клиентов и live-stream событий.",
+    "online": "online",
+    "starting": "starting",
+    "offline": "offline",
+    "refresh": "Обновить",
+    "baseUrl": "URL",
+    "token": "Token",
+    "sse": "SSE",
+    "curl": "curl",
+    "unavailable": "Недоступно",
+    "copyFailed": "Не удалось скопировать в буфер обмена",
+    "sessions": "Direct sessions",
+    "sessionsHint": "Создавайте соединения для внешних клиентов или закрывайте неактивные.",
+    "create": "Создать",
+    "noSessions": "Пока нет direct-connect сессий",
+    "noWorkingDir": "Рабочая директория не задана",
+    "closeSession": "Закрыть сессию"
   },
   "auth": {
     "welcomeTitle": "Добро пожаловать в Qwen Code",

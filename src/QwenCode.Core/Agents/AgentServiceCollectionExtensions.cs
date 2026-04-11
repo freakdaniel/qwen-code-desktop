@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-
-namespace QwenCode.Core.Agents;
+﻿namespace QwenCode.Core.Agents;
 
 /// <summary>
 /// Provides extension members for Agent Service Collection

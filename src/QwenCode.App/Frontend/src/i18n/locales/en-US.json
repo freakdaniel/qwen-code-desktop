@@ -13,7 +13,7 @@
     "bypassPermissionsDesc": "Accepts all permissions"
   },
   "status": { "connected": "IPC attached", "local": "Local preview" },
-  "top": { "settings": "Settings", "skills": "Skills & Integrations" },
+  "top": { "settings": "Settings", "skills": "Skills & Integrations", "directConnect": "Remote connect" },
   "sidebar": {
     "newChat": "New Chat",
     "search": "Search",
@@ -50,6 +50,26 @@
     "close": "Close search",
     "noResults": "No sessions found",
     "startTyping": "Start typing to search..."
+  },
+  "directConnect": {
+    "title": "Remote connect",
+    "subtitle": "Local protected API for external clients and live session events.",
+    "online": "online",
+    "starting": "starting",
+    "offline": "offline",
+    "refresh": "Refresh",
+    "baseUrl": "URL",
+    "token": "Token",
+    "sse": "SSE",
+    "curl": "curl",
+    "unavailable": "Unavailable",
+    "copyFailed": "Could not copy to clipboard",
+    "sessions": "Direct sessions",
+    "sessionsHint": "Create connections for external clients or close inactive ones.",
+    "create": "Create",
+    "noSessions": "No direct-connect sessions yet",
+    "noWorkingDir": "No working directory",
+    "closeSession": "Close session"
   },
   "auth": {
     "welcomeTitle": "Welcome to Qwen Code",

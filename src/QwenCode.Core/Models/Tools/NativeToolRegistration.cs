@@ -34,4 +34,14 @@ public sealed class NativeToolRegistration
     /// Gets or sets the approval reason
     /// </summary>
     public required string ApprovalReason { get; init; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the tool is enabled in the registry.
+    /// </summary>
+    public bool IsEnabled { get; init; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the approval state was forced by an explicit ask rule.
+    /// </summary>
+    public bool IsExplicitAskRule { get; init; }
 }

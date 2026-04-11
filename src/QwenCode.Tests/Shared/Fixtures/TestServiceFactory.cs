@@ -24,6 +24,7 @@ internal static class TestServiceFactory
             AppContext.BaseDirectory);
         var runtimeProfileService = new QwenRuntimeProfileService(environmentPaths);
         var approvalPolicyService = new ApprovalPolicyService();
+        var approvalSessionRuleStore = new ApprovalSessionRuleStore();
         var workspacePathResolver = new WorkspacePathResolver(environmentPaths);
         var shellOptions = Options.Create(options ?? new DesktopShellOptions());
         var authHttpClient = new HttpClient(new RecordingHttpMessageHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))));
@@ -45,7 +46,10 @@ internal static class TestServiceFactory
             runtimeProfileService);
         var projectSummaryService = new ProjectSummaryService();
         var toolRegistry = new ToolCatalogService(runtimeProfileService, approvalPolicyService);
-        var toolExecutor = new NativeToolHostService(runtimeProfileService, approvalPolicyService);
+        var toolExecutor = new NativeToolHostService(
+            runtimeProfileService,
+            approvalPolicyService,
+            approvalSessionRuleStore: approvalSessionRuleStore);
         var gitHistoryService = new GitHistoryService(new GitCliService(), runtimeProfileService);
         var workspaceInspectionService = new WorkspaceInspectionService(
             new GitWorktreeService(new GitCliService(), runtimeProfileService, gitHistoryService),
@@ -69,6 +73,13 @@ internal static class TestServiceFactory
         var transcriptStore = new DesktopSessionCatalogService(runtimeProfileService, chatRecordingService);
         var sessionService = (ISessionService)transcriptStore;
         var promptRegistryService = new PromptRegistryService(
+            mcpConnectionManager,
+            new McpToolRuntimeService(
+                mcpRegistry,
+                new FileMcpTokenStore(environmentPaths),
+                new HttpClient(),
+                runtimeProfileService));
+        var mcpResourceRegistryService = new McpResourceRegistryService(
             mcpConnectionManager,
             new McpToolRuntimeService(
                 mcpRegistry,
@@ -148,6 +159,10 @@ internal static class TestServiceFactory
                 shellOptions,
                 workspacePathResolver,
                 promptRegistryService),
+            new McpResourceProjectionService(
+                shellOptions,
+                workspacePathResolver,
+                mcpResourceRegistryService),
             new FollowupProjectionService(
                 shellOptions,
                 workspacePathResolver,
@@ -182,6 +197,7 @@ internal static class TestServiceFactory
         ITelemetryService? telemetryService = null)
     {
         var approvalPolicyService = new ApprovalPolicyService();
+        var approvalSessionRuleStore = new ApprovalSessionRuleStore();
         var effectiveInterruptedTurnStore = interruptedTurnStore ?? new InterruptedTurnStore();
         var chatRecordingService = new ChatRecordingService();
         var effectiveUserQuestionToolService = new UserQuestionToolService();
@@ -207,7 +223,11 @@ internal static class TestServiceFactory
             CreateAssistantTurnRuntime(),
             new ChatCompressionService(),
             chatRecordingService,
-            new NativeToolHostService(runtimeProfileService, approvalPolicyService, telemetryService: telemetryService),
+            new NativeToolHostService(
+                runtimeProfileService,
+                approvalPolicyService,
+                telemetryService: telemetryService,
+                approvalSessionRuleStore: approvalSessionRuleStore),
             hookLifecycleService ?? new PassthroughHookLifecycleService(),
             effectiveUserQuestionToolService,
             userPromptHookService ?? new PassthroughUserPromptHookService(),
@@ -217,7 +237,8 @@ internal static class TestServiceFactory
             new SessionTranscriptWriter(),
             new SessionEventFactory(),
             sessionMessageBus,
-            telemetryService);
+            telemetryService,
+            approvalSessionRuleStore: approvalSessionRuleStore);
     }
 
     internal static IAssistantTurnRuntime CreateAssistantTurnRuntime(

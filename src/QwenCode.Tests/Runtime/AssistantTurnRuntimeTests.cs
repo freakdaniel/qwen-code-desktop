@@ -240,6 +240,65 @@ public sealed class AssistantTurnRuntimeTests
     }
 
     [Fact]
+    public async Task AssistantTurnRuntime_SeedsApprovedToolResultWithoutReturningDuplicateExecution()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-approval-seed-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(homeRoot);
+            Directory.CreateDirectory(systemRoot);
+
+            var runtimeProfileService = new QwenRuntimeProfileService(new FakeDesktopEnvironmentPaths(homeRoot, systemRoot));
+            var provider = new ApprovalResolutionAssistantResponseProvider();
+            var runtime = TestServiceFactory.CreateAssistantTurnRuntime(provider);
+
+            var runtimeProfile = runtimeProfileService.Inspect(new WorkspacePaths { WorkspaceRoot = workspaceRoot });
+            var response = await runtime.GenerateAsync(
+                new AssistantTurnRequest
+                {
+                    SessionId = "approval-resolution-session",
+                    Prompt = "The user approved tool 'run_shell_command'. Continue from the updated tool result.",
+                    WorkingDirectory = workspaceRoot,
+                    TranscriptPath = Path.Combine(runtimeProfile.ChatsDirectory, "approval-resolution-session.jsonl"),
+                    RuntimeProfile = runtimeProfile,
+                    GitBranch = "main",
+                    ToolArgumentsJson = """{"command":"curl -s https://example.com"}""",
+                    ToolExecution = new NativeToolExecutionResult
+                    {
+                        ToolName = "run_shell_command",
+                        Status = "completed",
+                        ApprovalState = "allow",
+                        WorkingDirectory = workspaceRoot,
+                        Output = "approved command output",
+                        ErrorMessage = string.Empty,
+                        ExitCode = 0,
+                        ChangedFiles = []
+                    },
+                    IsApprovalResolution = true
+                });
+
+            Assert.Equal(1, provider.InvocationCount);
+            var seededToolResult = Assert.Single(provider.SeenToolHistory);
+            Assert.Equal("run_shell_command", seededToolResult.ToolCall.ToolName);
+            Assert.Equal("""{"command":"curl -s https://example.com"}""", seededToolResult.ToolCall.ArgumentsJson);
+            Assert.Equal("approved command output", seededToolResult.Execution.Output);
+            Assert.Empty(response.ToolExecutions);
+            Assert.Equal(0, response.Stats.ToolCallCount);
+            Assert.Equal("completed", response.StopReason);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task AssistantTurnRuntime_SchedulesMultipleToolCallsBeforeContinuingGeneration()
     {
         var root = Path.Combine(Path.GetTempPath(), $"qwen-assistant-multi-tool-{Guid.NewGuid():N}");
@@ -536,6 +595,35 @@ public sealed class AssistantTurnRuntimeTests
                     Summary = $"Two-tool loop complete after {toolHistory.Count} native execution(s).",
                     ProviderName = Name,
                     Model = "multi-tool-provider-model"
+                });
+        }
+    }
+
+    private sealed class ApprovalResolutionAssistantResponseProvider : IAssistantResponseProvider
+    {
+        public int InvocationCount { get; private set; }
+
+        public IReadOnlyList<AssistantToolCallResult> SeenToolHistory { get; private set; } = [];
+
+        public string Name => "approval-resolution-provider";
+
+        public Task<AssistantTurnResponse?> TryGenerateAsync(
+            AssistantTurnRequest request,
+            AssistantPromptContext promptContext,
+            IReadOnlyList<AssistantToolCallResult> toolHistory,
+            NativeAssistantRuntimeOptions options,
+            Action<AssistantRuntimeEvent>? eventSink = null,
+            CancellationToken cancellationToken = default)
+        {
+            InvocationCount++;
+            SeenToolHistory = toolHistory.ToArray();
+
+            return Task.FromResult<AssistantTurnResponse?>(
+                new AssistantTurnResponse
+                {
+                    Summary = $"Continued with {toolHistory.Count} approved tool result(s).",
+                    ProviderName = Name,
+                    Model = "approval-resolution-model"
                 });
         }
     }

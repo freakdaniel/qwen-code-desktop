@@ -1,8 +1,4 @@
-﻿using System.Diagnostics;
-using Microsoft.Extensions.Options;
-using QwenCode.Core.Models;
-using QwenCode.Core.Runtime;
-using QwenCode.Core.Tools;
+﻿using QwenCode.Core.Models;
 
 namespace QwenCode.Core.Runtime;
 
@@ -65,7 +61,8 @@ public sealed class AssistantTurnRuntime(
                 Status = "trimmed"
             });
         }
-        var toolHistory = new List<AssistantToolCallResult>();
+        var toolHistory = BuildInitialToolHistory(request);
+        var initialToolHistoryCount = toolHistory.Count;
         Exception? lastProviderFailure = null;
         string lastProviderName = string.Empty;
 
@@ -94,6 +91,7 @@ public sealed class AssistantTurnRuntime(
                     request,
                     promptContext,
                     toolHistory,
+                    initialToolHistoryCount,
                     eventSink,
                     cancellationToken);
                 if (response is not null)
@@ -148,6 +146,7 @@ public sealed class AssistantTurnRuntime(
         AssistantTurnRequest request,
         AssistantPromptContext promptContext,
         List<AssistantToolCallResult> toolHistory,
+        int initialToolHistoryCount,
         Action<AssistantRuntimeEvent>? eventSink,
         CancellationToken cancellationToken)
     {
@@ -197,13 +196,16 @@ public sealed class AssistantTurnRuntime(
                     ProviderName = provider.Name,
                     Model = response.Model,
                     StopReason = "content-loop-detected",
-                    ToolExecutions = toolHistory.ToArray(),
-                    Stats = AssistantExecutionDiagnostics.BuildStats(roundCount, toolHistory)
+                    ToolExecutions = MaterializeNewToolExecutions(toolHistory, initialToolHistoryCount),
+                    Stats = AssistantExecutionDiagnostics.BuildStats(
+                        roundCount,
+                        MaterializeNewToolExecutions(toolHistory, initialToolHistoryCount))
                 };
             }
 
             if (response.ToolCalls.Count == 0)
             {
+                var newToolExecutions = MaterializeNewToolExecutions(toolHistory, initialToolHistoryCount);
                 return new AssistantTurnResponse
                 {
                     Summary = response.Summary,
@@ -211,8 +213,8 @@ public sealed class AssistantTurnRuntime(
                     Model = response.Model,
                     StopReason = AssistantExecutionDiagnostics.ResolveStopReason(response),
                     ToolCalls = response.ToolCalls,
-                    ToolExecutions = toolHistory.ToArray(),
-                    Stats = AssistantExecutionDiagnostics.BuildStats(roundCount, toolHistory)
+                    ToolExecutions = newToolExecutions,
+                    Stats = AssistantExecutionDiagnostics.BuildStats(roundCount, newToolExecutions)
                 };
             }
 
@@ -227,16 +229,17 @@ public sealed class AssistantTurnRuntime(
 
             if (!scheduleResult.ContinueTurnLoop)
             {
+                var newToolExecutions = MaterializeNewToolExecutions(toolHistory, initialToolHistoryCount);
                 var terminalStats = string.Equals(scheduleResult.TerminalStopReason, "tool-loop-detected", StringComparison.OrdinalIgnoreCase)
                     ? new AssistantExecutionStats
                     {
                         RoundCount = roundCount,
-                        ToolCallCount = toolHistory.Count,
+                        ToolCallCount = newToolExecutions.Count,
                         SuccessfulToolCallCount = 0,
-                        FailedToolCallCount = toolHistory.Count,
+                        FailedToolCallCount = newToolExecutions.Count,
                         DurationMs = 0
                     }
-                    : AssistantExecutionDiagnostics.BuildStats(roundCount, toolHistory);
+                    : AssistantExecutionDiagnostics.BuildStats(roundCount, newToolExecutions);
 
                 return new AssistantTurnResponse
                 {
@@ -245,15 +248,16 @@ public sealed class AssistantTurnRuntime(
                     Model = response.Model,
                     StopReason = scheduleResult.TerminalStopReason,
                     ToolCalls = response.ToolCalls,
-                    ToolExecutions = toolHistory.ToArray(),
+                    ToolExecutions = newToolExecutions,
                     Stats = terminalStats
                 };
             }
         }
 
-        var fallbackSummary = toolHistory.Count == 0
+        var terminalToolExecutions = MaterializeNewToolExecutions(toolHistory, initialToolHistoryCount);
+        var fallbackSummary = terminalToolExecutions.Count == 0
             ? "The assistant stopped before it could produce a final response."
-            : $"Stopped after {toolHistory.Count} tool call(s) because the turn hit the iteration limit before reaching a final answer.";
+            : $"Stopped after {terminalToolExecutions.Count} tool call(s) because the turn hit the iteration limit before reaching a final answer.";
 
         return new AssistantTurnResponse
         {
@@ -261,9 +265,50 @@ public sealed class AssistantTurnRuntime(
             ProviderName = provider.Name,
             Model = string.IsNullOrWhiteSpace(request.ModelOverride) ? _options.Model : request.ModelOverride,
             StopReason = "iteration-limit",
-            ToolExecutions = toolHistory.ToArray(),
-            Stats = AssistantExecutionDiagnostics.BuildStats(maxIterations, toolHistory)
+            ToolExecutions = terminalToolExecutions,
+            Stats = AssistantExecutionDiagnostics.BuildStats(maxIterations, terminalToolExecutions)
         };
+    }
+
+    private static List<AssistantToolCallResult> BuildInitialToolHistory(AssistantTurnRequest request)
+    {
+        if (!request.IsApprovalResolution ||
+            string.IsNullOrWhiteSpace(request.ToolExecution.ToolName) ||
+            string.Equals(request.ToolExecution.Status, "not-requested", StringComparison.OrdinalIgnoreCase))
+        {
+            return [];
+        }
+
+        return
+        [
+            new AssistantToolCallResult
+            {
+                ToolCall = new AssistantToolCall
+                {
+                    Id = $"approval-resolution-{Guid.NewGuid():N}",
+                    ToolName = request.ToolExecution.ToolName,
+                    ArgumentsJson = string.IsNullOrWhiteSpace(request.ToolArgumentsJson) ? "{}" : request.ToolArgumentsJson
+                },
+                Execution = request.ToolExecution
+            }
+        ];
+    }
+
+    private static IReadOnlyList<AssistantToolCallResult> MaterializeNewToolExecutions(
+        IReadOnlyList<AssistantToolCallResult> toolHistory,
+        int initialToolHistoryCount)
+    {
+        if (initialToolHistoryCount <= 0)
+        {
+            return toolHistory.ToArray();
+        }
+
+        if (toolHistory.Count <= initialToolHistoryCount)
+        {
+            return [];
+        }
+
+        return toolHistory.Skip(initialToolHistoryCount).ToArray();
     }
 
     private static AssistantTurnResponse FinalizeResponse(

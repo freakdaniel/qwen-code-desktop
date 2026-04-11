@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-
-namespace QwenCode.Core.Mcp;
+﻿namespace QwenCode.Core.Mcp;
 
 /// <summary>
 /// Provides extension members for Mcp Service Collection
@@ -19,6 +17,7 @@ public static class McpServiceCollectionExtensions
         services.AddSingleton<IMcpRegistry, McpRegistryService>();
         services.AddSingleton<IMcpConnectionManager, McpConnectionManagerService>();
         services.AddSingleton<IMcpToolRuntime, McpToolRuntimeService>();
+        services.AddSingleton<IMcpResourceRegistryService, McpResourceRegistryService>();
         return services;
     }
 }

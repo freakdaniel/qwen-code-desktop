@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-using System.Text.Json;
-using QwenCode.Core.Infrastructure;
+﻿using QwenCode.Core.Infrastructure;
 using QwenCode.Core.Models;
 using QwenCode.Core.Sessions;
 

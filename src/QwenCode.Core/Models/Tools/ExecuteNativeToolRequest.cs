@@ -16,6 +16,11 @@ public sealed class ExecuteNativeToolRequest
     public string ArgumentsJson { get; init; } = "{}";
 
     /// <summary>
+    /// Gets or sets the session id for session-scoped permission rules.
+    /// </summary>
+    public string SessionId { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the approve execution
     /// </summary>
     public bool ApproveExecution { get; init; }

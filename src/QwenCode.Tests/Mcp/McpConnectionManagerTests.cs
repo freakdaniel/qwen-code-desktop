@@ -328,6 +328,12 @@ public sealed class McpConnectionManagerTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(
+            WorkspacePaths paths,
+            string serverName,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<McpToolDefinition> ResolveToolAsync(
             WorkspacePaths paths,
             string serverName,
@@ -426,6 +432,12 @@ public sealed class McpConnectionManagerTests
             throw new NotSupportedException();
 
         public Task<IReadOnlyList<McpPromptDefinition>> ListPromptsAsync(
+            WorkspacePaths paths,
+            string serverName,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<McpResourceDefinition>> ListResourcesAsync(
             WorkspacePaths paths,
             string serverName,
             CancellationToken cancellationToken = default) =>

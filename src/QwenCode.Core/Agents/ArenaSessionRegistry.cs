@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using QwenCode.Core.Models;
+﻿using QwenCode.Core.Models;
 using QwenCode.Core.Runtime;
 
 namespace QwenCode.Core.Agents;

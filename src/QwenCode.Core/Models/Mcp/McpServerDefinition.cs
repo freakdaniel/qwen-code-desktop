@@ -98,6 +98,16 @@ public sealed class McpServerDefinition
     public bool HasPersistedToken { get; init; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether a static authorization header is configured
+    /// </summary>
+    public bool HasStaticAuthorizationHeader { get; init; }
+
+    /// <summary>
+    /// Gets or sets the authentication status
+    /// </summary>
+    public string AuthenticationStatus { get; init; } = "none";
+
+    /// <summary>
     /// Gets or sets the discovered tools count
     /// </summary>
     public int DiscoveredToolsCount { get; init; }
@@ -106,6 +116,11 @@ public sealed class McpServerDefinition
     /// Gets or sets the discovered prompts count
     /// </summary>
     public int DiscoveredPromptsCount { get; init; }
+
+    /// <summary>
+    /// Gets or sets the discovered resources count
+    /// </summary>
+    public int DiscoveredResourcesCount { get; init; }
 
     /// <summary>
     /// Gets or sets the supports prompts

@@ -12,7 +12,8 @@
     "local": "本地模式"
   },
   "top": {
-    "settings": "设置"
+    "settings": "设置",
+    "directConnect": "Remote connect"
   },
   "sidebar": {
     "newChat": "新聊天",
@@ -49,6 +50,26 @@
     "close": "关闭搜索",
     "noResults": "未找到会话",
     "startTyping": "开始输入以搜索..."
+  },
+  "directConnect": {
+    "title": "Remote connect",
+    "subtitle": "Local protected API for external clients and live session events.",
+    "online": "online",
+    "starting": "starting",
+    "offline": "offline",
+    "refresh": "Refresh",
+    "baseUrl": "URL",
+    "token": "Token",
+    "sse": "SSE",
+    "curl": "curl",
+    "unavailable": "Unavailable",
+    "copyFailed": "Could not copy to clipboard",
+    "sessions": "Direct sessions",
+    "sessionsHint": "Create connections for external clients or close inactive ones.",
+    "create": "Create",
+    "noSessions": "No direct-connect sessions yet",
+    "noWorkingDir": "No working directory",
+    "closeSession": "Close session"
   },
   "auth": {
     "welcomeTitle": "欢迎使用 Qwen Code",

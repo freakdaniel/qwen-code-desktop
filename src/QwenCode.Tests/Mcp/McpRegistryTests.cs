@@ -164,4 +164,63 @@ public sealed class McpRegistryTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task McpRegistryService_ListServers_ExposesAuthenticationStatus()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"qwen-mcp-registry-auth-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            var workspaceRoot = Path.Combine(root, "workspace");
+            var homeRoot = Path.Combine(root, "home");
+            var systemRoot = Path.Combine(root, "system");
+            Directory.CreateDirectory(workspaceRoot);
+            Directory.CreateDirectory(Path.Combine(homeRoot, ".qwen"));
+            Directory.CreateDirectory(systemRoot);
+
+            await File.WriteAllTextAsync(
+                Path.Combine(homeRoot, ".qwen", "settings.json"),
+                """
+                {
+                  "mcpServers": {
+                    "static-auth": {
+                      "httpUrl": "https://example.com/mcp",
+                      "headers": {
+                        "Authorization": "Bearer static"
+                      }
+                    },
+                    "stored-token": {
+                      "httpUrl": "https://example.com/token-mcp"
+                    }
+                  }
+                }
+                """);
+
+            var paths = new WorkspacePaths { WorkspaceRoot = workspaceRoot };
+            var environment = new FakeDesktopEnvironmentPaths(homeRoot, systemRoot);
+            var tokenStore = new FileMcpTokenStore(environment);
+            var registry = new McpRegistryService(
+                new QwenRuntimeProfileService(environment),
+                tokenStore);
+
+            await tokenStore.SaveTokenAsync("stored-token", """{"access_token":"abc"}""");
+
+            var servers = registry.ListServers(paths);
+            var staticAuth = servers.Single(server => server.Name == "static-auth");
+            var storedToken = servers.Single(server => server.Name == "stored-token");
+
+            Assert.True(staticAuth.HasStaticAuthorizationHeader);
+            Assert.False(staticAuth.HasPersistedToken);
+            Assert.Equal("static-header", staticAuth.AuthenticationStatus);
+            Assert.False(storedToken.HasStaticAuthorizationHeader);
+            Assert.True(storedToken.HasPersistedToken);
+            Assert.Equal("persisted-token", storedToken.AuthenticationStatus);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

@@ -1,7 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using QwenCode.Core.Models;
-
-namespace QwenCode.Core.Permissions;
+﻿namespace QwenCode.Core.Permissions;
 
 /// <summary>
 /// Provides extension members for Permission Service Collection
@@ -16,6 +13,7 @@ public static class PermissionServiceCollectionExtensions
     public static IServiceCollection AddPermissionServices(this IServiceCollection services)
     {
         services.AddSingleton<IApprovalPolicyEngine, ApprovalPolicyService>();
+        services.AddSingleton<IApprovalSessionRuleStore, ApprovalSessionRuleStore>();
 
         return services;
     }

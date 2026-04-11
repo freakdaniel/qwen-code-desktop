@@ -12,7 +12,8 @@
     "local": "ローカルモード"
   },
   "top": {
-    "settings": "設定"
+    "settings": "設定",
+    "directConnect": "Remote connect"
   },
   "sidebar": {
     "newChat": "新しいチャット",
@@ -49,6 +50,26 @@
     "close": "検索を閉じる",
     "noResults": "セッションが見つかりません",
     "startTyping": "入力して検索..."
+  },
+  "directConnect": {
+    "title": "Remote connect",
+    "subtitle": "Local protected API for external clients and live session events.",
+    "online": "online",
+    "starting": "starting",
+    "offline": "offline",
+    "refresh": "Refresh",
+    "baseUrl": "URL",
+    "token": "Token",
+    "sse": "SSE",
+    "curl": "curl",
+    "unavailable": "Unavailable",
+    "copyFailed": "Could not copy to clipboard",
+    "sessions": "Direct sessions",
+    "sessionsHint": "Create connections for external clients or close inactive ones.",
+    "create": "Create",
+    "noSessions": "No direct-connect sessions yet",
+    "noWorkingDir": "No working directory",
+    "closeSession": "Close session"
   },
   "auth": {
     "welcomeTitle": "Qwen Code へようこそ",

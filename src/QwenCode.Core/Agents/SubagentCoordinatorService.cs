@@ -1,9 +1,4 @@
-﻿using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using QwenCode.Core.Compatibility;
+﻿using QwenCode.Core.Compatibility;
 using QwenCode.Core.Hooks;
 using QwenCode.Core.Infrastructure;
 using QwenCode.Core.Models;

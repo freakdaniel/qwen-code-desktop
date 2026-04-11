@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Options;
-using QwenCode.Core.Compatibility;
+﻿using QwenCode.Core.Compatibility;
 using QwenCode.Core.Models;
 using QwenCode.Core.Runtime;
 

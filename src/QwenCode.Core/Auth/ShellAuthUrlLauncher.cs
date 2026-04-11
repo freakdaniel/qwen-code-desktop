@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-
-namespace QwenCode.Core.Auth;
+﻿namespace QwenCode.Core.Auth;
 
 /// <summary>
 /// Represents the Shell Auth Url Launcher

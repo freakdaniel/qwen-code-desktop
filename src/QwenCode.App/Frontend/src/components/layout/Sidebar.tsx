@@ -7,7 +7,7 @@ import {
   Skeleton,
 } from '@chakra-ui/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle } from 'lucide-react';
+import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle, RadioTower } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SessionPreview } from '@/types/desktop';
@@ -22,6 +22,7 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenSearch?: () => void;
   onOpenSkills?: () => void;
+  onOpenDirectConnect?: () => void;
 }
 
 function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslation>['t']): string {
@@ -87,6 +88,7 @@ export default function Sidebar({
   onOpenSettings = () => console.log('Settings clicked'),
   onOpenSearch = () => console.log('Search opened'),
   onOpenSkills = () => console.log('Skills clicked'),
+  onOpenDirectConnect = () => console.log('Direct connect clicked'),
 }: SidebarProps) {
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -175,6 +177,22 @@ export default function Sidebar({
               _hover={{ bg: 'gray.700', color: 'gray.200' }}
             >
               {t('top.settings')}
+            </Button>
+            <Button
+              leftIcon={<RadioTower size={15} />}
+              variant="ghost"
+              colorScheme="gray"
+              size="sm"
+              width="100%"
+              justifyContent="flex-start"
+              fontWeight="regular"
+              borderRadius="md"
+              h="36px"
+              onClick={onOpenDirectConnect}
+              color="gray.400"
+              _hover={{ bg: 'gray.700', color: 'gray.200' }}
+            >
+              {t('top.directConnect')}
             </Button>
           </VStack>
         </Box>

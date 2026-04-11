@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-
-namespace QwenCode.Core.Ide;
+﻿namespace QwenCode.Core.Ide;
 
 /// <summary>
 /// Represents the Ide Process Probe

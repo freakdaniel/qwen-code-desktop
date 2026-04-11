@@ -36,6 +36,11 @@ public sealed class McpReconnectResult
     public int DiscoveredPromptsCount { get; init; }
 
     /// <summary>
+    /// Gets or sets the discovered resources count
+    /// </summary>
+    public int DiscoveredResourcesCount { get; init; }
+
+    /// <summary>
     /// Gets or sets the supports prompts
     /// </summary>
     public bool SupportsPrompts { get; init; }

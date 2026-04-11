@@ -1,6 +1,4 @@
-﻿using QwenCode.Core.Runtime;
-
-namespace QwenCode.Core.Runtime;
+﻿namespace QwenCode.Core.Runtime;
 
 /// <summary>
 /// Defines the contract for Token Limit Service

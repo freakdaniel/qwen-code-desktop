@@ -6,6 +6,7 @@ using QwenCode.Core.Channels;
 using QwenCode.Core.Compatibility;
 using QwenCode.Core.Config;
 using QwenCode.App.Desktop;
+using QwenCode.App.Desktop.DirectConnect;
 using QwenCode.Core.Extensions;
 using QwenCode.Core.Hooks;
 using QwenCode.Core.Ide;
@@ -44,6 +45,8 @@ public static class DesktopShellServiceCollectionExtensions
             .Bind(configuration.GetSection(DesktopShellOptions.SectionName));
         services.AddOptions<NativeAssistantRuntimeOptions>()
             .Bind(configuration.GetSection(NativeAssistantRuntimeOptions.SectionName));
+        services.AddOptions<DirectConnectServerOptions>()
+            .Bind(configuration.GetSection(DirectConnectServerOptions.SectionName));
 
         services
             .AddInfrastructureServices()

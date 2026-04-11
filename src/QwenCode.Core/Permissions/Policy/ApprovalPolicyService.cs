@@ -17,15 +17,25 @@ public sealed class ApprovalPolicyService : IApprovalPolicyEngine
         ApprovalCheckContext context,
         ApprovalProfile approvalProfile)
     {
+        if (PermissionRuleParser.IsShellTool(context.ToolName) &&
+            !string.IsNullOrWhiteSpace(context.Command) &&
+            PermissionRuleParser.SplitCompoundCommand(context.Command) is { Count: > 1 } subCommands)
+        {
+            return EvaluateCompoundShellCommand(context, approvalProfile, subCommands);
+        }
+
         var contexts = BuildCandidateContexts(context);
         var primaryContext = contexts[0];
 
         if (TryMatchRule(approvalProfile.DenyRules, contexts, out var denyRule))
         {
+            var parsedDenyRule = PermissionRuleParser.Parse(denyRule);
             return new ApprovalDecision
             {
                 State = "deny",
-                Reason = $"Blocked by explicit qwen-compatible deny rule '{denyRule}'."
+                Reason = $"Blocked by explicit qwen-compatible deny rule '{denyRule}'.",
+                MatchedRule = denyRule,
+                IsWholeToolDenyRule = string.IsNullOrWhiteSpace(parsedDenyRule.Specifier)
             };
         }
 
@@ -34,7 +44,9 @@ public sealed class ApprovalPolicyService : IApprovalPolicyEngine
             return new ApprovalDecision
             {
                 State = "ask",
-                Reason = $"Requires confirmation due to explicit ask rule '{askRule}'."
+                Reason = $"Requires confirmation due to explicit ask rule '{askRule}'.",
+                MatchedRule = askRule,
+                IsExplicitAskRule = true
             };
         }
 
@@ -43,7 +55,8 @@ public sealed class ApprovalPolicyService : IApprovalPolicyEngine
             return new ApprovalDecision
             {
                 State = "allow",
-                Reason = $"Allowed by explicit compatibility rule '{allowRule}'."
+                Reason = $"Allowed by explicit compatibility rule '{allowRule}'.",
+                MatchedRule = allowRule
             };
         }
 
@@ -69,13 +82,35 @@ public sealed class ApprovalPolicyService : IApprovalPolicyEngine
         }
 
         if (string.Equals(primaryContext.ToolName, "run_shell_command", StringComparison.OrdinalIgnoreCase) &&
-            approvalProfile.ConfirmShellCommands == true)
+            !string.IsNullOrWhiteSpace(primaryContext.Command))
         {
-            return new ApprovalDecision
+            if (ShellOperationAnalyzer.ContainsCommandSubstitution(primaryContext.Command))
             {
-                State = "ask",
-                Reason = "Requires confirmation due to shell confirmation setting."
-            };
+                return new ApprovalDecision
+                {
+                    State = "deny",
+                    Reason = "Blocked because the shell command uses command substitution."
+                };
+            }
+
+            if (approvalProfile.ConfirmShellCommands == true)
+            {
+                return new ApprovalDecision
+                {
+                    State = "ask",
+                    Reason = "Requires confirmation due to shell confirmation setting."
+                };
+            }
+
+            if (!string.IsNullOrWhiteSpace(primaryContext.WorkingDirectory) &&
+                ShellOperationAnalyzer.IsReadOnlyCommand(primaryContext.Command, primaryContext.WorkingDirectory))
+            {
+                return new ApprovalDecision
+                {
+                    State = "allow",
+                    Reason = "Allowed by qwen-compatible read-only shell command analysis."
+                };
+            }
         }
 
         if (primaryContext.ToolName is "edit" or "write_file" &&
@@ -106,6 +141,57 @@ public sealed class ApprovalPolicyService : IApprovalPolicyEngine
             Reason = decision.Item2
         };
     }
+
+    private ApprovalDecision EvaluateCompoundShellCommand(
+        ApprovalCheckContext context,
+        ApprovalProfile approvalProfile,
+        IReadOnlyList<string> subCommands)
+    {
+        ApprovalDecision? mostRestrictive = null;
+        var mostRestrictiveCommand = string.Empty;
+
+        foreach (var subCommand in subCommands)
+        {
+            var decision = Evaluate(context with { Command = subCommand }, approvalProfile);
+            if (mostRestrictive is null ||
+                GetDecisionPriority(decision.State) > GetDecisionPriority(mostRestrictive.State))
+            {
+                mostRestrictive = decision;
+                mostRestrictiveCommand = subCommand;
+            }
+
+            if (string.Equals(mostRestrictive.State, "deny", StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+        }
+
+        if (mostRestrictive is null)
+        {
+            return new ApprovalDecision
+            {
+                State = "ask",
+                Reason = "Requires confirmation because the compound shell command could not be evaluated."
+            };
+        }
+
+        return new ApprovalDecision
+        {
+            State = mostRestrictive.State,
+            Reason = string.Equals(mostRestrictive.State, "allow", StringComparison.OrdinalIgnoreCase)
+                ? "Allowed because every compound shell command segment is allowed."
+                : $"Compound shell command requires '{mostRestrictive.State}' because segment '{mostRestrictiveCommand}' matched: {mostRestrictive.Reason}"
+        };
+    }
+
+    private static int GetDecisionPriority(string state) =>
+        state.ToLowerInvariant() switch
+        {
+            "deny" => 3,
+            "ask" => 2,
+            "allow" => 0,
+            _ => 1
+        };
 
     private static bool TryMatchRule(
         IReadOnlyList<string> rules,

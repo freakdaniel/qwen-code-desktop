@@ -1,5 +1,4 @@
-﻿using System.Text.Json;
-using QwenCode.Core.Models;
+﻿using QwenCode.Core.Models;
 using QwenCode.Core.Runtime;
 
 namespace QwenCode.Core.Sessions;

@@ -1,8 +1,4 @@
-﻿using System.Text;
-using System.Text.RegularExpressions;
-using QwenCode.Core.Models;
-
-namespace QwenCode.Core.Permissions;
+﻿namespace QwenCode.Core.Permissions;
 
 internal static class PermissionRuleParser
 {
@@ -222,7 +218,7 @@ internal static class PermissionRuleParser
             .Any(segment => MatchesSingleCommandPattern(pattern, segment));
     }
 
-    private static IReadOnlyList<string> SplitCompoundCommand(string command)
+    internal static IReadOnlyList<string> SplitCompoundCommand(string command)
     {
         var commands = new List<string>();
         var builder = new StringBuilder();

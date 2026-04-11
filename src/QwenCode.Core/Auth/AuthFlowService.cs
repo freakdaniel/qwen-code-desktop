@@ -1,10 +1,4 @@
-﻿using System.Net;
-using System.Net.Http.Headers;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using QwenCode.Core.Compatibility;
+﻿using QwenCode.Core.Compatibility;
 using QwenCode.Core.Config;
 using QwenCode.Core.Infrastructure;
 using QwenCode.Core.Models;

@@ -1,7 +1,5 @@
-﻿using Microsoft.Extensions.Options;
-using QwenCode.Core.Config;
+﻿using QwenCode.Core.Config;
 using QwenCode.Core.Models;
-using QwenCode.Core.Runtime;
 
 namespace QwenCode.Core.Runtime;
 

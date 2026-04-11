@@ -31,6 +31,7 @@ public sealed class NonInteractiveToolExecutor(IToolExecutor toolExecutor) : INo
             {
                 ToolName = toolCall.ToolName,
                 ArgumentsJson = string.IsNullOrWhiteSpace(toolCall.ArgumentsJson) ? "{}" : toolCall.ArgumentsJson,
+                SessionId = request.SessionId,
                 ApproveExecution = false
             },
             eventSink,

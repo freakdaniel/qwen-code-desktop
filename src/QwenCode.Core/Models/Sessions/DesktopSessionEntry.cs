@@ -76,6 +76,16 @@ public sealed class DesktopSessionEntry
     public string SourcePath { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets a value indicating whether approval was forced by an explicit ask rule.
+    /// </summary>
+    public bool IsExplicitAskRule { get; init; }
+
+    /// <summary>
+    /// Gets or sets the matched approval rule.
+    /// </summary>
+    public string MatchedApprovalRule { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the resolution status
     /// </summary>
     public string ResolutionStatus { get; init; } = string.Empty;

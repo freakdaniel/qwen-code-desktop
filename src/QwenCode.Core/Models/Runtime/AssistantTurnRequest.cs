@@ -53,6 +53,11 @@ public sealed class AssistantTurnRequest
     public required NativeToolExecutionResult ToolExecution { get; init; }
 
     /// <summary>
+    /// Gets or sets the arguments json for a pre-executed tool result.
+    /// </summary>
+    public string ToolArgumentsJson { get; init; } = "{}";
+
+    /// <summary>
     /// Gets or sets a value indicating whether is approval resolution
     /// </summary>
     public bool IsApprovalResolution { get; init; }

@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using QwenCode.App.Desktop.DirectConnect;
 using QwenCode.App.Desktop.Projection;
 using QwenCode.Core.Models;
 
@@ -23,12 +24,15 @@ public static class DesktopServiceCollectionExtensions
         services.AddSingleton<IDesktopChannelProjectionService, ChannelProjectionService>();
         services.AddSingleton<IDesktopMcpProjectionService, McpProjectionService>();
         services.AddSingleton<IDesktopPromptProjectionService, PromptProjectionService>();
+        services.AddSingleton<IDesktopMcpResourceProjectionService, McpResourceProjectionService>();
         services.AddSingleton<IDesktopFollowupProjectionService, FollowupProjectionService>();
         services.AddSingleton<IDesktopExtensionProjectionService, ExtensionProjectionService>();
         services.AddSingleton<IDesktopWorkspaceProjectionService, WorkspaceProjectionService>();
         services.AddSingleton<IDesktopSessionProjectionService, SessionProjectionService>();
         services.AddSingleton<ISessionEventPublisher>(sp =>
             (ISessionEventPublisher)sp.GetRequiredService<IDesktopSessionProjectionService>());
+        services.AddSingleton<IDirectConnectSessionService, DirectConnectSessionService>();
+        services.AddSingleton<IDirectConnectServerHost, DirectConnectHttpServerHost>();
         services.AddSingleton<ISessionTitleGenerationService, SessionTitleGenerationService>();
         services.AddSingleton<IDesktopProjectionService, DesktopAppService>();
 

@@ -44,6 +44,11 @@ export interface AnswerDesktopSessionQuestionRequest {
   answers: DesktopQuestionAnswer[];
 }
 
+export interface AnswerDirectConnectSessionQuestionRequest {
+  directConnectSessionId: string;
+  answer: AnswerDesktopSessionQuestionRequest;
+}
+
 export interface AppBootstrapPayload {
   productName: string;
   currentMode: DesktopMode;
@@ -90,6 +95,11 @@ export interface ApproveDesktopSessionToolRequest {
   entryId: string;
   decision: string;
   feedback: string;
+}
+
+export interface ApproveDirectConnectSessionToolRequest {
+  directConnectSessionId: string;
+  approval: ApproveDesktopSessionToolRequest;
 }
 
 export interface ArenaAgentStatusFile {
@@ -194,6 +204,11 @@ export interface CancelDesktopSessionTurnResult {
   timestampUtc: string;
 }
 
+export interface CancelDirectConnectSessionTurnRequest {
+  directConnectSessionId: string;
+  turn: CancelDesktopSessionTurnRequest;
+}
+
 export interface CancelQwenOAuthDeviceFlowRequest {
   flowId: string;
 }
@@ -249,6 +264,10 @@ export interface CleanupManagedWorktreeSessionRequest {
   sessionId: string;
 }
 
+export interface CloseDirectConnectSessionRequest {
+  directConnectSessionId: string;
+}
+
 export interface ConfigureCodingPlanAuthRequest {
   scope: string;
   region: string;
@@ -273,6 +292,11 @@ export interface ConfigureQwenOAuthRequest {
   resourceUrl: string;
   idToken: string;
   expiresAtUtc: string | null;
+}
+
+export interface CreateDirectConnectSessionRequest {
+  preferredSessionId: string;
+  workingDirectory: string;
 }
 
 export interface CreateExtensionScaffoldRequest {
@@ -397,9 +421,43 @@ export interface DesktopStateChangedEvent {
   timestampUtc: string;
 }
 
+export interface DirectConnectServerState {
+  enabled: boolean;
+  listening: boolean;
+  baseUrl: string;
+  accessToken: string;
+  error: string;
+}
+
+export interface DirectConnectSessionEventBatch {
+  directConnectSessionId: string;
+  latestSequence: number;
+  events: DirectConnectSessionEventRecord[];
+}
+
+export interface DirectConnectSessionEventRecord {
+  sequence: number;
+  event: DesktopSessionEvent;
+}
+
+export interface DirectConnectSessionState {
+  directConnectSessionId: string;
+  boundSessionId: string;
+  workingDirectory: string;
+  status: string;
+  createdAtUtc: string;
+  lastActivityAtUtc: string;
+  latestEventSequence: number;
+}
+
 export interface DisconnectAuthRequest {
   scope: string;
   clearPersistedCredentials: boolean;
+}
+
+export interface DismissDirectConnectSessionTurnRequest {
+  directConnectSessionId: string;
+  turn: DismissInterruptedTurnRequest;
 }
 
 export interface DismissInterruptedTurnRequest {
@@ -516,6 +574,10 @@ export interface FollowupSuggestion {
 export interface FollowupSuggestionSnapshot {
   sessionId: string;
   suppressedReason: string;
+  generatedAtUtc: string;
+  isSpeculative: boolean;
+  cacheStatus: string;
+  fingerprint: string;
   suggestions: FollowupSuggestion[];
 }
 
@@ -529,6 +591,10 @@ export interface GetDesktopSessionRequest {
   limit: number | null;
 }
 
+export interface GetDirectConnectSessionRequest {
+  directConnectSessionId: string;
+}
+
 export interface GetExtensionSettingsRequest {
   name: string;
 }
@@ -536,6 +602,12 @@ export interface GetExtensionSettingsRequest {
 export interface GetFollowupSuggestionsRequest {
   sessionId: string;
   maxCount: number;
+  speculative: boolean;
+}
+
+export interface GetMcpResourceRegistryRequest {
+  serverName: string;
+  forceRefresh: boolean;
 }
 
 export interface GetPromptRegistryRequest {
@@ -608,6 +680,28 @@ export interface McpPromptInvocationResult {
   output: string;
 }
 
+export interface McpResourceReadResult {
+  serverName: string;
+  uri: string;
+  output: string;
+}
+
+export interface McpResourceRegistryEntry {
+  name: string;
+  uri: string;
+  qualifiedName: string;
+  serverName: string;
+  description: string;
+  mimeType: string;
+  source: string;
+}
+
+export interface McpResourceRegistrySnapshot {
+  totalCount: number;
+  serverCount: number;
+  resources: McpResourceRegistryEntry[];
+}
+
 export interface McpServerDefinition {
   name: string;
   scope: string;
@@ -627,8 +721,11 @@ export interface McpServerDefinition {
   lastReconnectAttemptUtc: string | null;
   lastError: string;
   hasPersistedToken: boolean;
+  hasStaticAuthorizationHeader: boolean;
+  authenticationStatus: string;
   discoveredToolsCount: number;
   discoveredPromptsCount: number;
+  discoveredResourcesCount: number;
   supportsPrompts: boolean;
   supportsResources: boolean;
   lastDiscoveryUtc: string | null;
@@ -806,6 +903,16 @@ export interface QwenSurfaceDirectory {
   summary: string;
 }
 
+export interface ReadDirectConnectSessionEventsRequest {
+  directConnectSessionId: string;
+  afterSequence: number;
+  maxCount: number;
+}
+
+export interface ReadMcpResourceRegistryEntryRequest {
+  name: string;
+}
+
 export interface ReconnectMcpServerRequest {
   name: string;
 }
@@ -856,6 +963,11 @@ export interface ResolvedCommand {
 
 export interface RestoreGitCheckpointRequest {
   commitHash: string;
+}
+
+export interface ResumeDirectConnectSessionTurnRequest {
+  directConnectSessionId: string;
+  turn: ResumeInterruptedTurnRequest;
 }
 
 export interface ResumeInterruptedTurnRequest {
@@ -941,6 +1053,11 @@ export interface StartDesktopSessionTurnRequest {
   approveToolExecution: boolean;
 }
 
+export interface StartDirectConnectSessionTurnRequest {
+  directConnectSessionId: string;
+  turn: StartDesktopSessionTurnRequest;
+}
+
 export interface StartQwenOAuthDeviceFlowRequest {
   scope: string;
 }
@@ -990,6 +1107,18 @@ export interface QwenDesktopBridge {
   getAuthStatus(): Promise<AuthStatusSnapshot>;
   approveChannelPairing(request: ApproveChannelPairingRequest): Promise<ChannelPairingSnapshot>;
   getChannelPairings(request: GetChannelPairingRequest): Promise<ChannelPairingSnapshot>;
+  answerDirectConnectSessionQuestion(request: AnswerDirectConnectSessionQuestionRequest): Promise<DesktopSessionTurnResult>;
+  approveDirectConnectSessionTool(request: ApproveDirectConnectSessionToolRequest): Promise<DesktopSessionTurnResult>;
+  cancelDirectConnectSessionTurn(request: CancelDirectConnectSessionTurnRequest): Promise<CancelDesktopSessionTurnResult>;
+  closeDirectConnectSession(request: CloseDirectConnectSessionRequest): Promise<DirectConnectSessionState>;
+  createDirectConnectSession(request: CreateDirectConnectSessionRequest): Promise<DirectConnectSessionState>;
+  dismissDirectConnectSessionTurn(request: DismissDirectConnectSessionTurnRequest): Promise<DismissInterruptedTurnResult>;
+  getDirectConnectServer(): Promise<DirectConnectServerState>;
+  getDirectConnectSession(request: GetDirectConnectSessionRequest): Promise<DirectConnectSessionState>;
+  listDirectConnectSessions(): Promise<DirectConnectSessionState[]>;
+  readDirectConnectSessionEvents(request: ReadDirectConnectSessionEventsRequest): Promise<DirectConnectSessionEventBatch>;
+  resumeDirectConnectSessionTurn(request: ResumeDirectConnectSessionTurnRequest): Promise<DesktopSessionTurnResult>;
+  startDirectConnectSessionTurn(request: StartDirectConnectSessionTurnRequest): Promise<DesktopSessionTurnResult>;
   createExtensionScaffold(request: CreateExtensionScaffoldRequest): Promise<ExtensionScaffoldSnapshot>;
   getExtensionSettings(request: GetExtensionSettingsRequest): Promise<ExtensionSettingsSnapshot>;
   installExtension(request: InstallExtensionRequest): Promise<ExtensionSnapshot>;
@@ -999,6 +1128,8 @@ export interface QwenDesktopBridge {
   setExtensionSetting(request: SetExtensionSettingValueRequest): Promise<ExtensionSettingsSnapshot>;
   updateExtension(request: UpdateExtensionRequest): Promise<ExtensionSnapshot>;
   getFollowupSuggestions(request: GetFollowupSuggestionsRequest): Promise<FollowupSuggestionSnapshot>;
+  getMcpResourceRegistry(request: GetMcpResourceRegistryRequest): Promise<McpResourceRegistrySnapshot>;
+  readRegisteredMcpResource(request: ReadMcpResourceRegistryEntryRequest): Promise<McpResourceReadResult>;
   addMcpServer(request: McpServerRegistrationRequest): Promise<McpSnapshot>;
   reconnectMcpServer(request: ReconnectMcpServerRequest): Promise<McpSnapshot>;
   removeMcpServer(request: RemoveMcpServerRequest): Promise<McpSnapshot>;
@@ -1040,6 +1171,18 @@ export const qwenDesktopChannels = {
   getAuthStatus: 'qwen-desktop:auth:status',
   approveChannelPairing: 'qwen-desktop:channels:approve-pairing',
   getChannelPairings: 'qwen-desktop:channels:get-pairings',
+  answerDirectConnectSessionQuestion: 'qwen-desktop:direct-connect:answer-question',
+  approveDirectConnectSessionTool: 'qwen-desktop:direct-connect:approve-tool',
+  cancelDirectConnectSessionTurn: 'qwen-desktop:direct-connect:cancel-turn',
+  closeDirectConnectSession: 'qwen-desktop:direct-connect:close-session',
+  createDirectConnectSession: 'qwen-desktop:direct-connect:create-session',
+  dismissDirectConnectSessionTurn: 'qwen-desktop:direct-connect:dismiss-interrupted',
+  getDirectConnectServer: 'qwen-desktop:direct-connect:get-server',
+  getDirectConnectSession: 'qwen-desktop:direct-connect:get-session',
+  listDirectConnectSessions: 'qwen-desktop:direct-connect:list-sessions',
+  readDirectConnectSessionEvents: 'qwen-desktop:direct-connect:read-events',
+  resumeDirectConnectSessionTurn: 'qwen-desktop:direct-connect:resume-interrupted',
+  startDirectConnectSessionTurn: 'qwen-desktop:direct-connect:start-turn',
   createExtensionScaffold: 'qwen-desktop:extensions:create-scaffold',
   getExtensionSettings: 'qwen-desktop:extensions:get-settings',
   installExtension: 'qwen-desktop:extensions:install',
@@ -1049,6 +1192,8 @@ export const qwenDesktopChannels = {
   setExtensionSetting: 'qwen-desktop:extensions:set-setting',
   updateExtension: 'qwen-desktop:extensions:update',
   getFollowupSuggestions: 'qwen-desktop:followup:get-suggestions',
+  getMcpResourceRegistry: 'qwen-desktop:mcp-resources:get-registry',
+  readRegisteredMcpResource: 'qwen-desktop:mcp-resources:read',
   addMcpServer: 'qwen-desktop:mcp:add',
   reconnectMcpServer: 'qwen-desktop:mcp:reconnect',
   removeMcpServer: 'qwen-desktop:mcp:remove',
