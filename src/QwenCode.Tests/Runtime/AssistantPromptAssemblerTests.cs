@@ -201,6 +201,8 @@ public sealed class AssistantPromptAssemblerTests
             Assert.Contains("Preferred locale: en", promptContext.LanguageSummary);
             Assert.Contains("Preferred language: English", promptContext.LanguageSummary);
             Assert.Contains("Mode-specific expectation:", promptContext.OutputStyleSummary);
+            Assert.Contains("KaTeX-safe LaTeX", promptContext.OutputStyleSummary, StringComparison.Ordinal);
+            Assert.Contains("percent signs inside math must be escaped as `\\%`", promptContext.OutputStyleSummary, StringComparison.Ordinal);
             Assert.NotNull(promptContext.ProjectSummary);
             Assert.True(promptContext.ProjectSummary!.HasHistory);
             Assert.Equal("Finish the native qwen desktop runtime.", promptContext.ProjectSummary.OverallGoal);

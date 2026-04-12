@@ -68,3 +68,53 @@ button, a {
 .animate-spin {
   animation: spin 1s linear infinite;
 }
+
+.katex {
+  color: #f5f5f5;
+  font-size: 1.02em;
+}
+
+.katex .base {
+  color: inherit;
+}
+
+.katex-error {
+  color: #cfcfe6 !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.92em;
+  padding: 0.12rem 0.3rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.katex-display {
+  margin: 1.15rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.katex-display > .katex {
+  display: inline-block;
+  min-width: max-content;
+  padding: 0.95rem 1.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top, rgba(133, 131, 246, 0.12), transparent 62%),
+    rgba(255, 255, 255, 0.025);
+  box-shadow: 0 18px 48px -34px rgba(0, 0, 0, 0.9);
+}
+
+.katex-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.katex-display::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.katex-display::-webkit-scrollbar-thumb {
+  background: #46464f;
+  border-radius: 999px;
+}

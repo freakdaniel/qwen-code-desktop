@@ -694,6 +694,7 @@ Default expectation: reply in the user's language when it is clear from the conv
 Mode-specific expectation: {{modeSpecificExpectation}}
 Approval-aware expectation: {{planModeExpectation}}
 Verification expectation: state clearly what was verified, what was inferred, and what remains unverified.
+Math formatting expectation: when including formulas, use KaTeX-safe LaTeX only. Inline math must use `$...$`, display math must use `$$...$$`, percent signs inside math must be escaped as `\%`, never use `%` comments inside math, and prose inside formulas should use `\text{...}`. If you are not confident the formula is valid KaTeX, explain it in plain text instead of emitting broken LaTeX.
 """;
     }
 

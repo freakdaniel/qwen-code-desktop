@@ -21,6 +21,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^11.0.8",
     "i18next": "^25.6.0",
+    "katex": "^0.16.45",
     "lucide-react": "^0.400.0",
     "prism-react-renderer": "^2.4.1",
     "prismjs": "^1.30.0",
@@ -28,7 +29,9 @@
     "react-dom": "^18.3.1",
     "react-i18next": "^16.3.5",
     "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {

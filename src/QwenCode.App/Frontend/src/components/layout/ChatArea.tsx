@@ -65,7 +65,9 @@ import 'prismjs/components/prism-rust';
 import 'prismjs/components/prism-sql';
 import 'prismjs/components/prism-yaml';
 import ReactMarkdown from 'react-markdown';
+import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import { AGENT_MODES } from '@/types/ui';
 import type { AgentMode } from '@/types/ui';
 import { useBootstrap } from '@/hooks/useBootstrap';
@@ -743,6 +745,123 @@ function normalizeCodeLanguage(language: string): Language | null {
   return SUPPORTED_HIGHLIGHT_LANGUAGES.has(resolved) ? resolved : null;
 }
 
+function isEscapedCharacter(value: string, index: number): boolean {
+  let backslashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor--) {
+    backslashCount++;
+  }
+
+  return backslashCount % 2 === 1;
+}
+
+function escapeLatexPercentSigns(value: string): string {
+  let result = '';
+
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    if (character === '%' && !isEscapedCharacter(value, index)) {
+      result += '\\%';
+      continue;
+    }
+
+    result += character;
+  }
+
+  return result;
+}
+
+function sanitizeMathContent(value: string): string {
+  return escapeLatexPercentSigns(value.replace(/\r\n?/g, '\n'));
+}
+
+function normalizeMathSegments(markdown: string): string {
+  let result = '';
+  let index = 0;
+  let inInlineCode = false;
+  let inFence = false;
+  let fenceMarker = '';
+
+  while (index < markdown.length) {
+    const current = markdown[index];
+    const nextThree = markdown.slice(index, index + 3);
+
+    if (!inInlineCode && (nextThree === '```' || nextThree === '~~~')) {
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = nextThree;
+      } else if (nextThree === fenceMarker) {
+        inFence = false;
+        fenceMarker = '';
+      }
+
+      result += nextThree;
+      index += 3;
+      continue;
+    }
+
+    if (!inFence && current === '`') {
+      inInlineCode = !inInlineCode;
+      result += current;
+      index += 1;
+      continue;
+    }
+
+    if (inFence || inInlineCode) {
+      result += current;
+      index += 1;
+      continue;
+    }
+
+    if (markdown.startsWith('\\[', index)) {
+      const end = markdown.indexOf('\\]', index + 2);
+      if (end !== -1) {
+        result += `$$${sanitizeMathContent(markdown.slice(index + 2, end))}$$`;
+        index = end + 2;
+        continue;
+      }
+    }
+
+    if (markdown.startsWith('\\(', index)) {
+      const end = markdown.indexOf('\\)', index + 2);
+      if (end !== -1) {
+        result += `$${sanitizeMathContent(markdown.slice(index + 2, end))}$`;
+        index = end + 2;
+        continue;
+      }
+    }
+
+    if (markdown.startsWith('$$', index) && !isEscapedCharacter(markdown, index)) {
+      const end = markdown.indexOf('$$', index + 2);
+      if (end !== -1) {
+        result += `$$${sanitizeMathContent(markdown.slice(index + 2, end))}$$`;
+        index = end + 2;
+        continue;
+      }
+    }
+
+    if (current === '$' && !isEscapedCharacter(markdown, index)) {
+      let end = -1;
+      for (let cursor = index + 1; cursor < markdown.length; cursor++) {
+        if (markdown[cursor] === '$' && !isEscapedCharacter(markdown, cursor)) {
+          end = cursor;
+          break;
+        }
+      }
+
+      if (end !== -1) {
+        result += `$${sanitizeMathContent(markdown.slice(index + 1, end))}$`;
+        index = end + 1;
+        continue;
+      }
+    }
+
+    result += current;
+    index += 1;
+  }
+
+  return result;
+}
+
 function getMarkdownNodeTextContent(node: unknown): string {
   if (!node || typeof node !== 'object') {
     return '';
@@ -1237,6 +1356,8 @@ function MarkdownTable({
 }
 
 function AssistantMarkdownBody({ text }: { text: string }) {
+  const normalizedText = useMemo(() => normalizeMathSegments(text), [text]);
+
   return (
     <Box
       color="gray.100"
@@ -1245,14 +1366,15 @@ function AssistantMarkdownBody({ text }: { text: string }) {
       sx={ASSISTANT_MARKDOWN_SX}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[[rehypeKatex, { strict: 'ignore', trust: false, errorColor: '#cfcfe6' }]]}
         components={{
           pre: MarkdownPre,
           code: MarkdownCode,
           table: MarkdownTable,
         }}
       >
-        {text}
+        {normalizedText}
       </ReactMarkdown>
     </Box>
   );
