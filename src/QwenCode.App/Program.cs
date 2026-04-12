@@ -93,7 +93,7 @@ internal static class Program
         }
     }
 
-    private static void RegisterShutdownHandlers(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger)
+    private static void RegisterShutdownHandlers(object runtimeController, Microsoft.Extensions.Logging.ILogger logger)
     {
         Console.CancelKeyPress += async (_, eventArgs) =>
         {
@@ -117,7 +117,7 @@ internal static class Program
         };
     }
 
-    private static async Task RequestShutdownAsync(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
+    private static async Task RequestShutdownAsync(object runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
     {
         if (Interlocked.Exchange(ref _shutdownInitiated, 1) != 0)
         {
@@ -129,9 +129,14 @@ internal static class Program
         RunProcessCleanupOnce(logger, reason);
     }
 
-    private static async Task StopRuntimeAsync(dynamic runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
+    private static async Task StopRuntimeAsync(object runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
     {
         if (Volatile.Read(ref _runtimeStopped) != 0)
+        {
+            return;
+        }
+
+        if (TryMarkRuntimeStoppedWithoutStopping(runtimeController, logger, reason))
         {
             return;
         }
@@ -141,7 +146,7 @@ internal static class Program
             logger.LogInformation("Stopping Electron.NET runtime due to {Reason}", reason);
             var stopTask = Task.Run(async () =>
             {
-                Task runtimeStopTask = runtimeController.Stop();
+                Task runtimeStopTask = InvokeRuntimeStopAsync(runtimeController);
                 await runtimeStopTask.ConfigureAwait(false);
             });
 
@@ -158,11 +163,92 @@ internal static class Program
         }
         catch (Exception exception)
         {
+            if (IsBenignRuntimeStopException(exception) || TryMarkRuntimeStoppedWithoutStopping(runtimeController, logger, reason))
+            {
+                Interlocked.Exchange(ref _runtimeStopped, 1);
+                logger.LogInformation(
+                    "Electron.NET runtime was already stopping or stopped during {Reason}; treating shutdown as complete",
+                    reason);
+                return;
+            }
+
             logger.LogWarning(
                 exception,
                 "Graceful Electron.NET runtime stop failed during {Reason}. Falling back to process cleanup",
                 reason);
         }
+    }
+
+    private static bool TryMarkRuntimeStoppedWithoutStopping(object runtimeController, Microsoft.Extensions.Logging.ILogger logger, string reason)
+    {
+        try
+        {
+            var waitStoppedTask = TryGetTaskProperty(runtimeController, "WaitStoppedTask");
+            if (waitStoppedTask?.IsCompleted == true)
+            {
+                Interlocked.Exchange(ref _runtimeStopped, 1);
+                logger.LogDebug("Skipping runtime stop during {Reason} because WaitStoppedTask is already completed", reason);
+                return true;
+            }
+
+            var state = TryGetRuntimeState(runtimeController);
+            if (!string.IsNullOrWhiteSpace(state))
+            {
+                if (string.Equals(state, "Stopped", StringComparison.OrdinalIgnoreCase))
+                {
+                    Interlocked.Exchange(ref _runtimeStopped, 1);
+                    logger.LogDebug("Skipping runtime stop during {Reason} because runtime state is {State}", reason, state);
+                    return true;
+                }
+
+                if (string.Equals(state, "Stopping", StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogDebug("Skipping runtime stop during {Reason} because runtime state is {State}", reason, state);
+                    return true;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogDebug(exception, "Failed to inspect Electron.NET runtime state during {Reason}", reason);
+        }
+
+        return false;
+    }
+
+    private static Task InvokeRuntimeStopAsync(object runtimeController)
+    {
+        var stopMethod = runtimeController.GetType().GetMethod("Stop", Type.EmptyTypes);
+        return stopMethod?.Invoke(runtimeController, null) as Task
+            ?? throw new InvalidOperationException("Electron.NET runtime controller does not expose Stop().");
+    }
+
+    private static Task? TryGetTaskProperty(object target, string propertyName)
+    {
+        var property = target.GetType().GetProperty(propertyName);
+        return property?.GetValue(target) as Task;
+    }
+
+    private static string? TryGetRuntimeState(object runtimeController)
+    {
+        foreach (var propertyName in new[] { "State", "CurrentState", "LifetimeState" })
+        {
+            var property = runtimeController.GetType().GetProperty(propertyName);
+            var value = property?.GetValue(runtimeController);
+            if (value is not null)
+            {
+                return value.ToString();
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsBenignRuntimeStopException(Exception exception)
+    {
+        var message = exception.ToString();
+        return message.Contains("Invalid state transition from Stopped to Stopping", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("Invalid state transition from Stopping to Stopping", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void RunProcessCleanupOnce(Microsoft.Extensions.Logging.ILogger logger, string reason)

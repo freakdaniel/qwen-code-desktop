@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, Children, isValidElement, type ReactNode } from 'react';
 import {
   Box,
   VStack,
@@ -37,8 +37,11 @@ import {
   CheckSquare,
   Download,
   Square,
+  Copy,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Highlight, themes, type Language } from 'prism-react-renderer';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AGENT_MODES } from '@/types/ui';
@@ -628,22 +631,588 @@ const ASSISTANT_MARKDOWN_SX = {
   'em': { fontStyle: 'italic' },
   'a': { color: 'blue.400', textDecoration: 'underline' },
   'blockquote': { borderLeft: '3px solid', borderColor: 'gray.600', pl: 3, color: 'gray.400', fontStyle: 'italic', my: '0.75em' },
-  'code': { fontFamily: 'mono', fontSize: '0.85em', bg: 'gray.800', px: '0.3em', py: '0.15em', borderRadius: '4px', color: 'gray.200' },
-  'pre': {
-    bg: 'gray.900',
-    border: '1px solid',
-    borderColor: 'gray.700',
-    borderRadius: 'md',
-    p: 3,
-    overflowX: 'auto',
-    my: '0.75em',
-    '& code': { bg: 'transparent', px: 0, py: 0, color: 'gray.200', fontSize: 'xs' },
-  },
-  'table': { width: '100%', borderCollapse: 'collapse', my: '0.75em' },
-  'th,td': { border: '1px solid', borderColor: 'gray.700', px: 2, py: 1 },
-  'th': { bg: 'gray.800', fontWeight: 'semibold' },
+  'pre': { my: '0.75em' },
+  'table': { width: '100%', borderCollapse: 'separate', borderSpacing: 0 },
+  'thead tr': { bg: 'rgba(255,255,255,0.05)' },
+  'tbody tr': { bg: 'transparent' },
+  'tbody tr:hover': { bg: 'rgba(255,255,255,0.02)' },
+  'th,td': { borderBottom: '1px solid', borderColor: 'gray.700', px: 4, py: 3, textAlign: 'left', verticalAlign: 'top' },
+  'th': { color: 'white', fontWeight: 'semibold', fontSize: 'sm' },
+  'td': { color: 'gray.200', fontSize: 'sm' },
+  'tbody tr:last-of-type td': { borderBottom: 'none' },
   'hr': { borderColor: 'gray.700', my: '1em' },
 } as const;
+
+const INLINE_CODE_COLOR = '#8583f6';
+const INLINE_CODE_BACKGROUND = 'rgba(133,131,246,0.12)';
+const CODE_THEME = themes.vsDark;
+const SUPPORTED_HIGHLIGHT_LANGUAGES = new Set<Language>([
+  'bash',
+  'c',
+  'cpp',
+  'csharp',
+  'css',
+  'diff',
+  'go',
+  'java',
+  'javascript',
+  'json',
+  'jsx',
+  'kotlin',
+  'markdown',
+  'markup',
+  'objectivec',
+  'powershell',
+  'python',
+  'regex',
+  'rust',
+  'sql',
+  'swift',
+  'tsx',
+  'typescript',
+  'yaml',
+]);
+
+function flattenReactText(node: ReactNode): string {
+  return Children.toArray(node)
+    .map((child) => {
+      if (typeof child === 'string' || typeof child === 'number') {
+        return String(child);
+      }
+
+      if (isValidElement(child)) {
+        const props = child.props as { children?: ReactNode };
+        return flattenReactText(props.children);
+      }
+
+      return '';
+    })
+    .join('');
+}
+
+function normalizeCodeLanguage(language: string): Language | null {
+  const normalized = language.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const aliases: Record<string, Language> = {
+    cs: 'csharp',
+    'c#': 'csharp',
+    sh: 'bash',
+    shell: 'bash',
+    zsh: 'bash',
+    ps1: 'powershell',
+    pwsh: 'powershell',
+    js: 'javascript',
+    mjs: 'javascript',
+    cjs: 'javascript',
+    ts: 'typescript',
+    yml: 'yaml',
+    html: 'markup',
+    xml: 'markup',
+    svg: 'markup',
+    md: 'markdown',
+    py: 'python',
+    rs: 'rust',
+  };
+
+  const resolved = aliases[normalized] ?? (normalized as Language);
+  return SUPPORTED_HIGHLIGHT_LANGUAGES.has(resolved) ? resolved : null;
+}
+
+function getMarkdownNodeTextContent(node: unknown): string {
+  if (!node || typeof node !== 'object') {
+    return '';
+  }
+
+  const candidate = node as { value?: unknown; children?: unknown[] };
+  if (typeof candidate.value === 'string') {
+    return candidate.value;
+  }
+
+  if (Array.isArray(candidate.children)) {
+    return candidate.children.map((child) => getMarkdownNodeTextContent(child)).join('');
+  }
+
+  return '';
+}
+
+function extractMarkdownTableRows(node: unknown): string[][] {
+  const rows: string[][] = [];
+
+  const visit = (candidate: unknown) => {
+    if (!candidate || typeof candidate !== 'object') {
+      return;
+    }
+
+    const element = candidate as { tagName?: string; children?: unknown[] };
+    if (element.tagName === 'tr') {
+      const cells = (element.children ?? [])
+        .filter((child): child is { tagName?: string } => !!child && typeof child === 'object')
+        .filter((child) => child.tagName === 'th' || child.tagName === 'td')
+        .map((child) => getMarkdownNodeTextContent(child).trim());
+
+      if (cells.length > 0) {
+        rows.push(cells);
+      }
+    }
+
+    for (const child of element.children ?? []) {
+      visit(child);
+    }
+  };
+
+  visit(node);
+  return rows;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('\'', '&#39;');
+}
+
+function buildCsvContent(rows: string[][]): string {
+  return rows
+    .map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(','))
+    .join('\r\n');
+}
+
+function buildExcelContent(rows: string[][]): string {
+  const [headerRow = [], ...bodyRows] = rows;
+  const thead = headerRow.length > 0
+    ? `<thead><tr>${headerRow.map((cell) => `<th>${escapeHtml(cell)}</th>`).join('')}</tr></thead>`
+    : '';
+  const tbody = `<tbody>${bodyRows
+    .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`)
+    .join('')}</tbody>`;
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+</head>
+<body>
+  <table>${thead}${tbody}</table>
+</body>
+</html>`;
+}
+
+function downloadTextContent(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+}
+
+function MarkdownInlineCode({ children }: { children?: ReactNode }) {
+  return (
+    <Box
+      as="code"
+      display="inline-flex"
+      alignItems="center"
+      px="0.38em"
+      py="0.14em"
+      borderRadius="8px"
+      fontFamily="mono"
+      fontSize="0.85em"
+      lineHeight="1.4"
+      color={INLINE_CODE_COLOR}
+      bg={INLINE_CODE_BACKGROUND}
+      border="1px solid rgba(133,131,246,0.14)"
+    >
+      {flattenReactText(children)}
+    </Box>
+  );
+}
+
+function MarkdownCodeBlock({
+  className,
+  children,
+}: {
+  className?: string;
+  children?: ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const code = flattenReactText(children).replace(/\n$/, '');
+  const language = className?.match(/language-([\w-]+)/)?.[1] ?? 'text';
+  const highlightLanguage = normalizeCodeLanguage(language);
+  const lines = code.split('\n');
+
+  const handleCopy = useCallback(async () => {
+    if (!code.trim()) {
+      return;
+    }
+
+    try {
+      await copyTextToClipboard(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch (error) {
+      console.error('Failed to copy code block:', error);
+    }
+  }, [code]);
+
+  return (
+    <Box
+      my={4}
+      border="1px solid"
+      borderColor="rgba(255,255,255,0.08)"
+      borderRadius="20px"
+      overflow="hidden"
+      bg="#24242b"
+      boxShadow="0 16px 48px -32px rgba(0,0,0,0.9)"
+    >
+      <HStack
+        justify="space-between"
+        align="center"
+        px={4}
+        py={0}
+        h="30px"
+        bg="rgba(255,255,255,0.04)"
+        borderBottom="1px solid"
+        borderColor="rgba(255,255,255,0.06)"
+      >
+        <Box
+          display="flex"
+          alignItems="center"
+          h="full"
+          minW={0}
+        >
+          <Text
+            fontSize="11px"
+            fontWeight="semibold"
+            fontFamily="mono"
+            color="gray.100"
+            textTransform="lowercase"
+            letterSpacing="0.02em"
+            lineHeight="1"
+            mb={0}
+          >
+            {language}
+          </Text>
+        </Box>
+        <IconButton
+          aria-label={copied ? 'Copied' : 'Copy code'}
+          size="xs"
+          variant="ghost"
+          color={copied ? '#d8d7ff' : 'gray.300'}
+          icon={copied ? <Check size={13} /> : <Copy size={13} />}
+          minW="20px"
+          w="20px"
+          h="20px"
+          _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+          onClick={() => { void handleCopy(); }}
+        />
+      </HStack>
+
+      <Box overflowX="auto" bg="#24242b" pt={2} pb={1}>
+        {highlightLanguage ? (
+          <Highlight theme={CODE_THEME} code={code} language={highlightLanguage}>
+            {({ className: highlightClassName, style, tokens, getLineProps, getTokenProps }) => (
+              <Box
+                as="pre"
+                className={highlightClassName}
+                m={0}
+                px={0}
+                py={0}
+                bg="transparent"
+                style={{ ...style, background: 'transparent', margin: 0 }}
+              >
+                {tokens.map((lineTokens, index) => {
+                  const isLastEmptyLine = index === tokens.length - 1 && lineTokens.length === 1 && lineTokens[0]?.empty;
+                  if (isLastEmptyLine) {
+                    return null;
+                  }
+
+                  return (
+                    <HStack
+                      key={`code-line-${index + 1}`}
+                      {...getLineProps({ line: lineTokens })}
+                      align="stretch"
+                      spacing={0}
+                      fontFamily="mono"
+                      fontSize="13px"
+                      lineHeight="1.9"
+                      minW="fit-content"
+                      bg="transparent"
+                    >
+                      <Box
+                        w="52px"
+                        flexShrink={0}
+                        px={4}
+                        py={0}
+                        textAlign="right"
+                        color="gray.500"
+                        borderRight="1px solid"
+                        borderColor="rgba(255,255,255,0.06)"
+                        userSelect="none"
+                      >
+                        {index + 1}
+                      </Box>
+                      <Box
+                        px={4}
+                        py={0}
+                        whiteSpace="pre"
+                        color="gray.100"
+                      >
+                        {lineTokens.length > 0
+                          ? lineTokens.map((token, tokenIndex) => (
+                            <Box
+                              as="span"
+                              key={`code-token-${index + 1}-${tokenIndex}`}
+                              {...getTokenProps({ token })}
+                            />
+                          ))
+                          : ' '}
+                      </Box>
+                    </HStack>
+                  );
+                })}
+              </Box>
+            )}
+          </Highlight>
+        ) : (
+          <Box as="pre" m={0} px={0} py={0} bg="transparent">
+            {lines.map((line, index) => (
+              <HStack
+                key={`code-line-${index + 1}`}
+                align="stretch"
+                spacing={0}
+                fontFamily="mono"
+                fontSize="13px"
+                lineHeight="1.9"
+                minW="fit-content"
+              >
+                <Box
+                  w="52px"
+                  flexShrink={0}
+                  px={4}
+                  py={0}
+                  textAlign="right"
+                  color="gray.500"
+                  borderRight="1px solid"
+                  borderColor="rgba(255,255,255,0.06)"
+                  userSelect="none"
+                >
+                  {index + 1}
+                </Box>
+                <Box
+                  px={4}
+                  py={0}
+                  whiteSpace="pre"
+                  color="gray.100"
+                >
+                  {line || ' '}
+                </Box>
+              </HStack>
+            ))}
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+function MarkdownPre({ children }: { children?: ReactNode }) {
+  const firstChild = Children.toArray(children)[0];
+  if (!isValidElement(firstChild)) {
+    return <>{children}</>;
+  }
+
+  const childProps = firstChild.props as { className?: string; children?: ReactNode };
+  return (
+    <MarkdownCodeBlock className={childProps.className}>
+      {childProps.children}
+    </MarkdownCodeBlock>
+  );
+}
+
+function MarkdownCode({ children }: { children?: ReactNode }) {
+  return <MarkdownInlineCode>{children}</MarkdownInlineCode>;
+}
+
+function MarkdownTable({
+  node,
+  children,
+}: {
+  node?: unknown;
+  children?: ReactNode;
+}) {
+  const rows = useMemo(() => extractMarkdownTableRows(node), [node]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const exportAsCsv = useCallback(() => {
+    if (rows.length === 0) {
+      return;
+    }
+
+    downloadTextContent(
+      `table-${Date.now()}.csv`,
+      buildCsvContent(rows),
+      'text/csv;charset=utf-8',
+    );
+    setMenuOpen(false);
+  }, [rows]);
+
+  const exportAsExcel = useCallback(() => {
+    if (rows.length === 0) {
+      return;
+    }
+
+    downloadTextContent(
+      `table-${Date.now()}.xls`,
+      buildExcelContent(rows),
+      'application/vnd.ms-excel;charset=utf-8',
+    );
+    setMenuOpen(false);
+  }, [rows]);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+
+      if (menuRef.current?.contains(target)) {
+        return;
+      }
+
+      setMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [menuOpen]);
+
+  return (
+    <Box my={4} position="relative">
+      <Box
+        overflowX="auto"
+        border="1px solid"
+        borderColor="rgba(255,255,255,0.08)"
+        borderRadius="20px"
+        bg="#24242b"
+        boxShadow="0 12px 40px -28px rgba(0,0,0,0.9)"
+      >
+        <Box as="table" w="full">
+          {children}
+        </Box>
+      </Box>
+
+      <Box
+        position="absolute"
+        top="24px"
+        right={2}
+        transform="translateY(-50%)"
+        zIndex={1}
+        ref={menuRef}
+      >
+        <IconButton
+          aria-label="Export table"
+          size="xs"
+          variant="ghost"
+          icon={<Download size={13} />}
+          minW="28px"
+          w="28px"
+          h="28px"
+          color="gray.300"
+          _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+          onClick={() => setMenuOpen((current) => !current)}
+        />
+
+        <AnimatePresence>
+          {menuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -4, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.96 }}
+              transition={{ duration: 0.14, ease: 'easeOut' }}
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                right: 0,
+              }}
+            >
+              <Box
+                minW="112px"
+                bg="#2f2f37"
+                border="1px solid"
+                borderColor="rgba(255,255,255,0.08)"
+                borderRadius="14px"
+                boxShadow="0 18px 42px -26px rgba(0,0,0,0.95)"
+                p={1}
+              >
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  justifyContent="flex-start"
+                  w="full"
+                  h="30px"
+                  px={2.5}
+                  borderRadius="10px"
+                  color="gray.200"
+                  fontWeight="normal"
+                  leftIcon={<Download size={12} />}
+                  _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+                  onClick={exportAsCsv}
+                >
+                  CSV
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  justifyContent="flex-start"
+                  w="full"
+                  h="30px"
+                  px={2.5}
+                  borderRadius="10px"
+                  color="gray.200"
+                  fontWeight="normal"
+                  leftIcon={<FileSpreadsheet size={12} />}
+                  _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+                  onClick={exportAsExcel}
+                >
+                  Excel
+                </Button>
+              </Box>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </Box>
+    </Box>
+  );
+}
 
 function AssistantMarkdownBody({ text }: { text: string }) {
   return (
@@ -653,7 +1222,16 @@ function AssistantMarkdownBody({ text }: { text: string }) {
       lineHeight="1.75"
       sx={ASSISTANT_MARKDOWN_SX}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          pre: MarkdownPre,
+          code: MarkdownCode,
+          table: MarkdownTable,
+        }}
+      >
+        {text}
+      </ReactMarkdown>
     </Box>
   );
 }
@@ -2410,6 +2988,10 @@ export default function ChatArea({
     ];
 
     markApprovalsResolving(optimisticEntryIds);
+    setPendingTurnSessionIds((current) => ({
+      ...current,
+      [selectedSessionId]: true,
+    }));
 
     try {
       await window.qwenDesktop.approvePendingTool({
@@ -2440,19 +3022,6 @@ export default function ChatArea({
             };
           });
         }
-
-        for (const relatedPresentation of matchingPresentations) {
-          try {
-            await window.qwenDesktop.approvePendingTool({
-              sessionId: selectedSessionId,
-              entryId: relatedPresentation.pendingEntry.id,
-              decision: 'allow-once',
-              feedback: '',
-            });
-          } catch (error) {
-            console.error('Failed to auto-approve a matching pending tool:', error);
-          }
-        }
       }
 
       await loadSessionDetail(selectedSessionId, { force: true, limit: 200 });
@@ -2460,6 +3029,15 @@ export default function ChatArea({
     } catch (error) {
       console.error('Failed to resolve pending tool approval:', error);
       clearApprovalState(optimisticEntryIds);
+      setPendingTurnSessionIds((current) => {
+        if (!(selectedSessionId in current)) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[selectedSessionId];
+        return next;
+      });
     }
   }, [
     clearApprovalState,
@@ -2467,6 +3045,7 @@ export default function ChatArea({
     markApprovalsResolving,
     pendingApprovalPresentations,
     selectedSessionId,
+    setPendingTurnSessionIds,
     setBootstrap,
   ]);
 

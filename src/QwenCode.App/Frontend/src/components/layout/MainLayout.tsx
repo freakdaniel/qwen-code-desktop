@@ -19,6 +19,8 @@ export default function MainLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarMode, setSidebarMode] = useState<SessionNavigationMode>('projects');
   const [selectedSessionId, setSelectedSessionId] = useState('');
+  const [lastSelectedProjectSessionId, setLastSelectedProjectSessionId] = useState('');
+  const [lastSelectedChatSessionId, setLastSelectedChatSessionId] = useState('');
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const { t } = useTranslation();
@@ -80,10 +82,33 @@ export default function MainLayout() {
     [visibleSearchSessions],
   );
 
+  const resolveRememberedSessionId = (
+    nextMode: SessionNavigationMode,
+    rememberedSessionId: string,
+  ) => {
+    if (!rememberedSessionId) {
+      return '';
+    }
+
+    const rememberedSession = sessions.find((session) => session.sessionId === rememberedSessionId);
+    if (!rememberedSession) {
+      return '';
+    }
+
+    const rememberedMode = isProjectlessSession(rememberedSession, sessionScopeOptions) ? 'chats' : 'projects';
+    return rememberedMode === nextMode ? rememberedSessionId : '';
+  };
+
   const handleSelectSession = (sessionId: string) => {
     const nextSession = sessions.find((session) => session.sessionId === sessionId);
     if (nextSession) {
-      setSidebarMode(isProjectlessSession(nextSession, sessionScopeOptions) ? 'chats' : 'projects');
+      const nextMode = isProjectlessSession(nextSession, sessionScopeOptions) ? 'chats' : 'projects';
+      setSidebarMode(nextMode);
+      if (nextMode === 'chats') {
+        setLastSelectedChatSessionId(sessionId);
+      } else {
+        setLastSelectedProjectSessionId(sessionId);
+      }
     }
 
     setSelectedSessionId(sessionId);
@@ -94,6 +119,45 @@ export default function MainLayout() {
   const handleNewChat = () => {
     setSelectedSessionId('');
   };
+
+  const handleToggleMode = () => {
+    const nextMode = sidebarMode === 'projects' ? 'chats' : 'projects';
+    const nextSelectedSessionId = nextMode === 'chats'
+      ? resolveRememberedSessionId(nextMode, lastSelectedChatSessionId)
+      : resolveRememberedSessionId(nextMode, lastSelectedProjectSessionId);
+
+    setSidebarMode(nextMode);
+    setSelectedSessionId(nextSelectedSessionId);
+    setSearchModalOpen(false);
+    setSearchTerm('');
+  };
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      return;
+    }
+
+    const selectedSession = sessions.find((session) => session.sessionId === selectedSessionId);
+    if (!selectedSession) {
+      setSelectedSessionId('');
+    }
+  }, [selectedSessionId, sessions]);
+
+  useEffect(() => {
+    if (
+      lastSelectedProjectSessionId &&
+      !sessions.some((session) => session.sessionId === lastSelectedProjectSessionId)
+    ) {
+      setLastSelectedProjectSessionId('');
+    }
+
+    if (
+      lastSelectedChatSessionId &&
+      !sessions.some((session) => session.sessionId === lastSelectedChatSessionId)
+    ) {
+      setLastSelectedChatSessionId('');
+    }
+  }, [lastSelectedChatSessionId, lastSelectedProjectSessionId, sessions]);
 
   return (
     <Box h="100vh" w="100vw" overflow="hidden" bg="gray.900" position="relative">
@@ -114,7 +178,7 @@ export default function MainLayout() {
         workspaceRoot={sessionScopeOptions.workspaceRoot}
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
-        onToggleMode={() => setSidebarMode((current) => current === 'projects' ? 'chats' : 'projects')}
+        onToggleMode={handleToggleMode}
         onOpenSearch={openSearch}
         onOpenSkills={() => console.log('Skills & Integrations')}
       />
@@ -162,10 +226,15 @@ export default function MainLayout() {
             />
             {/* Modal content */}
             <motion.div
+              layout
               initial={{ opacity: 0, scale: 0.96, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.96, y: 8 }}
-              transition={{ duration: 0.15, ease: 'easeOut' }}
+              transition={{
+                duration: 0.15,
+                ease: 'easeOut',
+                layout: { duration: 0.22, ease: [0.22, 1, 0.36, 1] },
+              }}
               style={{ position: 'relative', zIndex: 1 }}
             >
               <Box
@@ -213,82 +282,87 @@ export default function MainLayout() {
                 <Box borderTop="1px solid" borderColor="gray.700" />
 
                 {/* Results */}
-                <Box
-                  maxH="300px"
-                  overflowY="auto"
-                  p={3}
-                  sx={{
-                    scrollbarGutter: 'stable',
-                    '&::-webkit-scrollbar': { width: '6px' },
-                    '&::-webkit-scrollbar-track': { background: 'transparent' },
-                    '&::-webkit-scrollbar-thumb': { background: '#5b5b67', borderRadius: '3px' },
-                  }}
+                <motion.div
+                  layout
+                  transition={{ layout: { duration: 0.22, ease: [0.22, 1, 0.36, 1] } }}
                 >
-                  {visibleSearchSessions.length > 0 ? (
-                    sidebarMode === 'projects' ? (
-                      <VStack spacing={1} align="stretch">
-                        {groupedAndFiltered.map((group) => (
-                          <Box key={group.name}>
-                            <Text fontSize="xs" color="gray.500" fontWeight="medium" px={1} mb={1}>
-                              {group.name}
-                            </Text>
-                            <VStack spacing={0} align="stretch">
-                              {group.sessions.map((conv) => (
-                                <Button
-                                  key={conv.sessionId}
-                                  variant="ghost"
-                                  colorScheme="gray"
-                                  onClick={() => handleSelectSession(conv.sessionId)}
-                                  h="32px"
-                                  px={2}
-                                  justifyContent="flex-start"
-                                  bg="transparent"
-                                  _hover={{ bg: 'gray.700' }}
-                                  borderRadius="md"
-                                  whiteSpace="nowrap"
-                                  fontSize="sm"
-                                  color="gray.200"
-                                >
-                                  <Text overflow="hidden" textOverflow="ellipsis" flex={1} textAlign="left">
-                                    {conv.title ?? ''}
-                                  </Text>
-                                </Button>
-                              ))}
-                            </VStack>
-                          </Box>
-                        ))}
-                      </VStack>
+                  <Box
+                    maxH="300px"
+                    overflowY="auto"
+                    p={3}
+                    sx={{
+                      scrollbarGutter: 'stable',
+                      '&::-webkit-scrollbar': { width: '6px' },
+                      '&::-webkit-scrollbar-track': { background: 'transparent' },
+                      '&::-webkit-scrollbar-thumb': { background: '#5b5b67', borderRadius: '3px' },
+                    }}
+                  >
+                    {visibleSearchSessions.length > 0 ? (
+                      sidebarMode === 'projects' ? (
+                        <VStack spacing={1} align="stretch">
+                          {groupedAndFiltered.map((group) => (
+                            <Box key={group.name}>
+                              <Text fontSize="xs" color="gray.500" fontWeight="medium" px={1} mb={1}>
+                                {group.name}
+                              </Text>
+                              <VStack spacing={0} align="stretch">
+                                {group.sessions.map((conv) => (
+                                  <Button
+                                    key={conv.sessionId}
+                                    variant="ghost"
+                                    colorScheme="gray"
+                                    onClick={() => handleSelectSession(conv.sessionId)}
+                                    h="32px"
+                                    px={2}
+                                    justifyContent="flex-start"
+                                    bg="transparent"
+                                    _hover={{ bg: 'gray.700' }}
+                                    borderRadius="md"
+                                    whiteSpace="nowrap"
+                                    fontSize="sm"
+                                    color="gray.200"
+                                  >
+                                    <Text overflow="hidden" textOverflow="ellipsis" flex={1} textAlign="left">
+                                      {conv.title ?? ''}
+                                    </Text>
+                                  </Button>
+                                ))}
+                              </VStack>
+                            </Box>
+                          ))}
+                        </VStack>
+                      ) : (
+                        <VStack spacing={0} align="stretch">
+                          {orderedChatSessions.map((conv) => (
+                            <Button
+                              key={conv.sessionId}
+                              variant="ghost"
+                              colorScheme="gray"
+                              onClick={() => handleSelectSession(conv.sessionId)}
+                              h="32px"
+                              px={2}
+                              justifyContent="space-between"
+                              bg="transparent"
+                              _hover={{ bg: 'gray.700' }}
+                              borderRadius="md"
+                              whiteSpace="nowrap"
+                              fontSize="sm"
+                              color="gray.200"
+                            >
+                              <Text overflow="hidden" textOverflow="ellipsis" flex={1} textAlign="left">
+                                {conv.title ?? getProjectNameFromWorkingDirectory(conv.workingDirectory, t('sidebar.otherProjects'))}
+                              </Text>
+                            </Button>
+                          ))}
+                        </VStack>
+                      )
                     ) : (
-                      <VStack spacing={0} align="stretch">
-                        {orderedChatSessions.map((conv) => (
-                          <Button
-                            key={conv.sessionId}
-                            variant="ghost"
-                            colorScheme="gray"
-                            onClick={() => handleSelectSession(conv.sessionId)}
-                            h="32px"
-                            px={2}
-                            justifyContent="space-between"
-                            bg="transparent"
-                            _hover={{ bg: 'gray.700' }}
-                            borderRadius="md"
-                            whiteSpace="nowrap"
-                            fontSize="sm"
-                            color="gray.200"
-                          >
-                            <Text overflow="hidden" textOverflow="ellipsis" flex={1} textAlign="left">
-                              {conv.title ?? getProjectNameFromWorkingDirectory(conv.workingDirectory, t('sidebar.otherProjects'))}
-                            </Text>
-                          </Button>
-                        ))}
-                      </VStack>
-                    )
-                  ) : (
-                    <Text textAlign="center" color="gray.500" fontSize="sm" py={4}>
-                      {searchTerm ? t('search.noResults') : t('search.startTyping')}
-                    </Text>
-                  )}
-                </Box>
+                      <Text textAlign="center" color="gray.500" fontSize="sm" py={4}>
+                        {searchTerm ? t('search.noResults') : t('search.startTyping')}
+                      </Text>
+                    )}
+                  </Box>
+                </motion.div>
               </Box>
             </motion.div>
           </motion.div>

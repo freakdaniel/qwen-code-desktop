@@ -287,6 +287,22 @@ function useBootstrapState(): BootstrapState {
               setReattachedSessionId('')
               return { ...current, [event.sessionId]: true }
             }
+            if (
+              event.kind === 'toolApproved' ||
+              event.kind === 'toolCompleted' ||
+              event.kind === 'toolFailed' ||
+              event.kind === 'toolBlocked' ||
+              event.kind === 'assistantPreparingContext' ||
+              event.kind === 'assistantGenerating' ||
+              event.kind === 'assistantCompleted' ||
+              event.kind === 'userInputReceived'
+            ) {
+              if (event.sessionId in current) {
+                return current
+              }
+
+              return { ...current, [event.sessionId]: true }
+            }
             if (event.kind === 'turnCompleted' || event.kind === 'turnCancelled') {
               setReattachedSessionId((r) => (r === event.sessionId ? '' : r))
               if (!(event.sessionId in current)) return current

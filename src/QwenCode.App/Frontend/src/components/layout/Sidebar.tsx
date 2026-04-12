@@ -126,7 +126,7 @@ export default function Sidebar({
 
     const language = i18n.language || 'en-US';
     const now = new Date();
-    const todayKey = now.toDateString();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const recentCutoff = new Date(now);
     recentCutoff.setDate(recentCutoff.getDate() - 30);
 
@@ -134,12 +134,43 @@ export default function Sidebar({
 
     const resolveSection = (session: SessionPreview): ChatSection => {
       const activityDate = new Date(session.lastActivity);
-      const isToday = activityDate.toDateString() === todayKey;
+      const startOfActivityDay = new Date(
+        activityDate.getFullYear(),
+        activityDate.getMonth(),
+        activityDate.getDate(),
+      );
+      const dayDifference = Math.floor(
+        (startOfToday.getTime() - startOfActivityDay.getTime()) / 86_400_000,
+      );
 
-      if (isToday) {
+      if (dayDifference <= 0) {
         return {
           key: 'today',
           label: t('sidebar.today'),
+          sessions: [],
+        };
+      }
+
+      if (dayDifference === 1) {
+        return {
+          key: 'yesterday',
+          label: t('sidebar.yesterday'),
+          sessions: [],
+        };
+      }
+
+      if (dayDifference === 2) {
+        return {
+          key: 'day-before-yesterday',
+          label: t('sidebar.dayBeforeYesterday'),
+          sessions: [],
+        };
+      }
+
+      if (dayDifference <= 7) {
+        return {
+          key: 'previous-week',
+          label: t('sidebar.previousWeek'),
           sessions: [],
         };
       }
@@ -294,8 +325,10 @@ export default function Sidebar({
               borderRadius="md"
               h="36px"
               onClick={onToggleMode}
-              color="gray.300"
-              _hover={{ bg: 'gray.700', color: 'white' }}
+              color="gray.400"
+              _hover={{ bg: 'transparent', color: 'white' }}
+              _active={{ bg: 'transparent', color: 'white' }}
+              transition="color 0.2s ease"
             >
               {mode === 'projects' ? t('top.chats') : t('top.coder')}
             </Button>
@@ -311,7 +344,9 @@ export default function Sidebar({
               h="36px"
               onClick={onOpenSkills}
               color="gray.400"
-              _hover={{ bg: 'gray.700', color: 'gray.200' }}
+              _hover={{ bg: 'transparent', color: 'white' }}
+              _active={{ bg: 'transparent', color: 'white' }}
+              transition="color 0.2s ease"
             >
               {t('top.skills')}
             </Button>
@@ -327,7 +362,9 @@ export default function Sidebar({
               h="36px"
               onClick={onOpenSettings}
               color="gray.400"
-              _hover={{ bg: 'gray.700', color: 'gray.200' }}
+              _hover={{ bg: 'transparent', color: 'white' }}
+              _active={{ bg: 'transparent', color: 'white' }}
+              transition="color 0.2s ease"
             >
               {t('top.settings')}
             </Button>
@@ -417,7 +454,9 @@ export default function Sidebar({
                     color="gray.500"
                     fontSize="xs"
                     fontWeight="medium"
-                    _hover={{ bg: 'gray.700', color: 'gray.300' }}
+                    _hover={{ bg: 'transparent', color: 'gray.300' }}
+                    _active={{ bg: 'transparent', color: 'gray.300' }}
+                    transition="color 0.2s ease"
                     onClick={() => toggleGroup(group.name)}
                     leftIcon={
                       <ChevronRight
@@ -446,7 +485,7 @@ export default function Sidebar({
                         exit="hidden"
                         style={{ overflow: 'hidden', width: '100%' }}
                       >
-                        <VStack spacing={1} align="stretch" pl={2}>
+                        <VStack spacing={1} align="stretch">
                           {group.sessions.map((conv, idx) => (
                             <motion.div
                               key={conv.sessionId}
