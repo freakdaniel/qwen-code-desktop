@@ -24,6 +24,8 @@
     "otherProjects": "其他",
     "noSessionsFound": "未找到会话",
     "startTypingSearch": "开始输入以搜索...",
+    "collapseSidebar": "收起侧边栏",
+    "expandSidebar": "展开侧边栏",
     "now": "现在",
     "minutesAgo": "分钟",
     "hoursAgo": "小时",
@@ -40,7 +42,56 @@
     "demoResponse": "收到您的请求：\"{{prompt}}\"。这是一个演示回复。",
     "disclaimer": "Qwen是AI，可能会犯错。请验证重要的更改、命令和回答。",
     "contextUsed": "已使用 {{used}} / {{total}} 令牌",
-    "contextCompression": "超出限制时Qwen将自动压缩上下文"
+    "contextCompression": "超出限制时Qwen将自动压缩上下文",
+    "projectPicker": {
+      "noProject": "无项目",
+      "searchPlaceholder": "搜索项目",
+      "addProject": "添加新项目",
+      "noProjectsFound": "未找到项目"
+    },
+    "approval": {
+      "title": "需要确认",
+      "allowOnce": "仅允许一次",
+      "alwaysAllow": "始终允许",
+      "feedbackLabel": "告诉 Qwen 改为执行什么",
+      "feedbackPlaceholder": "例如：先读取文件，再提出更安全的修改建议"
+    },
+    "reasoning": {
+      "timelineTitle": "推理时间线",
+      "finished": "思考已完成",
+      "thinking": "思考中",
+      "reasoning": "推理",
+      "thoughtFor": "思考了 {{duration}}",
+      "durationMilliseconds": "{{value}} 毫秒",
+      "durationSeconds": "{{value}}秒",
+      "durationMinutes": "{{minutes}}分",
+      "durationMinutesSeconds": "{{minutes}}分 {{seconds}}秒",
+      "workInProgress": "工作进行中",
+      "workCompleted": "工作已完成",
+      "closePanel": "关闭推理面板"
+    },
+    "tasks": {
+      "completed": "已完成",
+      "inProgress": "进行中",
+      "pending": "待处理",
+      "stopped": "已停止",
+      "progress": "已完成 {{completed}} / {{total}}",
+      "owner": "负责人：{{owner}}",
+      "blockedBy": "受阻于：{{blockedBy}}"
+    },
+    "message": {
+      "loading": "加载中…",
+      "copy": "复制",
+      "copyCode": "复制代码",
+      "copyMessage": "复制消息",
+      "copyRaw": "复制原始文本",
+      "copyRawMessage": "复制消息原始文本",
+      "copied": "已复制",
+      "info": "消息信息",
+      "timeUnavailable": "时间不可用",
+      "exportTable": "导出表格",
+      "attachFile": "附加文件"
+    }
   },
   "titlebar": {
     "appName": "Qwen Code",

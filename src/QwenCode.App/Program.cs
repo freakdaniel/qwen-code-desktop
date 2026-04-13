@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Drawing;
+using System.Reflection;
 using System.Runtime;
 using InfiniFrame;
 using Microsoft.Extensions.Configuration;
@@ -35,6 +36,7 @@ internal static class Program
             .AddEnvironmentVariables()
             .Build();
 
+        WriteStartupBanner();
         Log.Logger = CreateLogger(configuration);
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
@@ -70,7 +72,7 @@ internal static class Program
                 .Center()
                 .SetTitle(productName)
                 .SetSize(new Size(1280, 720))
-                .SetMinSize(new Size(1180, 760))
+                .SetMinSize(new Size(1200, 720))
                 .SetDevToolsEnabled(Debugger.IsAttached)
                 .UseEmbeddedWwwrootAssets(
                     scheme: "app",
@@ -84,8 +86,12 @@ internal static class Program
                 .Build(serviceProvider);
 
             bridge.Initialize(window);
-            Bootstrapper.StartAsync(serviceProvider, configuration, window).GetAwaiter().GetResult();
+            var bootstrapTask = Bootstrapper.StartAsync(serviceProvider, configuration);
+            bootstrapTask.ContinueWith(
+                task => logger.LogError(task.Exception, "Desktop bootstrap services failed during startup"),
+                TaskContinuationOptions.OnlyOnFaulted);
             window.WaitForClose();
+            bootstrapTask.GetAwaiter().GetResult();
         }
         catch (Exception exception)
         {
@@ -117,5 +123,28 @@ internal static class Program
                 retainedFileCountLimit: 7,
                 shared: true)
             .CreateLogger();
+    }
+
+    private static void WriteStartupBanner()
+    {
+        const string logoColor = "\u001b[38;2;193;168;255m";
+        const string resetColor = "\u001b[0m";
+
+        string[] lines =
+        [
+            "                                       ",
+            " _____               _____       _     ",
+            "|     |_ _ _ ___ ___|     |___ _| |___ ",
+            "|  |  | | | | -_|   |   --| . | . | -_|",
+            "|__  _|_____|___|_|_|_____|___|___|___|",
+            "   |__|                                "
+        ];
+
+        foreach (var line in lines)
+        {
+            Console.WriteLine($"{logoColor}{line}{resetColor}");
+        }
+
+        Console.WriteLine();
     }
 }

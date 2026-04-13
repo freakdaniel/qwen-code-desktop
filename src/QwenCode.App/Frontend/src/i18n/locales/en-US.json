@@ -32,6 +32,8 @@
     "deleteChat": "Delete chat",
     "renameChatPrompt": "New chat name",
     "deleteChatConfirm": "Delete \"{{title}}\"?",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar",
     "now": "now",
     "minutesAgo": "m",
     "hoursAgo": "h",
@@ -50,7 +52,56 @@
     "contextUsed": "Used {{used}} / {{total}} tokens",
     "contextCompression": "Qwen will automatically compress context when limit is exceeded",
     "noMessages": "No messages yet",
-    "noReadableMessages": "Messages exist, but this transcript could not be read yet"
+    "noReadableMessages": "Messages exist, but this transcript could not be read yet",
+    "projectPicker": {
+      "noProject": "No project",
+      "searchPlaceholder": "Search projects",
+      "addProject": "Add new project",
+      "noProjectsFound": "No projects found"
+    },
+    "approval": {
+      "title": "Approval required",
+      "allowOnce": "Allow once",
+      "alwaysAllow": "Always allow",
+      "feedbackLabel": "Tell Qwen what it should do instead",
+      "feedbackPlaceholder": "For example: read the file first, then suggest a safer change"
+    },
+    "reasoning": {
+      "timelineTitle": "Reasoning timeline",
+      "finished": "Finished thinking",
+      "thinking": "Thinking",
+      "reasoning": "Reasoning",
+      "thoughtFor": "Thought for {{duration}}",
+      "durationMilliseconds": "{{value}} ms",
+      "durationSeconds": "{{value}}s",
+      "durationMinutes": "{{minutes}}m",
+      "durationMinutesSeconds": "{{minutes}}m {{seconds}}s",
+      "workInProgress": "Work in progress",
+      "workCompleted": "Work completed",
+      "closePanel": "Close reasoning panel"
+    },
+    "tasks": {
+      "completed": "Completed",
+      "inProgress": "In progress",
+      "pending": "Pending",
+      "stopped": "Stopped",
+      "progress": "{{completed}} of {{total}} completed",
+      "owner": "Owner: {{owner}}",
+      "blockedBy": "Blocked by: {{blockedBy}}"
+    },
+    "message": {
+      "loading": "Loading…",
+      "copy": "Copy",
+      "copyCode": "Copy code",
+      "copyMessage": "Copy message",
+      "copyRaw": "Copy raw text",
+      "copyRawMessage": "Copy raw message",
+      "copied": "Copied",
+      "info": "Message info",
+      "timeUnavailable": "Time unavailable",
+      "exportTable": "Export table",
+      "attachFile": "Attach file"
+    }
   },
   "titlebar": {
     "appName": "Qwen Code",

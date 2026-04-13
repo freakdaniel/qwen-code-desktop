@@ -47,6 +47,80 @@ export interface BootstrapState {
 
 const BootstrapContext = createContext<BootstrapState | null>(null)
 
+const MAX_LIVE_SESSION_EVENTS = 240
+
+function buildTurnReattachedEvent(activeTurn: ActiveTurnState): DesktopSessionEvent {
+  return {
+    sessionId: activeTurn.sessionId,
+    kind: 'turnReattached',
+    timestampUtc: activeTurn.lastUpdatedAtUtc,
+    message: activeTurn.contentSnapshot || activeTurn.thinkingSnapshot || `Reattached at ${activeTurn.stage}.`,
+    agentName: '',
+    workingDirectory: activeTurn.workingDirectory,
+    gitBranch: activeTurn.gitBranch,
+    commandName: '',
+    toolName: activeTurn.toolName,
+    toolCallId: '',
+    toolCallGroupId: '',
+    toolArgumentsJson: '{}',
+    status: activeTurn.status,
+    contentDelta: '',
+    contentSnapshot: activeTurn.contentSnapshot,
+    thinkingDelta: '',
+    thinkingSnapshot: activeTurn.thinkingSnapshot,
+    toolOutput: '',
+    approvalState: '',
+    changedFiles: [],
+    questions: [],
+    answers: [],
+    title: '',
+  }
+}
+
+function isContentOnlyStreamingEvent(event: DesktopSessionEvent): boolean {
+  return (
+    event.kind === 'assistantStreaming' &&
+    (!!event.contentDelta || !!event.contentSnapshot) &&
+    !event.thinkingDelta &&
+    !event.thinkingSnapshot &&
+    !event.toolName
+  )
+}
+
+function isThinkingOnlyStreamingEvent(event: DesktopSessionEvent): boolean {
+  return (
+    event.kind === 'assistantStreaming' &&
+    (!!event.thinkingDelta || !!event.thinkingSnapshot) &&
+    !event.contentDelta &&
+    !event.contentSnapshot &&
+    !event.toolName
+  )
+}
+
+function appendLiveSessionEvent(
+  history: DesktopSessionEvent[],
+  event: DesktopSessionEvent,
+): DesktopSessionEvent[] {
+  if (event.kind === 'turnStarted' || event.kind === 'turnReattached') {
+    return [event]
+  }
+
+  const nextHistory = [...history]
+  const lastEvent = nextHistory[nextHistory.length - 1]
+  const shouldReplaceLast =
+    !!lastEvent &&
+    ((isContentOnlyStreamingEvent(lastEvent) && isContentOnlyStreamingEvent(event)) ||
+      (isThinkingOnlyStreamingEvent(lastEvent) && isThinkingOnlyStreamingEvent(event)))
+
+  if (shouldReplaceLast) {
+    nextHistory[nextHistory.length - 1] = event
+  } else {
+    nextHistory.push(event)
+  }
+
+  return nextHistory.slice(-MAX_LIVE_SESSION_EVENTS)
+}
+
 function useBootstrapState(): BootstrapState {
   const [bootstrap, setBootstrap] = useState<AppBootstrapPayload>(fallbackBootstrap)
   const [authSnapshot, setAuthSnapshot] = useState<AuthStatusSnapshot>(fallbackBootstrap.qwenAuth)
@@ -73,13 +147,20 @@ function useBootstrapState(): BootstrapState {
   }
 
   const syncActiveTurns = (turns: ActiveTurnState[], preferredSessionId = '') => {
-    const activeSessionIds = new Set(turns.map((turn) => turn.sessionId))
     setActiveTurnSessions(Object.fromEntries(turns.map((t) => [t.sessionId, true] as const)))
-    setLiveSessionEvents((current) =>
-      Object.fromEntries(
-        Object.entries(current).filter(([sessionId]) => activeSessionIds.has(sessionId)),
-      ),
-    )
+    setLiveSessionEvents((current) => {
+      const nextEvents: Record<string, DesktopSessionEvent[]> = {}
+
+      turns.forEach((turn) => {
+        const existingEvents = current[turn.sessionId] ?? []
+        nextEvents[turn.sessionId] =
+          existingEvents.length > 0
+            ? existingEvents
+            : [buildTurnReattachedEvent(turn)]
+      })
+
+      return nextEvents
+    })
     setStreamingSnapshots(
       Object.fromEntries(
         turns.filter((t) => t.contentSnapshot).map((t) => [t.sessionId, t.contentSnapshot] as const),
@@ -101,31 +182,7 @@ function useBootstrapState(): BootstrapState {
     if (!activeTurn) return
 
     setReattachedSessionId(activeTurn.sessionId)
-    setLatestSessionEvent({
-      sessionId: activeTurn.sessionId,
-      kind: 'turnReattached',
-      timestampUtc: activeTurn.lastUpdatedAtUtc,
-      message: activeTurn.contentSnapshot || `Reattached at ${activeTurn.stage}.`,
-      agentName: '',
-      workingDirectory: activeTurn.workingDirectory,
-      gitBranch: activeTurn.gitBranch,
-      commandName: '',
-      toolName: activeTurn.toolName,
-      toolCallId: '',
-      toolCallGroupId: '',
-      toolArgumentsJson: '{}',
-      status: activeTurn.status,
-      contentDelta: '',
-      contentSnapshot: activeTurn.contentSnapshot,
-      thinkingDelta: '',
-      thinkingSnapshot: '',
-      toolOutput: '',
-      approvalState: '',
-      changedFiles: [],
-      questions: [],
-      answers: [],
-      title: '',
-    })
+    setLatestSessionEvent(buildTurnReattachedEvent(activeTurn))
   }
 
   const loadSessionDetail = useCallback(
@@ -213,7 +270,8 @@ function useBootstrapState(): BootstrapState {
       setMcpSnapshot(normalizedPayload.qwenMcp)
       syncActiveTurns(normalizedPayload.activeTurns)
       await changeLanguage(normalizedPayload.currentLocale)
-      await preloadRecentSessions(normalizedPayload.recentSessions)
+      setIsReady(true)
+      void preloadRecentSessions(normalizedPayload.recentSessions)
 
       disposers.push(
         window.qwenDesktop.subscribeStateChanged((event) => {
@@ -263,14 +321,10 @@ function useBootstrapState(): BootstrapState {
 
           setLatestSessionEvent(event)
           setLiveSessionEvents((current) => {
-            if (event.kind === 'turnStarted' || event.kind === 'turnReattached') {
-              return { ...current, [event.sessionId]: [event] }
-            }
-
             const history = current[event.sessionId] ?? []
             return {
               ...current,
-              [event.sessionId]: [...history, event].slice(-120),
+              [event.sessionId]: appendLiveSessionEvent(history, event),
             }
           })
 
@@ -346,7 +400,6 @@ function useBootstrapState(): BootstrapState {
         }),
       )
 
-      setIsReady(true)
     }
 
     void hydrate()

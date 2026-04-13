@@ -177,6 +177,7 @@ public sealed class ActiveTurnRegistry : IActiveTurnRegistry
             Stage = state.Stage,
             Status = state.Status,
             ContentSnapshot = state.ContentSnapshot,
+            ThinkingSnapshot = state.ThinkingSnapshot,
             StartedAtUtc = state.StartedAtUtc,
             LastUpdatedAtUtc = state.LastUpdatedAtUtc
         };

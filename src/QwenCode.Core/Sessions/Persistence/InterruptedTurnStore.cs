@@ -38,6 +38,7 @@ public sealed class InterruptedTurnStore : IInterruptedTurnStore
             Status = state.Status,
             LastUpdatedAtUtc = state.LastUpdatedAtUtc,
             ContentSnapshot = state.ContentSnapshot,
+            ThinkingSnapshot = state.ThinkingSnapshot,
             ToolName = state.ToolName,
             MarkerWritten = false
         });
@@ -146,6 +147,7 @@ public sealed class InterruptedTurnStore : IInterruptedTurnStore
             InterruptedAtUtc = record.LastUpdatedAtUtc,
             LastUpdatedAtUtc = record.LastUpdatedAtUtc,
             ContentSnapshot = record.ContentSnapshot,
+            ThinkingSnapshot = record.ThinkingSnapshot,
             ToolName = record.ToolName
         };
     }
@@ -301,6 +303,11 @@ public sealed class InterruptedTurnStore : IInterruptedTurnStore
         /// Gets or sets the content snapshot
         /// </summary>
         public string ContentSnapshot { get; init; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the thinking snapshot
+        /// </summary>
+        public string ThinkingSnapshot { get; init; } = string.Empty;
 
         /// <summary>
         /// Gets or sets the tool name

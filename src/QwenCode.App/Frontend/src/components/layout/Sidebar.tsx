@@ -50,6 +50,7 @@ const SIDEBAR_COLLAPSED_WIDTH = 54;
 const APP_BACKGROUND = '#1f1f23';
 const SIDEBAR_BACKGROUND = '#17171b';
 const SIDEBAR_HOVER = { bg: 'transparent', color: 'white' };
+const SESSION_HOVER_BACKGROUND = 'rgba(255,255,255,0.045)';
 
 function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslation>['t']): string {
   const now = Date.now();
@@ -303,16 +304,16 @@ export default function Sidebar({
         position="relative"
         bg={isSelected ? '#3a3a42' : 'transparent'}
         color={isSelected ? 'white' : 'gray.200'}
-        _hover={{ bg: isSelected ? '#3a3a42' : 'transparent', color: 'white' }}
-        _active={{ bg: isSelected ? '#3a3a42' : 'transparent', color: 'white' }}
+        _hover={{ bg: isSelected ? '#3a3a42' : SESSION_HOVER_BACKGROUND, color: 'white' }}
+        _active={{ bg: isSelected ? '#3a3a42' : SESSION_HOVER_BACKGROUND, color: 'white' }}
         borderRadius="full"
-        fontSize="sm"
+        fontSize="13px"
         fontWeight="normal"
         lineHeight="normal"
         overflow="visible"
         boxShadow={isSelected ? '0 0 0 1px rgba(255,255,255,0.04) inset' : 'none'}
       >
-        <Box flex={1} minW={0} h="22px" pr={2} display="flex" alignItems="center">
+        <Box flex={1} minW={0} h="22px" pr={showSessionActions ? 9 : 2} display="flex" alignItems="center" position="relative" zIndex={1}>
           {conv.title === null ? (
             <Skeleton
               h="14px"
@@ -327,6 +328,7 @@ export default function Sidebar({
               color="inherit"
               display="block"
               fontWeight="normal"
+              fontSize="13px"
               minW={0}
               overflow="hidden"
               textOverflow="ellipsis"
@@ -358,55 +360,86 @@ export default function Sidebar({
             bg="green.400"
             flexShrink={0}
             transition="background-color 0.2s ease"
+            position="relative"
+            zIndex={1}
           />
         )}
-        {showSessionActions && (
-          <Box
-            className="session-actions"
-            position="absolute"
-            right="6px"
-            top="50%"
-            transform="translateY(-50%)"
-            w="24px"
-            h="24px"
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-            borderRadius="full"
-            color={isSelected ? 'gray.200' : 'gray.400'}
-            bg={isSelected ? '#34343c' : 'rgba(255,255,255,0.04)'}
-            transition="color 0.14s ease, background-color 0.14s ease"
-            role="button"
-            tabIndex={0}
-            aria-label={t('sidebar.sessionActions')}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              toggleSessionMenu(conv, event.clientX, event.clientY);
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter' && event.key !== ' ') return;
-              event.preventDefault();
-              event.stopPropagation();
-              const rect = event.currentTarget.getBoundingClientRect();
-              toggleSessionMenu(conv, rect.right, rect.bottom);
-            }}
-            _hover={{ color: 'white', bg: 'transparent' }}
-          >
-            <MoreHorizontal size={15} />
-          </Box>
-        )}
+        <AnimatePresence initial={false}>
+          {showSessionActions && (
+            <>
+              <motion.div
+                key={`${conv.sessionId}-mask`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: '76px',
+                  borderRadius: '999px',
+                  pointerEvents: 'none',
+                  background: isSelected
+                    ? 'linear-gradient(to right, rgba(58,58,66,0), rgba(58,58,66,0.82) 32%, rgba(58,58,66,1) 72%)'
+                    : 'linear-gradient(to right, rgba(29,29,33,0), rgba(29,29,33,0.42) 30%, rgba(31,31,35,0.92) 72%)',
+                }}
+              />
+              <Box
+                position="absolute"
+                right="6px"
+                top="50%"
+                transform="translateY(-50%)"
+                zIndex={2}
+              >
+                <motion.div
+                  key={`${conv.sessionId}-actions`}
+                  initial={{ opacity: 0, x: 6, scale: 0.94 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: 6, scale: 0.94 }}
+                  transition={{ duration: 0.16, ease: 'easeOut' }}
+                >
+                  <Box
+                    className="session-actions"
+                    w="24px"
+                    h="24px"
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="center"
+                    borderRadius="full"
+                    color={isSelected ? 'gray.200' : 'gray.400'}
+                    bg="transparent"
+                    transition="color 0.14s ease"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={t('sidebar.sessionActions')}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      toggleSessionMenu(conv, event.clientX, event.clientY);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      toggleSessionMenu(conv, rect.right, rect.bottom);
+                    }}
+                    _hover={{ color: 'white', bg: 'transparent' }}
+                  >
+                    <MoreHorizontal size={15} style={{ transform: 'rotate(90deg)' }} />
+                  </Box>
+                </motion.div>
+              </Box>
+            </>
+          )}
+        </AnimatePresence>
       </Button>
     );
   };
 
   const railActions = [
-    {
-      key: 'toggle-mode',
-      label: mode === 'projects' ? t('top.chats') : t('top.coder'),
-      icon: mode === 'projects' ? <MessageCircle size={17} /> : <Code2 size={17} />,
-      onClick: onToggleMode,
-    },
     {
       key: 'new-chat',
       label: t('sidebar.newChat'),
@@ -418,6 +451,12 @@ export default function Sidebar({
       label: t('sidebar.search'),
       icon: <Search size={17} />,
       onClick: onOpenSearch,
+    },
+    {
+      key: 'toggle-mode',
+      label: mode === 'projects' ? t('top.chats') : t('top.coder'),
+      icon: mode === 'projects' ? <MessageCircle size={17} /> : <Code2 size={17} />,
+      onClick: onToggleMode,
     },
     {
       key: 'skills',
@@ -471,7 +510,7 @@ export default function Sidebar({
               <HStack justify="space-between" align="center">
                 <img src={qwenLogo} alt="Qwen" style={{ width: '26px', height: '26px' }} draggable={false} />
                 <IconButton
-                  aria-label="Collapse sidebar"
+                  aria-label={t('sidebar.collapseSidebar')}
                   icon={<PanelLeftClose size={16} />}
                   variant="ghost"
                   size="sm"
@@ -700,7 +739,7 @@ export default function Sidebar({
           >
           <VStack h="100%" spacing={2} align="center" px={1} pt={3} pb={3}>
             <IconButton
-              aria-label="Expand sidebar"
+              aria-label={t('sidebar.expandSidebar')}
               icon={<PanelLeftOpen size={16} />}
               variant="ghost"
               size="md"

@@ -43,7 +43,6 @@ import {
   Info,
   Sparkles,
   PanelRightClose,
-  ChevronDown,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Highlight, themes, type Language } from 'prism-react-renderer';
@@ -78,6 +77,7 @@ import { AGENT_MODES } from '@/types/ui';
 import type { AgentMode } from '@/types/ui';
 import { useBootstrap } from '@/hooks/useBootstrap';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { DesktopSessionDetail, DesktopSessionEntry, SessionPreview } from '@/types/desktop';
 import qwenLogo from '@/assets/qwen-logo.svg';
 import type { SessionNavigationMode } from './sessionNavigation';
@@ -106,7 +106,6 @@ const CHAT_MAX_WIDTH = '4xl';
 const LIVE_TOOL_SOURCE = '__live_tool__';
 const APP_BACKGROUND = '#1f1f23';
 const SURFACE_BACKGROUND = '#26262c';
-const SURFACE_ELEVATED = '#2b2b33';
 const SIDEBAR_BORDER = 'rgba(255,255,255,0.06)';
 const USER_MESSAGE_BACKGROUND = '#31313a';
 
@@ -203,29 +202,24 @@ function joinDesktopPath(basePath: string, ...segments: string[]): string {
   return [trimmedBase, ...trimmedSegments].join(separator);
 }
 
-function getProjectDisplayName(workingDirectory: string, locale: string): string {
+function getProjectDisplayName(workingDirectory: string, t: TFunction): string {
   if (!workingDirectory) {
-    return locale.startsWith('ru') ? 'Без проекта' : 'No project';
+    return t('chat.projectPicker.noProject');
   }
 
   return basename(workingDirectory) || workingDirectory;
 }
 
-function getProjectPickerSearchPlaceholder(locale: string): string {
-  if (locale.startsWith('ru')) return 'Поиск проектов';
-  if (locale.startsWith('ja')) return 'プロジェクトを検索';
-  if (locale.startsWith('ko')) return '프로젝트 검색';
-  if (locale.startsWith('pt')) return 'Pesquisar projetos';
-  if (locale.startsWith('zh')) return '搜索项目';
-  return 'Search projects';
+function getProjectPickerSearchPlaceholder(t: TFunction): string {
+  return t('chat.projectPicker.searchPlaceholder');
 }
 
-function getAddProjectLabel(locale: string): string {
-  return locale.startsWith('ru') ? 'Добавить новый проект' : 'Add new project';
+function getAddProjectLabel(t: TFunction): string {
+  return t('chat.projectPicker.addProject');
 }
 
-function getNoProjectsLabel(locale: string): string {
-  return locale.startsWith('ru') ? 'Проекты не найдены' : 'No projects found';
+function getNoProjectsLabel(t: TFunction): string {
+  return t('chat.projectPicker.noProjectsFound');
 }
 
 function getProjectlessTempDirectory(runtimeBaseDirectory: string, workspaceRoot: string): string {
@@ -238,10 +232,6 @@ function isTemporaryChatWorkingDirectory(workingDirectory: string): boolean {
 }
 
 void getSessionDisplayTitle;
-void getSessionPickerPlaceholder;
-void getSessionPickerSearchPlaceholder;
-void getNoSessionsLabel;
-void getNoSessionMatchesLabel;
 
 function parseObjectArguments(argumentsJson: string): Record<string, unknown> | null {
   if (!argumentsJson) return null;
@@ -1200,6 +1190,7 @@ function MarkdownCodeBlock({
   className?: string;
   children?: ReactNode;
 }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const code = flattenReactText(children).replace(/\n$/, '');
   const language = className?.match(/language-([\w-]+)/)?.[1] ?? 'text';
@@ -1260,7 +1251,7 @@ function MarkdownCodeBlock({
           </Text>
         </Box>
         <IconButton
-          aria-label={copied ? 'Copied' : 'Copy code'}
+          aria-label={copied ? t('chat.message.copied') : t('chat.message.copyCode')}
           size="xs"
           variant="ghost"
           color={copied ? '#d8d7ff' : 'gray.300'}
@@ -1406,6 +1397,7 @@ function MarkdownTable({
   node?: unknown;
   children?: ReactNode;
 }) {
+  const { t } = useTranslation();
   const rows = useMemo(() => extractMarkdownTableRows(node), [node]);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -1482,7 +1474,7 @@ function MarkdownTable({
         ref={menuRef}
       >
         <IconButton
-          aria-label="Export table"
+          aria-label={t('chat.message.exportTable')}
           size="xs"
           variant="ghost"
           icon={<Download size={13} />}
@@ -1589,21 +1581,31 @@ function StreamingAssistantBody({
   text: string;
   isStreaming: boolean;
 }) {
-  if (isStreaming) {
-    return (
-      <Box
-        color="gray.100"
-        fontSize="sm"
-        lineHeight="1.85"
-        whiteSpace="pre-wrap"
-        wordBreak="break-word"
-      >
-        {text}
-      </Box>
-    );
-  }
-
-  return <AssistantMarkdownBody text={text} />;
+  return (
+    <Box position="relative">
+      <AssistantMarkdownBody text={text} />
+      {isStreaming && (
+        <Box
+          as="span"
+          display="inline-block"
+          ml={1}
+          mt={1}
+          w="8px"
+          h="1.1em"
+          borderRadius="999px"
+          bg="rgba(255,255,255,0.6)"
+          verticalAlign="text-bottom"
+          animation="qwen-streaming-caret 1s ease-in-out infinite"
+          sx={{
+            '@keyframes qwen-streaming-caret': {
+              '0%, 100%': { opacity: 0.24 },
+              '50%': { opacity: 1 },
+            },
+          }}
+        />
+      )}
+    </Box>
+  );
 }
 
 type PendingApprovalDecision = 'allow-once' | 'always-allow' | 'deny';
@@ -1932,26 +1934,24 @@ function buildPendingApprovalPresentations(
   return presentations;
 }
 
-function getApprovalCardTitle(locale: string): string {
-  return locale.startsWith('ru') ? 'Требуется подтверждение' : 'Approval required';
+function getApprovalCardTitle(t: TFunction): string {
+  return t('chat.approval.title');
 }
 
-function getApprovalAllowOnceLabel(locale: string): string {
-  return locale.startsWith('ru') ? 'Разрешить один раз' : 'Allow once';
+function getApprovalAllowOnceLabel(t: TFunction): string {
+  return t('chat.approval.allowOnce');
 }
 
-function getApprovalAlwaysAllowLabel(locale: string): string {
-  return locale.startsWith('ru') ? 'Всегда разрешать' : 'Always allow';
+function getApprovalAlwaysAllowLabel(t: TFunction): string {
+  return t('chat.approval.alwaysAllow');
 }
 
-function getApprovalFeedbackLabel(locale: string): string {
-  return locale.startsWith('ru') ? 'Сообщить Qwen что он должен сделать' : 'Tell Qwen what it should do instead';
+function getApprovalFeedbackLabel(t: TFunction): string {
+  return t('chat.approval.feedbackLabel');
 }
 
-function getApprovalFeedbackPlaceholder(locale: string): string {
-  return locale.startsWith('ru')
-    ? 'Например: сначала прочитай файл и только потом предлагай изменения'
-    : 'For example: read the file first, then suggest a safer change';
+function getApprovalFeedbackPlaceholder(t: TFunction): string {
+  return t('chat.approval.feedbackPlaceholder');
 }
 
 function getPendingApprovalReason(entry: DesktopSessionEntry): string {
@@ -1995,7 +1995,6 @@ function getPendingApprovalDetailLines(entry: DesktopSessionEntry): string[] {
 
 function PendingApprovalCard({
   entry,
-  locale,
   feedbackValue,
   onFeedbackChange,
   onAllowOnce,
@@ -2003,13 +2002,13 @@ function PendingApprovalCard({
   onSubmitFeedback,
 }: {
   entry: DesktopSessionEntry;
-  locale: string;
   feedbackValue: string;
   onFeedbackChange: (value: string) => void;
   onAllowOnce: () => void;
   onAlwaysAllow: () => void;
   onSubmitFeedback: () => void;
 }) {
+  const { t } = useTranslation();
   const reason = getPendingApprovalReason(entry);
   const detailLines = getPendingApprovalDetailLines(entry);
 
@@ -2024,7 +2023,7 @@ function PendingApprovalCard({
         py={2.5}
       >
         <Text fontSize="10px" color="gray.500" textTransform="uppercase" letterSpacing="0.14em">
-          {getApprovalCardTitle(locale)}
+          {getApprovalCardTitle(t)}
         </Text>
 
         {reason && (
@@ -2068,7 +2067,7 @@ function PendingApprovalCard({
           fontSize="xs"
           fontWeight="normal"
         >
-          {getApprovalAllowOnceLabel(locale)}
+          {getApprovalAllowOnceLabel(t)}
         </Button>
         <Button
           onClick={onAlwaysAllow}
@@ -2082,7 +2081,7 @@ function PendingApprovalCard({
           fontSize="xs"
           fontWeight="normal"
         >
-          {getApprovalAlwaysAllowLabel(locale)}
+          {getApprovalAlwaysAllowLabel(t)}
         </Button>
         <Input
           value={feedbackValue}
@@ -2093,7 +2092,7 @@ function PendingApprovalCard({
               onSubmitFeedback();
             }
           }}
-          placeholder={getApprovalFeedbackLabel(locale)}
+          placeholder={getApprovalFeedbackLabel(t)}
           bg="gray.900"
           border="1px solid"
           borderColor="gray.700"
@@ -2109,7 +2108,7 @@ function PendingApprovalCard({
           _focusVisible={{ borderColor: 'brand.400', boxShadow: '0 0 0 1px rgba(97,92,237,0.35)' }}
         />
         <IconButton
-          aria-label={getApprovalFeedbackPlaceholder(locale)}
+          aria-label={getApprovalFeedbackPlaceholder(t)}
           icon={<ArrowUp size={15} />}
           onClick={onSubmitFeedback}
           isDisabled={!feedbackValue.trim()}
@@ -2356,7 +2355,6 @@ function buildLiveReasoningArtifacts(
 ): DisplayBlock[] {
   const segments: LiveReasoningSegment[] = [];
   let currentThought: LiveReasoningSegment | null = null;
-  let lastThinkingSnapshot = '';
 
   const closeThought = () => {
     currentThought = null;
@@ -2373,16 +2371,10 @@ function buildLiveReasoningArtifacts(
     const thinkingDelta = event.thinkingDelta ?? '';
     const thinkingSnapshot = event.thinkingSnapshot ?? '';
     const currentThoughtBody = currentThought?.entry.body ?? '';
-    const thinkingSnapshotDelta =
-      thinkingSnapshot && thinkingSnapshot !== lastThinkingSnapshot
-        ? thinkingSnapshot.startsWith(lastThinkingSnapshot)
-          ? thinkingSnapshot.slice(lastThinkingSnapshot.length)
-          : thinkingSnapshot
-        : '';
-    const nextThoughtText: string = thinkingDelta
-      ? `${currentThoughtBody}${thinkingDelta}`
-      : thinkingSnapshotDelta
-        ? `${currentThoughtBody}${thinkingSnapshotDelta}`
+    const nextThoughtText: string = thinkingSnapshot
+      ? thinkingSnapshot
+      : thinkingDelta
+        ? `${currentThoughtBody}${thinkingDelta}`
         : '';
 
     if (nextThoughtText.trim()) {
@@ -2409,15 +2401,7 @@ function buildLiveReasoningArtifacts(
         };
       }
 
-      if (thinkingSnapshot) {
-        lastThinkingSnapshot = thinkingSnapshot;
-      }
-
       continue;
-    }
-
-    if (!thinkingDelta && thinkingSnapshot) {
-      lastThinkingSnapshot = thinkingSnapshot;
     }
 
     if (!isToolLifecycleEvent(event)) {
@@ -2500,36 +2484,94 @@ function buildLiveReasoningArtifacts(
   return blocks;
 }
 
-function formatThinkingDuration(locale: string, durationMs: number): string {
+function getLatestLiveThinkingSnapshot(
+  events: import('@/types/desktop').DesktopSessionEvent[],
+): string {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.thinkingSnapshot?.trim()) {
+      return event.thinkingSnapshot;
+    }
+
+    if (event.thinkingDelta?.trim()) {
+      return event.thinkingDelta;
+    }
+  }
+
+  return '';
+}
+
+function resolveLiveReasoningStatus(
+  events: import('@/types/desktop').DesktopSessionEvent[],
+  isTurnActive: boolean,
+  hasStreamingResponse: boolean,
+): 'running' | 'completed' {
+  let status: 'running' | 'completed' =
+    isTurnActive && !hasStreamingResponse ? 'running' : 'completed';
+
+  for (const event of events) {
+    const hasThinkingUpdate = !!event.thinkingDelta || !!event.thinkingSnapshot;
+    const hasResponseUpdate = !!event.contentDelta || !!event.contentSnapshot;
+
+    if (event.kind === 'assistantCompleted' || event.kind === 'turnCompleted' || event.kind === 'turnCancelled') {
+      status = 'completed';
+      continue;
+    }
+
+    if (hasResponseUpdate) {
+      status = 'completed';
+      continue;
+    }
+
+    if (
+      hasThinkingUpdate ||
+      isToolLifecycleEvent(event) ||
+      event.kind === 'turnStarted' ||
+      event.kind === 'turnReattached' ||
+      event.kind === 'assistantPreparingContext' ||
+      event.kind === 'assistantGenerating' ||
+      event.kind === 'toolApproved' ||
+      event.kind === 'userInputReceived'
+    ) {
+      status = 'running';
+    }
+  }
+
+  return status;
+}
+
+function getReasoningToggleLabel(t: TFunction, isStreaming: boolean): string {
+  if (isStreaming) {
+    return t('chat.reasoning.timelineTitle');
+  }
+
+  return t('chat.reasoning.finished');
+}
+
+function formatThinkingDuration(t: TFunction, durationMs: number): string {
   if (durationMs < 1_000) {
-    return locale.startsWith('ru')
-      ? `${Math.max(1, Math.round(durationMs))} мс`
-      : `${Math.max(1, Math.round(durationMs))} ms`;
+    return t('chat.reasoning.durationMilliseconds', { value: Math.max(1, Math.round(durationMs)) });
   }
 
   if (durationMs < 60_000) {
     const seconds = durationMs / 1_000;
     const formatted = seconds < 10 ? seconds.toFixed(1).replace(/\.0$/, '') : Math.round(seconds).toString();
-    return locale.startsWith('ru') ? `${formatted} с` : `${formatted}s`;
+    return t('chat.reasoning.durationSeconds', { value: formatted });
   }
 
   const minutes = Math.floor(durationMs / 60_000);
   const seconds = Math.round((durationMs % 60_000) / 1_000);
-  if (locale.startsWith('ru')) {
-    return seconds > 0 ? `${minutes} мин ${seconds} с` : `${minutes} мин`;
-  }
-
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  return seconds > 0
+    ? t('chat.reasoning.durationMinutesSeconds', { minutes, seconds })
+    : t('chat.reasoning.durationMinutes', { minutes });
 }
 
-function getThinkingStatusLabel(locale: string, durationMs: number): string {
+function getThinkingStatusLabel(t: TFunction, durationMs: number): string {
   if (durationMs > 0) {
-    return locale.startsWith('ru')
-      ? `Думал в течение ${formatThinkingDuration(locale, durationMs)}`
-      : `Thought for ${formatThinkingDuration(locale, durationMs)}`;
+    return t('chat.reasoning.thoughtFor', { duration: formatThinkingDuration(t, durationMs) });
   }
 
-  return locale.startsWith('ru') ? 'Думаю' : 'Thinking';
+  return t('chat.reasoning.thinking');
 }
 
 function normalizeWittyLoadingPhrases(value: unknown, fallback: string): string[] {
@@ -2559,77 +2601,57 @@ function pickWittyLoadingPhrase(phrases: readonly string[], fallback: string, pr
   return pool[Math.floor(Math.random() * pool.length)] || fallback;
 }
 
-function getSessionPickerPlaceholder(locale: string): string {
-  return locale.startsWith('ru') ? 'Выберите чат' : 'Select a chat';
-}
-
-function getSessionPickerSearchPlaceholder(locale: string): string {
-  return locale.startsWith('ru') ? 'Поиск чатов' : 'Search chats';
-}
-
-function getNoSessionsLabel(locale: string): string {
-  return locale.startsWith('ru') ? 'Чаты пока не найдены' : 'No chats available yet';
-}
-
-function getNoSessionMatchesLabel(locale: string): string {
-  return locale.startsWith('ru') ? 'Ничего не найдено' : 'No matching chats';
-}
-
-function getTodoStatusLabel(locale: string, status: string): string {
+function getTodoStatusLabel(t: TFunction, status: string): string {
   const normalized = status.toLowerCase();
   if (normalized === 'completed' || normalized === 'done') {
-    return locale.startsWith('ru') ? 'Выполнено' : 'Completed';
+    return t('chat.tasks.completed');
   }
 
   if (normalized === 'in_progress' || normalized === 'in-progress') {
-    return locale.startsWith('ru') ? 'В работе' : 'In progress';
+    return t('chat.tasks.inProgress');
   }
 
-  return locale.startsWith('ru') ? 'Ожидает' : 'Pending';
+  return t('chat.tasks.pending');
 }
 
 void getTodoStatusLabel;
 
-function getTaskStatusLabel(locale: string, status: string): string {
+function getTaskStatusLabel(t: TFunction, status: string): string {
   const normalized = normalizeTaskStatus(status);
   if (normalized === 'completed' || normalized === 'done') {
-    return locale.startsWith('ru') ? 'Выполнено' : 'Completed';
+    return t('chat.tasks.completed');
   }
 
   if (normalized === 'in_progress') {
-    return locale.startsWith('ru') ? 'В работе' : 'In progress';
+    return t('chat.tasks.inProgress');
   }
 
   if (normalized === 'cancelled') {
-    return locale.startsWith('ru') ? 'Остановлено' : 'Stopped';
+    return t('chat.tasks.stopped');
   }
 
-  return locale.startsWith('ru') ? 'Ожидает' : 'Pending';
+  return t('chat.tasks.pending');
 }
 
-function getTaskProgressLabel(locale: string, completedCount: number, totalCount: number): string {
-  return locale.startsWith('ru')
-    ? `Выполнено ${completedCount} из ${totalCount}`
-    : `${completedCount} of ${totalCount} completed`;
+function getTaskProgressLabel(t: TFunction, completedCount: number, totalCount: number): string {
+  return t('chat.tasks.progress', { completed: completedCount, total: totalCount });
 }
 
-function renderTaskSummaryContent(taskSummary: TaskSummary, locale: string) {
+function renderTaskSummaryContent(taskSummary: TaskSummary, t: TFunction) {
   return (
     <VStack spacing={1.5} align="stretch">
       <Text fontSize="xs" color="gray.400">
-        {getTaskProgressLabel(locale, taskSummary.completedCount, taskSummary.totalCount)}
+        {getTaskProgressLabel(t, taskSummary.completedCount, taskSummary.totalCount)}
       </Text>
       {taskSummary.items.map((item) => {
         const normalizedStatus = normalizeTaskStatus(item.status);
         const isCompleted = normalizedStatus === 'completed' || normalizedStatus === 'done';
         const isCancelled = normalizedStatus === 'cancelled';
         const supportingBits = [
-          getTaskStatusLabel(locale, item.status),
-          item.owner ? (locale.startsWith('ru') ? `Ответственный: ${item.owner}` : `Owner: ${item.owner}`) : '',
+          getTaskStatusLabel(t, item.status),
+          item.owner ? t('chat.tasks.owner', { owner: item.owner }) : '',
           item.blockedBy.length > 0
-            ? locale.startsWith('ru')
-              ? `Блокирует: ${item.blockedBy.join(', ')}`
-              : `Blocked by: ${item.blockedBy.join(', ')}`
+            ? t('chat.tasks.blockedBy', { blockedBy: item.blockedBy.join(', ') })
             : '',
         ].filter(Boolean);
 
@@ -2732,13 +2754,13 @@ function ThinkingOrbit() {
   );
 }
 
-function formatMessageDetails(locale: string, timestamp?: string): string {
+function formatMessageDetails(locale: string, t: TFunction, timestamp?: string): string {
   if (!timestamp) {
-    return locale.startsWith('ru') ? 'Время недоступно' : 'Time unavailable';
+    return t('chat.message.timeUnavailable');
   }
 
   try {
-    return new Date(timestamp).toLocaleString(locale.startsWith('ru') ? 'ru-RU' : undefined, {
+    return new Date(timestamp).toLocaleString(locale || undefined, {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -2893,6 +2915,7 @@ export default function ChatArea({
   const projectPickerMenuRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef(true);
   const scrollFrameRef = useRef<number | null>(null);
+  const animatedUserEntryIdsRef = useRef<Set<string>>(new Set());
 
   const selectedModel = useMemo(() => {
     const models = bootstrap?.qwenModels?.availableModels ?? [];
@@ -2923,7 +2946,7 @@ export default function ChatArea({
   const liveReasoningAssistantId = selectedSessionId ? `streaming-${selectedSessionId}` : '';
   const isAwaitingAssistantText = hasSession && isComposerBusy && !effectiveStreamingSnapshot;
   const defaultThinkingLabel = t('tools.thinking');
-  const plainThinkingLabel = getThinkingStatusLabel(locale, 0);
+  const plainThinkingLabel = getThinkingStatusLabel(t, 0);
   const wittyLoadingPhrases = useMemo(
     () => normalizeWittyLoadingPhrases(
       t('tools.wittyLoadingPhrases', { returnObjects: true, defaultValue: [] }),
@@ -2949,9 +2972,6 @@ export default function ChatArea({
       sessionDetail?.session.workingDirectory,
     ],
   );
-  const streamingToolBadgeEntries = useMemo(() => liveToolEntries.slice(-4), [liveToolEntries]);
-  const hiddenStreamingToolCount = Math.max(0, liveToolEntries.length - streamingToolBadgeEntries.length);
-
   const projectOptions = useMemo(() => {
     const projectMap = new Map<string, ProjectOption>();
     const appendProject = (path: string, lastActivity: string) => {
@@ -2963,7 +2983,7 @@ export default function ChatArea({
       const existing = projectMap.get(key);
       const nextActivity = lastActivity || existing?.lastActivity || '';
       projectMap.set(key, {
-        name: getProjectDisplayName(path, locale),
+        name: getProjectDisplayName(path, t),
         path,
         lastActivity: nextActivity,
       });
@@ -2998,7 +3018,7 @@ export default function ChatArea({
     );
   }, [projectOptions, projectPickerQuery, topProjectOptions]);
 
-  const selectedProjectLabel = getProjectDisplayName(selectedProjectPath, locale);
+  const selectedProjectLabel = getProjectDisplayName(selectedProjectPath, t);
   const selectedProjectWorkingDirectory = selectedProjectMode === 'no-project'
     ? getProjectlessTempDirectory(bootstrap?.qwenRuntime?.runtimeBaseDirectory ?? '', bootstrap?.workspaceRoot ?? '')
     : selectedProjectPath;
@@ -3141,6 +3161,15 @@ export default function ChatArea({
     sessionDetail,
     effectiveStreamingSnapshot,
   ]);
+  const latestPendingUserEntryId = useMemo(
+    () =>
+      isPendingSelectedSession
+        ? [...(displaySessionDetail?.entries ?? [])]
+          .reverse()
+          .find((entry) => entry.type === 'user' && entry.id.startsWith('user-'))?.id ?? ''
+        : '',
+    [displaySessionDetail?.entries, isPendingSelectedSession],
+  );
 
   const sessionProjectRoot = bootstrap?.workspaceRoot ?? displaySessionDetail?.session.workingDirectory ?? '';
   const pendingApprovalPresentations = useMemo(
@@ -3428,6 +3457,8 @@ export default function ChatArea({
       return;
     }
 
+    setOpenReasoningAssistantId(null);
+
     const gitBranch = selectedSession?.gitBranch ?? '';
     const userEntry = createUserEntry(
       window.crypto?.randomUUID?.() ?? `user-${Date.now()}`,
@@ -3546,12 +3577,10 @@ export default function ChatArea({
   }, [selectedSessionId]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && e.ctrlKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      if (isComposerBusy) {
-        void handleStopGeneration();
-      } else {
-        handleSubmit();
+      if (!isComposerBusy && prompt.trim()) {
+        void handleSubmit();
       }
     }
   };
@@ -3678,7 +3707,6 @@ export default function ChatArea({
       <Box mt={2} ml={marginLeft}>
         <PendingApprovalCard
           entry={entry}
-          locale={locale}
           feedbackValue={approvalFeedbackById[entry.id] ?? ''}
           onFeedbackChange={(value) => {
             setApprovalFeedbackById((current) => ({
@@ -3842,6 +3870,18 @@ export default function ChatArea({
       sessionDetail?.session.workingDirectory,
     ],
   );
+  const latestLiveThinkingSnapshot = useMemo(
+    () => getLatestLiveThinkingSnapshot(selectedLiveSessionEvents),
+    [selectedLiveSessionEvents],
+  );
+  const liveReasoningStatus = useMemo(
+    () => resolveLiveReasoningStatus(
+      selectedLiveSessionEvents,
+      isComposerBusy,
+      !!effectiveStreamingSnapshot.trim(),
+    ),
+    [effectiveStreamingSnapshot, isComposerBusy, selectedLiveSessionEvents],
+  );
   const liveReasoningAssistantEntry = useMemo<DesktopSessionEntry | null>(() => {
     if (!selectedSessionId || !liveReasoningAssistantId) {
       return null;
@@ -3852,11 +3892,12 @@ export default function ChatArea({
       selectedSession?.workingDirectory ?? sessionDetail?.session.workingDirectory ?? '',
       selectedSession?.gitBranch ?? sessionDetail?.session.gitBranch ?? '',
       effectiveStreamingSnapshot,
-      '',
+      latestLiveThinkingSnapshot,
       latestSessionEvent?.sessionId === selectedSessionId ? latestSessionEvent.timestampUtc : new Date().toISOString(),
     );
   }, [
     effectiveStreamingSnapshot,
+    latestLiveThinkingSnapshot,
     latestSessionEvent,
     liveReasoningAssistantId,
     selectedSession?.gitBranch,
@@ -3885,8 +3926,17 @@ export default function ChatArea({
     () => activeReasoningArtifacts.flatMap((artifact) => artifact.entries),
     [activeReasoningArtifacts],
   );
-  const hasActiveReasoningText = !isLiveReasoningPanel && !!activeReasoningAssistantEntry?.thinkingBody?.trim();
-  const isReasoningInProgress = isLiveReasoningPanel && isComposerBusy;
+  const hasReasoningThoughtEntries = useMemo(
+    () => activeReasoningEntries.some((entry) => isThinkingEntry(entry)),
+    [activeReasoningEntries],
+  );
+  const hasActiveReasoningText =
+    !!activeReasoningAssistantEntry?.thinkingBody?.trim() &&
+    !hasReasoningThoughtEntries;
+  const isReasoningInProgress =
+    isLiveReasoningPanel
+      ? liveReasoningStatus === 'running'
+      : false;
 
   useEffect(() => {
     if (!openReasoningAssistantId) {
@@ -3930,9 +3980,8 @@ export default function ChatArea({
   ]);
 
   return (
-    // FIX 1: h="100%" instead of h="100vh" — fills parent container exactly
-    <VStack h="100%" spacing={0} bg={APP_BACKGROUND} align="stretch" overflow="hidden">
-
+    <HStack h="100%" spacing={0} bg={APP_BACKGROUND} align="stretch" overflow="hidden">
+      <VStack flex={1} minW={0} h="100%" spacing={0} align="stretch" overflow="hidden">
       {selectedSessionId && (
         <HStack
           px={4}
@@ -3969,7 +4018,7 @@ export default function ChatArea({
             <Center h="full">
               <VStack spacing={3}>
                 <Spinner size="md" color="brand.500" />
-                <Text fontSize="sm" color="gray.500">Loading…</Text>
+                <Text fontSize="sm" color="gray.500">{t('chat.message.loading')}</Text>
               </VStack>
             </Center>
           ) : displaySessionDetail && displaySessionDetail.entries.length > 0 ? (
@@ -3983,14 +4032,22 @@ export default function ChatArea({
                       return block.entries.map((entry) => {
                         // FIX 2: always use body as primary text for user messages
                         const text = entry.body || entry.title || '';
+                        const shouldAnimateUserMessage =
+                          entry.id === latestPendingUserEntryId &&
+                          !animatedUserEntryIdsRef.current.has(entry.id);
                         if (!text) return null;
                         return (
                           <Flex key={entry.id} justify="flex-end" py={2.5}>
-                            <Box position="relative" role="group" maxW="80%">
+                            <Box position="relative" role="group" maxW="80%" pb="32px">
                               <motion.div
-                                initial={{ opacity: 0, y: 10, scale: 0.985 }}
+                                initial={shouldAnimateUserMessage ? { opacity: 0, y: 10, scale: 0.985 } : false}
                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                 transition={{ duration: 0.18, ease: 'easeOut' }}
+                                onAnimationComplete={() => {
+                                  if (shouldAnimateUserMessage) {
+                                    animatedUserEntryIdsRef.current.add(entry.id);
+                                  }
+                                }}
                               >
                                 <Box
                                   px={5}
@@ -4007,16 +4064,16 @@ export default function ChatArea({
                               <HStack
                                 position="absolute"
                                 right={2}
-                                bottom="-30px"
+                                bottom="0"
                                 spacing={1}
                                 opacity={0}
                                 transform="translateY(-2px)"
                                 transition="opacity 0.16s ease, transform 0.16s ease"
                                 _groupHover={{ opacity: 1, transform: 'translateY(0)' }}
                               >
-                                <Tooltip label={locale.startsWith('ru') ? 'Скопировать' : 'Copy'} hasArrow>
+                                <Tooltip label={t('chat.message.copy')} hasArrow>
                                   <IconButton
-                                    aria-label="Copy message"
+                                    aria-label={t('chat.message.copyMessage')}
                                     icon={<Copy size={14} />}
                                     variant="ghost"
                                     size="xs"
@@ -4026,9 +4083,9 @@ export default function ChatArea({
                                     onClick={() => { void copyTextToClipboard(text); }}
                                   />
                                 </Tooltip>
-                                <Tooltip label={formatMessageDetails(locale, entry.timestamp)} hasArrow>
+                                <Tooltip label={formatMessageDetails(locale, t, entry.timestamp)} hasArrow>
                                   <IconButton
-                                    aria-label="Message info"
+                                    aria-label={t('chat.message.info')}
                                     icon={<Info size={14} />}
                                     variant="ghost"
                                     size="xs"
@@ -4082,7 +4139,11 @@ export default function ChatArea({
                       const isLastEntry = entryIdx === block.entries.length - 1;
                       const isFinalAssistantEntry = isLastEntry && finalAssistantBlockIndices.has(blockIdx);
                       const reasoningArtifacts = reasoningArtifactsByAssistantId[entry.id] ?? [];
-                      const hasReasoningSummary = isFinalAssistantEntry && !!text.trim() && (isStreamingEntry || reasoningArtifacts.length > 0 || !!thinking.trim());
+                      const hasReasoningSummary = isFinalAssistantEntry && !!text.trim() && (
+                        isStreamingEntry
+                          ? (liveReasoningArtifacts.length > 0 || !!latestLiveThinkingSnapshot.trim())
+                          : (reasoningArtifacts.length > 0 || !!thinking.trim())
+                      );
 
                       return (
                         <motion.div
@@ -4106,7 +4167,7 @@ export default function ChatArea({
                               rightIcon={<ChevronRight size={14} />}
                               onClick={() => setOpenReasoningAssistantId((current) => current === entry.id ? null : entry.id)}
                             >
-                              {locale.startsWith('ru') ? 'Завершено размышление' : 'Finished thinking'}
+                              {getReasoningToggleLabel(t, isStreamingEntry)}
                             </Button>
                           )}
                           {/* Response body with full markdown */}
@@ -4116,9 +4177,9 @@ export default function ChatArea({
 
                           {isFinalAssistantEntry && !isStreamingEntry && text && (
                             <HStack spacing={1} mt={2} ml={1}>
-                              <Tooltip label={locale.startsWith('ru') ? 'Скопировать сырой текст' : 'Copy raw text'} hasArrow>
+                              <Tooltip label={t('chat.message.copyRaw')} hasArrow>
                                 <IconButton
-                                  aria-label="Copy raw message"
+                                  aria-label={t('chat.message.copyRawMessage')}
                                   icon={<Copy size={15} />}
                                   variant="ghost"
                                   size="sm"
@@ -4128,9 +4189,9 @@ export default function ChatArea({
                                   onClick={() => { void copyTextToClipboard(text); }}
                                 />
                               </Tooltip>
-                              <Tooltip label={formatMessageDetails(locale, entry.timestamp)} hasArrow>
+                              <Tooltip label={formatMessageDetails(locale, t, entry.timestamp)} hasArrow>
                                 <IconButton
-                                  aria-label="Message info"
+                                  aria-label={t('chat.message.info')}
                                   icon={<Info size={15} />}
                                   variant="ghost"
                                   size="sm"
@@ -4186,47 +4247,6 @@ export default function ChatArea({
                               </motion.span>
                             </AnimatePresence>
                           </Button>
-                          {streamingToolBadgeEntries.length > 0 && (
-                            <motion.div
-                              initial={{ opacity: 0, y: 4 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -4 }}
-                              transition={{ duration: 0.18, ease: 'easeOut' }}
-                            >
-                              <HStack
-                                spacing={2}
-                                px={3}
-                                py={2}
-                                borderRadius="999px"
-                                bg="rgba(255,255,255,0.04)"
-                                border="1px solid rgba(255,255,255,0.05)"
-                                w="fit-content"
-                              >
-                                {streamingToolBadgeEntries.map((toolEntry) => {
-                                  const ToolIcon = getToolInfo(toolEntry.toolName || toolEntry.title || '').Icon;
-                                  return (
-                                    <Box
-                                      key={toolEntry.id}
-                                      boxSize="24px"
-                                      borderRadius="full"
-                                      bg="rgba(255,255,255,0.04)"
-                                      display="flex"
-                                      alignItems="center"
-                                      justifyContent="center"
-                                      color="#c8c6ff"
-                                    >
-                                      <ToolIcon size={13} />
-                                    </Box>
-                                  );
-                                })}
-                                {hiddenStreamingToolCount > 0 && (
-                                  <Text fontSize="xs" color="gray.400" whiteSpace="nowrap">
-                                    +{hiddenStreamingToolCount}
-                                  </Text>
-                                )}
-                              </HStack>
-                            </motion.div>
-                          )}
                         </VStack>
                       </motion.div>
                     )}
@@ -4323,7 +4343,7 @@ export default function ChatArea({
                             <Input
                               value={projectPickerQuery}
                               onChange={(e) => setProjectPickerQuery(e.target.value)}
-                              placeholder={getProjectPickerSearchPlaceholder(locale)}
+                placeholder={getProjectPickerSearchPlaceholder(t)}
                               bg="transparent"
                               border="none"
                               color="white"
@@ -4385,7 +4405,7 @@ export default function ChatArea({
                               ) : (
                                 <Center py={4}>
                                   <Text fontSize="sm" color="gray.500">
-                                    {getNoProjectsLabel(locale)}
+                    {getNoProjectsLabel(t)}
                                   </Text>
                                 </Center>
                               )}
@@ -4424,7 +4444,7 @@ export default function ChatArea({
                               <HStack spacing={3} minW={0}>
                                 <FilePlus size={14} />
                                 <Text fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
-                                  {getAddProjectLabel(locale)}
+                    {getAddProjectLabel(t)}
                                 </Text>
                               </HStack>
                               <Box boxSize="16px" flexShrink={0} />
@@ -4492,10 +4512,10 @@ export default function ChatArea({
 
           {/* Bottom bar */}
           <HStack justify="space-between" px={4} py={3} gap={3}>
-            {/* Left: attach */}
-            <HStack gap={2}>
+            {/* Left: attach + mode */}
+            <HStack gap={3}>
               <IconButton
-                aria-label="Attach file"
+                aria-label={t('chat.message.attachFile')}
                 icon={<Paperclip size={14} />}
                 variant="ghost"
                 size="sm"
@@ -4506,27 +4526,39 @@ export default function ChatArea({
                 bg="rgba(255,255,255,0.03)"
                 _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
               />
-            </HStack>
-
-            {/* Right: donut + send */}
-            <HStack gap={2}>
               <Box position="relative">
                 <Button
                   ref={modeBtnRef}
-                  variant="ghost"
+                  variant="unstyled"
                   h="34px"
-                  px={3}
-                  color="gray.300"
-                  borderRadius="16px"
-                  bg="rgba(255,255,255,0.03)"
-                  _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+                  px={0}
+                  color="gray.400"
+                  minW={0}
+                  _hover={{ color: 'gray.400' }}
+                  _active={{ color: 'gray.400' }}
                   onClick={() => setModeDropdownOpen(!modeDropdownOpen)}
-                  gap={1.5}
                   fontWeight="normal"
                 >
-                  {MODE_ICONS[mode]}
-                  <Text fontSize="xs" fontWeight="normal">{t(currentModeOption.labelKey)}</Text>
-                  <ChevronDown size={13} />
+                  <Box h="34px" display="flex" alignItems="center" overflow="hidden">
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div
+                        key={mode}
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        transition={{ duration: 0.18, ease: 'easeOut' }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {MODE_ICONS[mode]}
+                        <Text fontSize="xs" fontWeight="normal">{t(currentModeOption.labelKey)}</Text>
+                      </motion.div>
+                    </AnimatePresence>
+                  </Box>
                 </Button>
 
                 <AnimatePresence>
@@ -4534,7 +4566,7 @@ export default function ChatArea({
                     <Box
                       position="absolute"
                       bottom="calc(100% + 8px)"
-                      right={0}
+                      left={0}
                       zIndex={9999}
                     >
                       <motion.div
@@ -4547,8 +4579,8 @@ export default function ChatArea({
                           ref={modeMenuRef}
                           minW="300px"
                           border="1px solid"
-                          borderColor="rgba(255,255,255,0.08)"
-                          bg={SURFACE_ELEVATED}
+                          borderColor="gray.700"
+                          bg="gray.800"
                           borderRadius="20px"
                           shadow="lg"
                           p={1.5}
@@ -4594,6 +4626,10 @@ export default function ChatArea({
                   )}
                 </AnimatePresence>
               </Box>
+            </HStack>
+
+            {/* Right: donut + send */}
+            <HStack gap={2}>
               {/* Context ring */}
               <Box
                 ref={donutRef}
@@ -4693,144 +4729,159 @@ export default function ChatArea({
         </Text>
       </Box>
       </VStack>
+      </HStack>
+    </VStack>
 
-      <AnimatePresence initial={false}>
-        {openReasoningAssistantId && (
-          <motion.div
-            key="reasoning-panel"
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 360, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            style={{ overflow: 'hidden', flexShrink: 0 }}
+    <AnimatePresence initial={false}>
+      {openReasoningAssistantId && (
+        <motion.div
+          key="reasoning-panel"
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: 360, opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          style={{ overflow: 'hidden', flexShrink: 0 }}
+        >
+          <VStack
+            h="100%"
+            w="360px"
+            align="stretch"
+            spacing={0}
+            bg="#202024"
+            borderLeft="1px solid"
+            borderColor={SIDEBAR_BORDER}
           >
-            <VStack
-              h="100%"
-              w="360px"
-              align="stretch"
-              spacing={0}
-              bg="#202024"
-              borderLeft="1px solid"
+            <HStack
+              justify="space-between"
+              align="center"
+              px={4}
+              py={3}
+              minH="60px"
+              borderBottom="1px solid"
               borderColor={SIDEBAR_BORDER}
+              flexShrink={0}
             >
-              <HStack justify="space-between" px={4} py={4} borderBottom="1px solid" borderColor={SIDEBAR_BORDER}>
-                <VStack align="start" spacing={0}>
-                  <Text fontSize="sm" fontWeight="semibold" color="white">
-                    {locale.startsWith('ru') ? 'Таймлайн размышления' : 'Thinking timeline'}
-                  </Text>
-                  <Text fontSize="xs" color="gray.500">
-                    {formatMessageDetails(locale, activeReasoningAssistantEntry?.timestamp)}
-                  </Text>
-                </VStack>
-                <IconButton
-                  aria-label="Close reasoning panel"
-                  icon={<PanelRightClose size={16} />}
-                  variant="ghost"
-                  size="sm"
-                  borderRadius="12px"
-                  color="gray.400"
-                  onClick={() => setOpenReasoningAssistantId(null)}
-                  _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
-                />
-              </HStack>
+              <Text fontSize="sm" fontWeight="semibold" color="white">
+                {t('chat.reasoning.timelineTitle')}
+              </Text>
+              <IconButton
+                aria-label={t('chat.reasoning.closePanel')}
+                icon={<PanelRightClose size={16} />}
+                variant="ghost"
+                size="sm"
+                borderRadius="12px"
+                color="gray.400"
+                onClick={() => setOpenReasoningAssistantId(null)}
+                _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+              />
+            </HStack>
 
-              <Box flex={1} overflowY="auto" px={4} py={4}>
-                <VStack align="stretch" spacing={5}>
-                  {hasActiveReasoningText && activeReasoningAssistantEntry && (
-                    <Box position="relative" pl={7}>
-                      <Box position="absolute" left="7px" top="26px" bottom="-10px" w="1px" bg="rgba(255,255,255,0.08)" />
+            <Box
+              flex={1}
+              overflowY="auto"
+              px={4}
+              py={4}
+              sx={{
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+                '&::-webkit-scrollbar': { display: 'none' },
+              }}
+            >
+              <VStack align="stretch" spacing={5}>
+                {hasActiveReasoningText && activeReasoningAssistantEntry && (
+                  <Box position="relative" pl={7}>
+                    <Box position="absolute" left="7px" top="26px" bottom="-10px" w="1px" bg="rgba(255,255,255,0.08)" />
+                    <Box
+                      position="absolute"
+                      left="0"
+                      top="2px"
+                      boxSize="15px"
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                      color="#8f8f9b"
+                    >
+                      <Brain size={14} />
+                    </Box>
+                    <Text fontSize="sm" color="gray.200" fontWeight="semibold" mb={1}>
+                      {t('chat.reasoning.reasoning')}
+                    </Text>
+                    <Text fontSize="sm" color="gray.400" lineHeight="1.8" whiteSpace="pre-wrap" wordBreak="break-word">
+                      {activeReasoningAssistantEntry.thinkingBody}
+                    </Text>
+                  </Box>
+                )}
+
+                {activeReasoningEntries.map((entry) => {
+                  const isThought = isThinkingEntry(entry);
+                  const info = getToolInfo(entry.toolName || entry.title || '');
+                  const ToolIcon = isThought ? Brain : info.Icon;
+                  const label = isThought
+                    ? t('chat.reasoning.reasoning')
+                    : t(info.labelKey);
+                  const summary = isThought ? getEntryText(entry) : getToolArgSummary(entry);
+                  return (
+                    <Box key={entry.id} position="relative" pl={7}>
+                      <Box position="absolute" left="7px" top="27px" bottom="-6px" w="1px" bg="rgba(255,255,255,0.08)" />
                       <Box
                         position="absolute"
                         left="0"
-                        top="2px"
+                        top="1px"
                         boxSize="15px"
                         display="flex"
                         alignItems="center"
                         justifyContent="center"
                         color="#8f8f9b"
                       >
-                        <Brain size={14} />
+                        <ToolIcon size={14} />
                       </Box>
-                      <Text fontSize="sm" color="gray.200" fontWeight="semibold" mb={1}>
-                        {locale.startsWith('ru') ? 'Размышление' : 'Reasoning'}
-                      </Text>
-                      <Text fontSize="sm" color="gray.400" lineHeight="1.8" whiteSpace="pre-wrap" wordBreak="break-word">
-                        {activeReasoningAssistantEntry.thinkingBody}
-                      </Text>
-                    </Box>
-                  )}
-
-                  {activeReasoningEntries.map((entry) => {
-                    const isThought = isThinkingEntry(entry);
-                    const info = getToolInfo(entry.toolName || entry.title || '');
-                    const ToolIcon = isThought ? Brain : info.Icon;
-                    const label = isThought
-                      ? (locale.startsWith('ru') ? 'Размышление' : 'Reasoning')
-                      : t(info.labelKey);
-                    const summary = isThought ? getEntryText(entry) : getToolArgSummary(entry);
-                    return (
-                      <Box key={entry.id} position="relative" pl={7}>
-                        <Box position="absolute" left="7px" top="27px" bottom="-6px" w="1px" bg="rgba(255,255,255,0.08)" />
-                        <Box
-                          position="absolute"
-                          left="0"
-                          top="1px"
-                          boxSize="15px"
-                          display="flex"
-                          alignItems="center"
-                          justifyContent="center"
-                          color="#8f8f9b"
-                        >
-                          <ToolIcon size={14} />
-                        </Box>
-                        <HStack spacing={2} align="center" mb={1}>
-                          <Text fontSize="sm" color="gray.200" fontWeight="semibold">
-                            {label}
-                          </Text>
-                          {!isThought && (
-                            <Box boxSize="6px" borderRadius="full" bg={getToolStatusColor(entry.status)} />
-                          )}
-                          {entry.timestamp && (
-                            <Text fontSize="10px" color="gray.600">
-                              {formatTimestamp(entry.timestamp)}
-                            </Text>
-                          )}
-                        </HStack>
-                        {summary && (
-                          <Text fontSize="sm" color="gray.400" lineHeight="1.75" whiteSpace="pre-wrap" wordBreak="break-word">
-                            {summary}
+                      <HStack spacing={2} align="center" mb={1}>
+                        <Text fontSize="sm" color="gray.200" fontWeight="semibold">
+                          {label}
+                        </Text>
+                        {!isThought && (
+                          <Box boxSize="6px" borderRadius="full" bg={getToolStatusColor(entry.status)} />
+                        )}
+                        {entry.timestamp && (
+                          <Text fontSize="10px" color="gray.600">
+                            {formatTimestamp(entry.timestamp)}
                           </Text>
                         )}
-                      </Box>
-                    );
-                  })}
-
-                  <Box position="relative" pl={7}>
-                    <Box
-                      position="absolute"
-                      left="0"
-                      top="1px"
-                      boxSize="15px"
-                      display="flex"
-                      alignItems="center"
-                      justifyContent="center"
-                      color="#9ca3af"
-                    >
-                      {isReasoningInProgress ? <Spinner size="xs" color="#8f8f9b" /> : <Check size={14} />}
+                      </HStack>
+                      {summary && (
+                        <Text fontSize="sm" color="gray.400" lineHeight="1.75" whiteSpace="pre-wrap" wordBreak="break-word">
+                          {summary}
+                        </Text>
+                      )}
                     </Box>
-                    <Text fontSize="sm" color="gray.200" fontWeight="semibold">
-                      {isReasoningInProgress
-                        ? (locale.startsWith('ru') ? 'Работа выполняется' : 'Work in progress')
-                        : (locale.startsWith('ru') ? 'Работа завершена' : 'Work completed')}
-                    </Text>
+                  );
+                })}
+
+                <Box position="relative" pl={7}>
+                  <Box
+                    position="absolute"
+                    left="0"
+                    top="1px"
+                    boxSize="15px"
+                    display="flex"
+                    alignItems="center"
+                    justifyContent="center"
+                    color="#9ca3af"
+                  >
+                    {isReasoningInProgress ? <Spinner size="xs" color="#8f8f9b" /> : <Check size={14} />}
                   </Box>
-                </VStack>
-              </Box>
-            </VStack>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      </HStack>
-    </VStack>
+                  <Text fontSize="sm" color="gray.200" fontWeight="semibold">
+                    {isReasoningInProgress
+                      ? t('chat.reasoning.workInProgress')
+                      : t('chat.reasoning.workCompleted')}
+                  </Text>
+                </Box>
+              </VStack>
+            </Box>
+          </VStack>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    </HStack>
   );
 }

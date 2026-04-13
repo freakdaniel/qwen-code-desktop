@@ -51,6 +51,11 @@ public sealed class InterruptedTurnState
     public string ContentSnapshot { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the thinking snapshot
+    /// </summary>
+    public string ThinkingSnapshot { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the tool name
     /// </summary>
     public string ToolName { get; init; } = string.Empty;

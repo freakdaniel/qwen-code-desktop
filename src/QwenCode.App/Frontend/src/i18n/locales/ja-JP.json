@@ -24,6 +24,8 @@
     "otherProjects": "その他",
     "noSessionsFound": "セッションが見つかりません",
     "startTypingSearch": "入力して検索...",
+    "collapseSidebar": "サイドバーを折りたたむ",
+    "expandSidebar": "サイドバーを展開",
     "now": "今",
     "minutesAgo": "分",
     "hoursAgo": "時間",
@@ -40,7 +42,56 @@
     "demoResponse": "リクエストを受け付けました：「{{prompt}}」。これはデモの返信です。",
     "disclaimer": "QwenはAIであり、間違いをする場合があります。重要な変更、コマンド、回答を確認してください。",
     "contextUsed": "{{used}} / {{total}} トークン使用済み",
-    "contextCompression": "制限超過時、Qwenは自動的にコンテキストを圧縮します"
+    "contextCompression": "制限超過時、Qwenは自動的にコンテキストを圧縮します",
+    "projectPicker": {
+      "noProject": "プロジェクトなし",
+      "searchPlaceholder": "プロジェクトを検索",
+      "addProject": "新しいプロジェクトを追加",
+      "noProjectsFound": "プロジェクトが見つかりません"
+    },
+    "approval": {
+      "title": "承認が必要です",
+      "allowOnce": "一度だけ許可",
+      "alwaysAllow": "常に許可",
+      "feedbackLabel": "代わりにQwenにしてほしいことを伝える",
+      "feedbackPlaceholder": "例: 先にファイルを読んでから、より安全な変更を提案してください"
+    },
+    "reasoning": {
+      "timelineTitle": "推論タイムライン",
+      "finished": "思考完了",
+      "thinking": "考え中",
+      "reasoning": "推論",
+      "thoughtFor": "{{duration}} 考えました",
+      "durationMilliseconds": "{{value}} ms",
+      "durationSeconds": "{{value}}秒",
+      "durationMinutes": "{{minutes}}分",
+      "durationMinutesSeconds": "{{minutes}}分 {{seconds}}秒",
+      "workInProgress": "処理中",
+      "workCompleted": "処理完了",
+      "closePanel": "推論パネルを閉じる"
+    },
+    "tasks": {
+      "completed": "完了",
+      "inProgress": "進行中",
+      "pending": "保留中",
+      "stopped": "停止",
+      "progress": "{{total}} 件中 {{completed}} 件完了",
+      "owner": "担当: {{owner}}",
+      "blockedBy": "依存: {{blockedBy}}"
+    },
+    "message": {
+      "loading": "読み込み中…",
+      "copy": "コピー",
+      "copyCode": "コードをコピー",
+      "copyMessage": "メッセージをコピー",
+      "copyRaw": "プレーンテキストをコピー",
+      "copyRawMessage": "メッセージのプレーンテキストをコピー",
+      "copied": "コピーしました",
+      "info": "メッセージ情報",
+      "timeUnavailable": "時刻を取得できません",
+      "exportTable": "表をエクスポート",
+      "attachFile": "ファイルを添付"
+    }
   },
   "titlebar": {
     "appName": "Qwen Code",

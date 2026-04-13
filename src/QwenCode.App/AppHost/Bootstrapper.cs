@@ -16,12 +16,10 @@ public static class Bootstrapper
     /// </summary>
     /// <param name="services">The service provider.</param>
     /// <param name="configuration">The application configuration.</param>
-    /// <param name="window">The active InfiniFrame window.</param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public static async Task StartAsync(
         IServiceProvider services,
-        IConfiguration configuration,
-        IInfiniFrameWindow window)
+        IConfiguration configuration)
     {
         var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("QwenCode.App.Bootstrapper");
         var directConnectState = await services.GetRequiredService<IDirectConnectServerHost>().StartAsync();
@@ -34,7 +32,6 @@ public static class Bootstrapper
             logger.LogWarning("Direct-connect server is not listening: {Error}", directConnectState.Error);
         }
 
-        services.GetRequiredService<InfiniFrameDesktopBridgeService>().Initialize(window);
-        logger.LogInformation("InfiniFrame desktop bridge initialized");
+        logger.LogInformation("Desktop bootstrap services initialized");
     }
 }

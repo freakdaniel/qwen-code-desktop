@@ -24,6 +24,8 @@
     "otherProjects": "Outros",
     "noSessionsFound": "Nenhuma sessão encontrada",
     "startTypingSearch": "Digite para pesquisar...",
+    "collapseSidebar": "Recolher barra lateral",
+    "expandSidebar": "Expandir barra lateral",
     "now": "agora",
     "minutesAgo": "min",
     "hoursAgo": "h",
@@ -40,7 +42,56 @@
     "demoResponse": "Recebi sua solicitação: \"{{prompt}}\". Esta é uma resposta de demonstração.",
     "disclaimer": "Qwen é IA e pode cometer erros. Verifique mudanças, comandos e respostas importantes",
     "contextUsed": "Usados {{used}} / {{total}} tokens",
-    "contextCompression": "Qwen comprimirá automaticamente o contexto ao exceder o limite"
+    "contextCompression": "Qwen comprimirá automaticamente o contexto ao exceder o limite",
+    "projectPicker": {
+      "noProject": "Sem projeto",
+      "searchPlaceholder": "Pesquisar projetos",
+      "addProject": "Adicionar novo projeto",
+      "noProjectsFound": "Nenhum projeto encontrado"
+    },
+    "approval": {
+      "title": "Aprovação necessária",
+      "allowOnce": "Permitir uma vez",
+      "alwaysAllow": "Permitir sempre",
+      "feedbackLabel": "Diga ao Qwen o que ele deve fazer em vez disso",
+      "feedbackPlaceholder": "Exemplo: leia o arquivo primeiro e depois sugira uma alteração mais segura"
+    },
+    "reasoning": {
+      "timelineTitle": "Linha do tempo do raciocínio",
+      "finished": "Raciocínio concluído",
+      "thinking": "Pensando",
+      "reasoning": "Raciocínio",
+      "thoughtFor": "Pensou por {{duration}}",
+      "durationMilliseconds": "{{value}} ms",
+      "durationSeconds": "{{value}}s",
+      "durationMinutes": "{{minutes}}min",
+      "durationMinutesSeconds": "{{minutes}}min {{seconds}}s",
+      "workInProgress": "Trabalho em andamento",
+      "workCompleted": "Trabalho concluído",
+      "closePanel": "Fechar painel de raciocínio"
+    },
+    "tasks": {
+      "completed": "Concluído",
+      "inProgress": "Em andamento",
+      "pending": "Pendente",
+      "stopped": "Interrompido",
+      "progress": "{{completed}} de {{total}} concluídos",
+      "owner": "Responsável: {{owner}}",
+      "blockedBy": "Bloqueado por: {{blockedBy}}"
+    },
+    "message": {
+      "loading": "Carregando…",
+      "copy": "Copiar",
+      "copyCode": "Copiar código",
+      "copyMessage": "Copiar mensagem",
+      "copyRaw": "Copiar texto bruto",
+      "copyRawMessage": "Copiar texto bruto da mensagem",
+      "copied": "Copiado",
+      "info": "Informações da mensagem",
+      "timeUnavailable": "Horário indisponível",
+      "exportTable": "Exportar tabela",
+      "attachFile": "Anexar arquivo"
+    }
   },
   "titlebar": {
     "appName": "Qwen Code",

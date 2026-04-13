@@ -51,6 +51,11 @@ public sealed class ActiveTurnState
     public string ContentSnapshot { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the thinking snapshot
+    /// </summary>
+    public string ThinkingSnapshot { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the started at utc
     /// </summary>
     public DateTime StartedAtUtc { get; set; }

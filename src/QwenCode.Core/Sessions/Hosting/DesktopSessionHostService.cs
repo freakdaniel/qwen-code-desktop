@@ -1938,6 +1938,7 @@ public sealed class DesktopSessionHostService(
             Stage = "turn-started",
             Status = "started",
             ContentSnapshot = string.Empty,
+            ThinkingSnapshot = string.Empty,
             StartedAtUtc = timestampUtc,
             LastUpdatedAtUtc = timestampUtc
         };
@@ -1984,6 +1985,11 @@ public sealed class DesktopSessionHostService(
         if (!string.IsNullOrWhiteSpace(runtimeEvent.ContentSnapshot))
         {
             state.ContentSnapshot = runtimeEvent.ContentSnapshot;
+        }
+
+        if (!string.IsNullOrWhiteSpace(runtimeEvent.ThinkingSnapshot))
+        {
+            state.ThinkingSnapshot = runtimeEvent.ThinkingSnapshot;
         }
     }
 

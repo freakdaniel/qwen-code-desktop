@@ -32,6 +32,8 @@
     "deleteChat": "Удалить чат",
     "renameChatPrompt": "Новое название чата",
     "deleteChatConfirm": "Удалить \"{{title}}\"?",
+    "collapseSidebar": "Свернуть боковую панель",
+    "expandSidebar": "Развернуть боковую панель",
     "now": "сейчас",
     "minutesAgo": "м",
     "hoursAgo": "ч",
@@ -50,7 +52,56 @@
     "contextUsed": "Использовано {{used}} / {{total}} токенов",
     "contextCompression": "Qwen автоматически сожмёт контекст при переполнении лимита",
     "noMessages": "Сообщений пока нет",
-    "noReadableMessages": "Сообщения есть, но эту историю пока не удалось прочитать"
+    "noReadableMessages": "Сообщения есть, но эту историю пока не удалось прочитать",
+    "projectPicker": {
+      "noProject": "Без проекта",
+      "searchPlaceholder": "Поиск проектов",
+      "addProject": "Добавить новый проект",
+      "noProjectsFound": "Проекты не найдены"
+    },
+    "approval": {
+      "title": "Требуется подтверждение",
+      "allowOnce": "Разрешить один раз",
+      "alwaysAllow": "Всегда разрешать",
+      "feedbackLabel": "Сообщить Qwen, что он должен сделать",
+      "feedbackPlaceholder": "Например: сначала прочитай файл и только потом предлагай изменения"
+    },
+    "reasoning": {
+      "timelineTitle": "Таймлайн размышления",
+      "finished": "Завершено размышление",
+      "thinking": "Думаю",
+      "reasoning": "Размышление",
+      "thoughtFor": "Думал в течение {{duration}}",
+      "durationMilliseconds": "{{value}} мс",
+      "durationSeconds": "{{value}} с",
+      "durationMinutes": "{{minutes}} мин",
+      "durationMinutesSeconds": "{{minutes}} мин {{seconds}} с",
+      "workInProgress": "Работа выполняется",
+      "workCompleted": "Работа завершена",
+      "closePanel": "Закрыть панель размышлений"
+    },
+    "tasks": {
+      "completed": "Выполнено",
+      "inProgress": "В работе",
+      "pending": "Ожидает",
+      "stopped": "Остановлено",
+      "progress": "Выполнено {{completed}} из {{total}}",
+      "owner": "Ответственный: {{owner}}",
+      "blockedBy": "Блокирует: {{blockedBy}}"
+    },
+    "message": {
+      "loading": "Загрузка…",
+      "copy": "Скопировать",
+      "copyCode": "Скопировать код",
+      "copyMessage": "Скопировать сообщение",
+      "copyRaw": "Скопировать сырой текст",
+      "copyRawMessage": "Скопировать сырой текст сообщения",
+      "copied": "Скопировано",
+      "info": "Информация о сообщении",
+      "timeUnavailable": "Время недоступно",
+      "exportTable": "Экспортировать таблицу",
+      "attachFile": "Прикрепить файл"
+    }
   },
   "titlebar": {
     "appName": "Qwen Code",

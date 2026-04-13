@@ -26,6 +26,7 @@ export interface ActiveTurnState {
   stage: string;
   status: string;
   contentSnapshot: string;
+  thinkingSnapshot: string;
   startedAtUtc: string;
   lastUpdatedAtUtc: string;
 }
