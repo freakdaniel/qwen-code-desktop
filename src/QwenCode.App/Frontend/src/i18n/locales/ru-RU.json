@@ -27,6 +27,11 @@
     "previousWeek": "На предыдущей неделе",
     "previousThirtyDays": "Предыдущие 30 дней",
     "startTypingSearch": "Начните вводить текст...",
+    "sessionActions": "Действия сессии",
+    "renameChat": "Переименовать чат",
+    "deleteChat": "Удалить чат",
+    "renameChatPrompt": "Новое название чата",
+    "deleteChatConfirm": "Удалить \"{{title}}\"?",
     "now": "сейчас",
     "minutesAgo": "м",
     "hoursAgo": "ч",
@@ -43,7 +48,9 @@
     "demoResponse": "Получил ваш запрос: \"{{prompt}}\". Это демонстрационный ответ.",
     "disclaimer": "Qwen это ИИ, и он может допускать ошибки. Проверяй важные изменения, команды и ответы",
     "contextUsed": "Использовано {{used}} / {{total}} токенов",
-    "contextCompression": "Qwen автоматически сожмёт контекст при переполнении лимита"
+    "contextCompression": "Qwen автоматически сожмёт контекст при переполнении лимита",
+    "noMessages": "Сообщений пока нет",
+    "noReadableMessages": "Сообщения есть, но эту историю пока не удалось прочитать"
   },
   "titlebar": {
     "appName": "Qwen Code",

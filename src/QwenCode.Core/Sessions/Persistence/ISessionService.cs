@@ -37,4 +37,13 @@ public interface ISessionService
     /// <param name="sessionId">The session identifier</param>
     /// <returns>A value indicating whether the operation succeeded</returns>
     bool RemoveSession(WorkspacePaths paths, string sessionId);
+
+    /// <summary>
+    /// Renames session
+    /// </summary>
+    /// <param name="paths">The paths to process</param>
+    /// <param name="sessionId">The session identifier</param>
+    /// <param name="title">The new title</param>
+    /// <returns>A value indicating whether the operation succeeded</returns>
+    bool RenameSession(WorkspacePaths paths, string sessionId, string title);
 }

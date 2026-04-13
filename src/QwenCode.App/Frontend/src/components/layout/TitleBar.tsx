@@ -10,6 +10,15 @@ interface TitleBarProps {
 export default function TitleBar({ onToggleSidebar }: TitleBarProps) {
   const { t } = useTranslation();
 
+  const handleDragStart = (event: React.PointerEvent) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    window.qwenDesktop?.beginWindowDrag?.();
+  };
+
   const handleMinimize = () => {
     window.qwenDesktop?.minimizeWindow?.();
   };
@@ -31,7 +40,6 @@ export default function TitleBar({ onToggleSidebar }: TitleBarProps) {
       display="flex"
       alignItems="center"
       justifyContent="space-between"
-      sx={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       userSelect="none"
     >
       {/* Left side - toggle + logo + app title */}
@@ -51,32 +59,43 @@ export default function TitleBar({ onToggleSidebar }: TitleBarProps) {
             onClick={onToggleSidebar}
             _hover={{ bg: 'gray.700', color: 'white' }}
             _active={{ bg: 'gray.600' }}
-            sx={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           />
         )}
-        <Box
-          w="18px"
-          h="18px"
+        <HStack
+          spacing={2}
+          flex={1}
+          minW={0}
+          h="100%"
           display="flex"
           alignItems="center"
-          justifyContent="center"
-          overflow="hidden"
-          flexShrink={0}
+          onPointerDown={handleDragStart}
+          onDoubleClick={handleMaximize}
+          cursor="grab"
         >
-          <img src={qwenLogo} alt="Qwen" style={{ width: '18px', height: '18px' }} />
-        </Box>
-        <Text
-          fontSize="xs"
-          fontWeight="medium"
-          color="gray.400"
-          sx={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          {t('titlebar.appName')}
-        </Text>
+          <Box
+            w="18px"
+            h="18px"
+            display="flex"
+            alignItems="center"
+            justifyContent="center"
+            overflow="hidden"
+            flexShrink={0}
+          >
+            <img src={qwenLogo} alt="Qwen" style={{ width: '18px', height: '18px' }} />
+          </Box>
+          <Text
+            fontSize="xs"
+            fontWeight="medium"
+            color="gray.400"
+            noOfLines={1}
+          >
+            {t('titlebar.appName')}
+          </Text>
+        </HStack>
       </HStack>
 
       {/* Right side - window controls */}
-      <HStack spacing={0} sx={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      <HStack spacing={0}>
         <IconButton
           aria-label={t('titlebar.minimize')}
           icon={<Minus size={13} />}

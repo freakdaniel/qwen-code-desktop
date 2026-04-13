@@ -1,30 +1,31 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using QwenCode.App.Ipc.Attributes;
-using ElectronApi = ElectronNET.API.Electron;
 using QwenCode.Core.Models;
 
 namespace QwenCode.App.Ipc;
 
 /// <summary>
-/// Provides the base implementation for Ipc Service Base
+/// Provides the base implementation for transport-agnostic IPC service dispatch.
 /// </summary>
-/// <param name="services">The services</param>
-public abstract class IpcServiceBase(IServiceProvider services)
+public abstract class IpcServiceBase
 {
     /// <summary>
-    /// Gets the services
+    /// Gets the services.
     /// </summary>
-    protected IServiceProvider Services { get; } = services;
-    /// <summary>
-    /// Gets the logger
-    /// </summary>
-    protected ILogger Logger { get; } = services.GetRequiredService<ILoggerFactory>().CreateLogger("QwenCode.App.Ipc");
+    protected IServiceProvider Services { get; }
 
-    private static int _registered;
+    /// <summary>
+    /// Gets the logger.
+    /// </summary>
+    protected ILogger Logger { get; }
+
+    private readonly Lazy<IReadOnlyDictionary<string, MethodBinding>> _invokeBindings;
+    private readonly Lazy<IReadOnlyList<EventBinding>> _eventBindings;
+    private int _eventsRegistered;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -34,33 +35,101 @@ public abstract class IpcServiceBase(IServiceProvider services)
     };
 
     /// <summary>
-    /// Registers all
+    /// Initializes a new instance of the <see cref="IpcServiceBase"/> class.
     /// </summary>
-    public void RegisterAll()
+    /// <param name="services">The services.</param>
+    protected IpcServiceBase(IServiceProvider services)
     {
-        if (Interlocked.Exchange(ref _registered, 1) == 1)
+        Services = services;
+        Logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("QwenCode.App.Ipc");
+        _invokeBindings = new Lazy<IReadOnlyDictionary<string, MethodBinding>>(() => CreateInvokeBindings());
+        _eventBindings = new Lazy<IReadOnlyList<EventBinding>>(() => CreateEventBindings());
+    }
+
+    /// <summary>
+    /// Executes an invoke-style IPC call for the specified channel.
+    /// </summary>
+    /// <param name="channel">The IPC channel.</param>
+    /// <param name="payloadJson">The serialized JSON payload.</param>
+    /// <returns>A task resolving to the handler result.</returns>
+    public async Task<object?> InvokeChannelAsync(string channel, string? payloadJson)
+    {
+        if (!_invokeBindings.Value.TryGetValue(channel, out var binding))
+        {
+            throw new InvalidOperationException($"No IPC handler is registered for channel '{channel}'.");
+        }
+
+        Logger.LogDebug("IPC invoke received: {Channel}", channel);
+        var argument = binding.ParameterType is null ? null : Deserialize(payloadJson, binding.ParameterType);
+        var result = await InvokeAsync(binding.Method, argument).ConfigureAwait(false);
+        Logger.LogDebug("IPC invoke completed: {Channel}", channel);
+        return result;
+    }
+
+    /// <summary>
+    /// Registers event emitters for all event channels declared on the IPC service.
+    /// </summary>
+    /// <param name="emit">The callback used to publish event payloads.</param>
+    public void RegisterEventChannels(Action<string, object?> emit)
+    {
+        if (Interlocked.Exchange(ref _eventsRegistered, 1) == 1)
         {
             return;
         }
 
-        var methods = GetType().GetMethods(
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        foreach (var binding in _eventBindings.Value)
+        {
+            binding.Register(this, emit);
+        }
+    }
+
+    /// <summary>
+    /// Serializes a payload using the shared IPC serializer options.
+    /// </summary>
+    /// <param name="payload">The payload to serialize.</param>
+    /// <returns>The JSON payload.</returns>
+    protected internal static string SerializePayload(object? payload)
+        => JsonSerializer.Serialize(payload, JsonOptions);
+
+    private IReadOnlyDictionary<string, MethodBinding> CreateInvokeBindings()
+    {
+        var methods = GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        return methods
+            .Select(method => (Method: method, Invoke: method.GetCustomAttribute<IpcInvokeAttribute>()))
+            .Where(entry => entry.Invoke is not null)
+            .ToDictionary(
+                entry => entry.Invoke!.Channel,
+                entry => new MethodBinding(entry.Method, GetSingleParameterType(entry.Method)),
+                StringComparer.Ordinal);
+    }
+
+    private IReadOnlyList<EventBinding> CreateEventBindings()
+    {
+        var methods = GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var bindings = new List<EventBinding>();
 
         foreach (var method in methods)
         {
-            if (method.GetCustomAttribute<IpcInvokeAttribute>() is { } invoke)
+            if (method.GetCustomAttribute<IpcEventAttribute>() is not { } evt)
             {
-                BindInvoke(method, invoke.Channel);
+                continue;
             }
-            else if (method.GetCustomAttribute<IpcSendAttribute>() is { } send)
+
+            var parameters = method.GetParameters();
+            if (parameters.Length != 1 ||
+                !parameters[0].ParameterType.IsGenericType ||
+                parameters[0].ParameterType.GetGenericTypeDefinition() != typeof(Action<>))
             {
-                BindSend(method, send.Channel);
+                continue;
             }
-            else if (method.GetCustomAttribute<IpcEventAttribute>() is { } evt)
-            {
-                BindEvent(method, evt.Channel);
-            }
+
+            bindings.Add(new EventBinding(
+                evt.Channel,
+                method,
+                parameters[0].ParameterType.GetGenericArguments()[0]));
         }
+
+        return bindings;
     }
 
     private static Type? GetSingleParameterType(MethodInfo method)
@@ -72,69 +141,11 @@ public abstract class IpcServiceBase(IServiceProvider services)
         return parameters.Length == 1 ? parameters[0].ParameterType : null;
     }
 
-    private void BindInvoke(MethodInfo method, string channel)
+    private static object? Deserialize(string? payloadJson, Type targetType)
     {
-        var replyChannel = $"{channel}:reply";
-        var parameterType = GetSingleParameterType(method);
-
-        ElectronApi.IpcMain.On(channel, async payload =>
-        {
-            try
-            {
-                Logger.LogDebug("IPC invoke received: {Channel}", channel);
-                var argument = parameterType is null ? null : Deserialize(payload, parameterType);
-                var result = await InvokeAsync(method, argument);
-                Logger.LogDebug("IPC invoke completed: {Channel}", channel);
-                Reply(replyChannel, result);
-            }
-            catch (Exception exception)
-            {
-                Logger.LogError(exception, "IPC invoke failed: {Channel}", channel);
-                Reply(replyChannel, new { error = exception.Message });
-            }
-        });
-    }
-
-    private void BindSend(MethodInfo method, string channel)
-    {
-        var parameterType = GetSingleParameterType(method);
-
-        ElectronApi.IpcMain.On(channel, payload =>
-        {
-            Logger.LogDebug("IPC send received: {Channel}", channel);
-            var argument = parameterType is null ? null : Deserialize(payload, parameterType);
-            _ = InvokeAsync(method, argument);
-        });
-    }
-
-    private void BindEvent(MethodInfo method, string channel)
-    {
-        var parameters = method.GetParameters();
-        if (parameters.Length != 1 ||
-            !parameters[0].ParameterType.IsGenericType ||
-            parameters[0].ParameterType.GetGenericTypeDefinition() != typeof(Action<>))
-        {
-            return;
-        }
-
-        var payloadType = parameters[0].ParameterType.GetGenericArguments()[0];
-        var actionType = typeof(Action<>).MakeGenericType(payloadType);
-        var handler = Delegate.CreateDelegate(
-            actionType,
-            new EventEmitter(this, channel),
-            typeof(EventEmitter).GetMethod(nameof(EventEmitter.Emit))!.MakeGenericMethod(payloadType));
-
-        method.Invoke(this, [handler]);
-    }
-
-    private static object? Deserialize(object payload, Type targetType)
-    {
-        var json = payload switch
-        {
-            string text => text,
-            JsonElement element => element.GetRawText(),
-            _ => JsonSerializer.Serialize(payload, JsonOptions)
-        };
+        var json = string.IsNullOrWhiteSpace(payloadJson)
+            ? "{}"
+            : payloadJson;
 
         if (targetType == typeof(string))
         {
@@ -158,26 +169,23 @@ public abstract class IpcServiceBase(IServiceProvider services)
         return result;
     }
 
-    private void Reply(string channel, object? payload)
-    {
-        var window = ElectronApi.WindowManager.BrowserWindows.LastOrDefault();
-        if (window is null)
-        {
-            Logger.LogWarning("IPC reply skipped because no browser window is available: {Channel}", channel);
-            return;
-        }
+    private sealed record MethodBinding(MethodInfo Method, Type? ParameterType);
 
-        Logger.LogDebug("IPC reply sent: {Channel} -> window #{WindowId}", channel, window.Id);
-        ElectronApi.IpcMain.Send(window, channel, JsonSerializer.Serialize(payload, JsonOptions));
+    private sealed record EventBinding(string Channel, MethodInfo Method, Type PayloadType)
+    {
+        public void Register(IpcServiceBase owner, Action<string, object?> emit)
+        {
+            var emitterType = typeof(EventEmitter<>).MakeGenericType(PayloadType);
+            var emitter = Activator.CreateInstance(emitterType, Channel, emit)
+                ?? throw new InvalidOperationException($"Failed to create event emitter for channel '{Channel}'.");
+            var actionType = typeof(Action<>).MakeGenericType(PayloadType);
+            var handler = Delegate.CreateDelegate(actionType, emitter, emitterType.GetMethod(nameof(EventEmitter<object>.Emit))!);
+            Method.Invoke(owner, [handler]);
+        }
     }
 
-    private sealed class EventEmitter(IpcServiceBase owner, string channel)
+    private sealed class EventEmitter<T>(string channel, Action<string, object?> emit)
     {
-        /// <summary>
-        /// Executes emit
-        /// </summary>
-        /// <typeparam name="T">The type of t</typeparam>
-        /// <param name="payload">The payload</param>
-        public void Emit<T>(T payload) => owner.Reply(channel, payload);
+        public void Emit(T payload) => emit(channel, payload);
     }
 }

@@ -65,6 +65,7 @@ import 'prismjs/components/prism-rust';
 import 'prismjs/components/prism-sql';
 import 'prismjs/components/prism-yaml';
 import ReactMarkdown from 'react-markdown';
+import 'katex/dist/katex.min.css';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -214,6 +215,10 @@ function getNoProjectsLabel(locale: string): string {
 function getProjectlessTempDirectory(runtimeBaseDirectory: string, workspaceRoot: string): string {
   const baseDirectory = runtimeBaseDirectory.trim() || workspaceRoot.trim();
   return joinDesktopPath(baseDirectory, 'tmp', 'no-project');
+}
+
+function isTemporaryChatWorkingDirectory(workingDirectory: string): boolean {
+  return /(?:^|[\\/])(?:aionui-)?qwen-temp-[^\\/]+(?:[\\/]|$)/i.test(workingDirectory);
 }
 
 void getSessionDisplayTitle;
@@ -534,6 +539,7 @@ function createStreamingAssistantEntry(
   workingDirectory: string,
   gitBranch: string,
   content: string,
+  thinkingContent: string,
   timestamp: string,
 ): DesktopSessionEntry {
   return {
@@ -544,7 +550,7 @@ function createStreamingAssistantEntry(
     gitBranch,
     title: '',
     body: content,
-    thinkingBody: '',
+    thinkingBody: thinkingContent,
     status: 'streaming',
     toolName: '',
     approvalState: '',
@@ -665,6 +671,9 @@ const ASSISTANT_MARKDOWN_SX = {
   'td': { color: 'gray.200', fontSize: 'sm' },
   'tbody tr:last-of-type td': { borderBottom: 'none' },
   'hr': { borderColor: 'gray.700', my: '1em' },
+  '.katex-display': { my: '0.85em', overflowX: 'auto', overflowY: 'hidden', py: 1 },
+  '.katex-display > .katex': { fontSize: '1.18em' },
+  '.katex': { color: 'gray.100', fontSize: '1.1em', lineHeight: 1.35 },
 } as const;
 
 const INLINE_CODE_COLOR = '#8583f6';
@@ -860,6 +869,181 @@ function normalizeMathSegments(markdown: string): string {
   }
 
   return result;
+}
+
+function looksLikeMathExpression(value: string): boolean {
+  const text = value.trim();
+  if (!text || text.length > 240) {
+    return false;
+  }
+
+  const hasMathMarker = /(?:\\[a-zA-Z]+|[_^]\{|[A-Za-z]\s*[_^]|[A-Za-z]\([^)]*\)|[\u0370-\u03ff\u2070-\u209f\u2200-\u22ff])/.test(text);
+  const hasEquationShape = /=/.test(text) && /[A-Za-z0-9}\)]\s*[+\-*/]\s*[A-Za-z0-9{\\(]/.test(text);
+  const hasProseSentence = /[\u0400-\u04ff]{3,}/.test(text);
+  return (hasMathMarker || hasEquationShape) && !hasProseSentence;
+}
+
+const UNICODE_SUPERSCRIPTS: Record<string, string> = {
+  '⁰': '0',
+  '¹': '1',
+  '²': '2',
+  '³': '3',
+  '⁴': '4',
+  '⁵': '5',
+  '⁶': '6',
+  '⁷': '7',
+  '⁸': '8',
+  '⁹': '9',
+  '⁺': '+',
+  '⁻': '-',
+  'ⁿ': 'n',
+};
+
+const UNICODE_SUBSCRIPTS: Record<string, string> = {
+  '₀': '0',
+  '₁': '1',
+  '₂': '2',
+  '₃': '3',
+  '₄': '4',
+  '₅': '5',
+  '₆': '6',
+  '₇': '7',
+  '₈': '8',
+  '₉': '9',
+  '₊': '+',
+  '₋': '-',
+  'ₐ': 'a',
+  'ₑ': 'e',
+  'ₕ': 'h',
+  'ᵢ': 'i',
+  'ⱼ': 'j',
+  'ₖ': 'k',
+  'ₗ': 'l',
+  'ₘ': 'm',
+  'ₙ': 'n',
+  'ₒ': 'o',
+  'ₚ': 'p',
+  'ᵣ': 'r',
+  'ₛ': 's',
+  'ₜ': 't',
+  'ᵤ': 'u',
+  'ᵥ': 'v',
+  'ₓ': 'x',
+};
+
+function normalizeLooseMathFormula(value: string): string {
+  let result = '';
+  let superscriptRun = '';
+  let subscriptRun = '';
+
+  const flush = () => {
+    if (superscriptRun) {
+      result += `^{${superscriptRun}}`;
+      superscriptRun = '';
+    }
+
+    if (subscriptRun) {
+      result += `_{${subscriptRun}}`;
+      subscriptRun = '';
+    }
+  };
+
+  for (const character of value.replace(/\u2212/g, '-')) {
+    const superscript = UNICODE_SUPERSCRIPTS[character];
+    if (superscript) {
+      if (subscriptRun) {
+        result += `_{${subscriptRun}}`;
+        subscriptRun = '';
+      }
+
+      superscriptRun += superscript;
+      continue;
+    }
+
+    const subscript = UNICODE_SUBSCRIPTS[character];
+    if (subscript) {
+      if (superscriptRun) {
+        result += `^{${superscriptRun}}`;
+        superscriptRun = '';
+      }
+
+      subscriptRun += subscript;
+      continue;
+    }
+
+    flush();
+    result += character;
+  }
+
+  flush();
+  return result;
+}
+
+function normalizeUndelimitedMath(markdown: string): string {
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      const strongFormula = /^\*\*(?<formula>[^*]+)\*\*$/.exec(trimmed);
+      if (strongFormula?.groups?.formula && looksLikeMathExpression(strongFormula.groups.formula)) {
+        return `${line.slice(0, line.indexOf('**'))}$$${normalizeLooseMathFormula(strongFormula.groups.formula.trim())}$$`;
+      }
+
+      return line;
+    })
+    .join('\n');
+}
+
+type MarkdownAstNode = {
+  type?: string;
+  value?: string;
+  children?: MarkdownAstNode[];
+};
+
+function extractPlainMarkdownText(node: MarkdownAstNode): string {
+  if (typeof node.value === 'string') {
+    return node.value;
+  }
+
+  return (node.children ?? []).map(extractPlainMarkdownText).join('');
+}
+
+function isPlainTableMathCell(node: MarkdownAstNode): boolean {
+  if (node.type === 'text' || node.type === 'paragraph' || node.type === 'tableCell') {
+    return (node.children ?? []).every(isPlainTableMathCell);
+  }
+
+  return false;
+}
+
+function rewriteTableMathCells(node: MarkdownAstNode): void {
+  if (node.type === 'tableCell') {
+    const cellText = extractPlainMarkdownText(node).trim();
+    if (cellText && isPlainTableMathCell(node) && looksLikeMathExpression(cellText)) {
+      node.children = [
+        {
+          type: 'paragraph',
+          children: [
+            {
+              type: 'inlineMath',
+              value: normalizeLooseMathFormula(cellText),
+            },
+          ],
+        },
+      ];
+      return;
+    }
+  }
+
+  for (const child of node.children ?? []) {
+    rewriteTableMathCells(child);
+  }
+}
+
+function remarkUndelimitedTableMath() {
+  return (tree: MarkdownAstNode) => {
+    rewriteTableMathCells(tree);
+  };
 }
 
 function getMarkdownNodeTextContent(node: unknown): string {
@@ -1356,7 +1540,7 @@ function MarkdownTable({
 }
 
 function AssistantMarkdownBody({ text }: { text: string }) {
-  const normalizedText = useMemo(() => normalizeMathSegments(text), [text]);
+  const normalizedText = useMemo(() => normalizeMathSegments(normalizeUndelimitedMath(text)), [text]);
 
   return (
     <Box
@@ -1366,7 +1550,7 @@ function AssistantMarkdownBody({ text }: { text: string }) {
       sx={ASSISTANT_MARKDOWN_SX}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkUndelimitedTableMath]}
         rehypePlugins={[[rehypeKatex, { strict: 'ignore', trust: false, errorColor: '#cfcfe6' }]]}
         components={{
           pre: MarkdownPre,
@@ -2460,6 +2644,11 @@ export default function ChatArea({
   const currentModeOption = AGENT_MODES.find((m) => m.value === mode) ?? AGENT_MODES[0];
   const hasSession = !!selectedSessionId;
   const streamingSnapshot = selectedSessionId ? streamingSnapshots[selectedSessionId] ?? '' : '';
+  const thinkingStreamingSnapshot = useMemo(() => {
+    if (!selectedSessionId) return '';
+    const events = liveSessionEvents[selectedSessionId] ?? [];
+    return [...events].reverse().find((event) => event.thinkingSnapshot?.trim())?.thinkingSnapshot ?? '';
+  }, [liveSessionEvents, selectedSessionId]);
   const effectiveStreamingSnapshot = streamingSnapshot.trim() || retainedStreamingSnapshot.trim();
   const isSessionStreaming = !!selectedSessionId && !!activeTurnSessions[selectedSessionId];
   const isPendingSelectedSession = !!selectedSessionId && !!pendingTurnSessionIds[selectedSessionId];
@@ -2498,7 +2687,7 @@ export default function ChatArea({
   const projectOptions = useMemo(() => {
     const projectMap = new Map<string, ProjectOption>();
     const appendProject = (path: string, lastActivity: string) => {
-      if (!path || pathStartsWith(path, runtimeTempRoot)) {
+      if (!path || pathStartsWith(path, runtimeTempRoot) || isTemporaryChatWorkingDirectory(path)) {
         return;
       }
 
@@ -2619,7 +2808,7 @@ export default function ChatArea({
     }
 
     const syntheticEntries: DesktopSessionEntry[] = isSessionStreaming ? [...liveToolEntries] : [];
-    const hasStreamingAssistant = effectiveStreamingSnapshot.length > 0;
+    const hasStreamingAssistant = effectiveStreamingSnapshot.length > 0 || thinkingStreamingSnapshot.length > 0;
     const lastNonSystemEntry = [...sessionDetail.entries]
       .reverse()
       .find((entry) => entry.type !== 'system' && entry.type !== 'tool_result');
@@ -2637,6 +2826,7 @@ export default function ChatArea({
           selectedSession?.workingDirectory ?? sessionDetail.session.workingDirectory,
           selectedSession?.gitBranch ?? sessionDetail.session.gitBranch,
           effectiveStreamingSnapshot,
+          thinkingStreamingSnapshot,
           timestamp,
         ),
       );
@@ -2671,6 +2861,7 @@ export default function ChatArea({
     selectedSessionId,
     sessionDetail,
     effectiveStreamingSnapshot,
+    thinkingStreamingSnapshot,
   ]);
 
   const sessionProjectRoot = bootstrap?.workspaceRoot ?? displaySessionDetail?.session.workingDirectory ?? '';
@@ -2816,7 +3007,10 @@ export default function ChatArea({
 
     const fallbackProjectPath =
       bootstrap?.workspaceRoot ??
-      sessions.find((session) => !pathStartsWith(session.workingDirectory, runtimeTempRoot))?.workingDirectory ??
+      sessions.find((session) =>
+        !pathStartsWith(session.workingDirectory, runtimeTempRoot) &&
+        !isTemporaryChatWorkingDirectory(session.workingDirectory),
+      )?.workingDirectory ??
       '';
 
     if (fallbackProjectPath) {
@@ -2826,7 +3020,10 @@ export default function ChatArea({
 
   useEffect(() => {
     if (selectedSession?.workingDirectory) {
-      if (pathStartsWith(selectedSession.workingDirectory, getProjectlessTempDirectory(bootstrap?.qwenRuntime?.runtimeBaseDirectory ?? '', bootstrap?.workspaceRoot ?? ''))) {
+      if (
+        pathStartsWith(selectedSession.workingDirectory, getProjectlessTempDirectory(bootstrap?.qwenRuntime?.runtimeBaseDirectory ?? '', bootstrap?.workspaceRoot ?? '')) ||
+        isTemporaryChatWorkingDirectory(selectedSession.workingDirectory)
+      ) {
         if (selectedProjectMode !== 'no-project') {
           setSelectedProjectMode('no-project');
         }
@@ -2995,6 +3192,7 @@ export default function ChatArea({
         sessionId: targetSessionId,
         prompt: trimmedPrompt,
         workingDirectory,
+        surfaceContext: sidebarMode === 'chats' ? 'chats' : 'coder',
         toolName: '',
         toolArgumentsJson: '{}',
         approveToolExecution: false,
@@ -3819,7 +4017,9 @@ export default function ChatArea({
             </Box>
           ) : (
             <Center h="full">
-              <Text fontSize="sm" color="gray.600">No messages in this session</Text>
+              <Text fontSize="sm" color="gray.600">
+                {t((displaySessionDetail?.session.messageCount ?? 0) > 0 ? 'chat.noReadableMessages' : 'chat.noMessages')}
+              </Text>
             </Center>
           )
         ) : (

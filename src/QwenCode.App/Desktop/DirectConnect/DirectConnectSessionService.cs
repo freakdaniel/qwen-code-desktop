@@ -134,6 +134,7 @@ public sealed class DirectConnectSessionService : IDirectConnectSessionService, 
             SessionId = effectiveSessionId,
             Prompt = request.Prompt,
             WorkingDirectory = effectiveWorkingDirectory,
+            SurfaceContext = request.SurfaceContext,
             ToolName = request.ToolName,
             ToolArgumentsJson = request.ToolArgumentsJson,
             ApproveToolExecution = request.ApproveToolExecution

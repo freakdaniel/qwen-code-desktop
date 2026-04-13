@@ -4,11 +4,12 @@ import {
   Text,
   Button,
   HStack,
+  Portal,
   Skeleton,
 } from '@chakra-ui/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle, MessageCircle, Code2 } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle, MessageCircle, Code2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SessionPreview } from '@/types/desktop';
 import {
@@ -32,6 +33,8 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenSearch?: () => void;
   onOpenSkills?: () => void;
+  onRenameSession?: (session: SessionPreview) => void;
+  onDeleteSession?: (session: SessionPreview) => void;
 }
 
 interface ChatSection {
@@ -97,8 +100,13 @@ export default function Sidebar({
   onOpenSettings = () => console.log('Settings clicked'),
   onOpenSearch = () => console.log('Search opened'),
   onOpenSkills = () => console.log('Skills clicked'),
+  onRenameSession = (session) => console.log(`Rename conversation ${session.sessionId}`),
+  onDeleteSession = (session) => console.log(`Delete conversation ${session.sessionId}`),
 }: SidebarProps) {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [sessionMenu, setSessionMenu] = useState<{ session: SessionPreview; x: number; y: number } | null>(null);
+  const [hoveredSessionId, setHoveredSessionId] = useState('');
+  const menuRef = useRef<HTMLDivElement>(null);
   const { t, i18n } = useTranslation();
 
   const visibleSessions = useMemo(
@@ -212,9 +220,56 @@ export default function Sidebar({
     }));
   };
 
+  useEffect(() => {
+    if (!sessionMenu) return;
+
+    const closeOnPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && menuRef.current?.contains(target)) {
+        return;
+      }
+
+      if ((event.target as Element | null)?.closest?.('.session-actions')) {
+        return;
+      }
+
+      setSessionMenu(null);
+    };
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSessionMenu(null);
+      }
+    };
+
+    window.addEventListener('mousedown', closeOnPointerDown);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('mousedown', closeOnPointerDown);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [sessionMenu]);
+
+  const toggleSessionMenu = (session: SessionPreview, x: number, y: number) => {
+    const menuWidth = 184;
+    const menuHeight = 84;
+    setSessionMenu((current) => {
+      if (current?.session.sessionId === session.sessionId) {
+        return null;
+      }
+
+      return {
+        session,
+        x: Math.min(window.innerWidth - menuWidth - 8, Math.max(8, x)),
+        y: Math.min(window.innerHeight - menuHeight - 8, Math.max(8, y)),
+      };
+    });
+  };
+
   const renderSessionButton = (conv: SessionPreview) => {
     const isSelected = conv.sessionId === selectedSessionId;
     const isRunning = conv.sessionId in activeTurnSessions;
+    const showSessionActions = hoveredSessionId === conv.sessionId;
 
     return (
       <Button
@@ -222,12 +277,21 @@ export default function Sidebar({
         variant="ghost"
         colorScheme="gray"
         onClick={() => onSelectSession(conv.sessionId)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          toggleSessionMenu(conv, event.clientX, event.clientY);
+        }}
+        onMouseEnter={() => setHoveredSessionId(conv.sessionId)}
+        onMouseLeave={() => setHoveredSessionId((current) => (current === conv.sessionId ? '' : current))}
+        className="session-row"
         h="38px"
         px={3}
         py={0}
+        alignItems="center"
         justifyContent="space-between"
         w="full"
         minW={0}
+        position="relative"
         bg={isSelected ? '#3a3a42' : 'transparent'}
         color={isSelected ? 'white' : 'gray.200'}
         _hover={{ bg: isSelected ? '#404049' : 'rgba(255,255,255,0.06)' }}
@@ -235,9 +299,11 @@ export default function Sidebar({
         borderRadius="full"
         fontSize="sm"
         fontWeight="normal"
+        lineHeight="normal"
+        overflow="visible"
         boxShadow={isSelected ? '0 0 0 1px rgba(255,255,255,0.04) inset' : 'none'}
       >
-        <Box flex={1} minW={0} pr={2}>
+        <Box flex={1} minW={0} h="22px" pr={2} display="flex" alignItems="center">
           {conv.title === null ? (
             <Skeleton
               h="14px"
@@ -257,6 +323,7 @@ export default function Sidebar({
               textOverflow="ellipsis"
               whiteSpace="nowrap"
               textAlign="left"
+              lineHeight="22px"
             >
               {conv.title}
             </Text>
@@ -280,9 +347,45 @@ export default function Sidebar({
             boxSize="6px"
             borderRadius="full"
             bg="green.400"
-            flex={1}
+            flexShrink={0}
             transition="background-color 0.2s ease"
           />
+        )}
+        {showSessionActions && (
+          <Box
+            className="session-actions"
+            position="absolute"
+            right="6px"
+            top="50%"
+            transform="translateY(-50%)"
+            w="24px"
+            h="24px"
+            display="flex"
+            alignItems="center"
+            justifyContent="center"
+            borderRadius="full"
+            color={isSelected ? 'gray.200' : 'gray.400'}
+            bg={isSelected ? '#34343c' : 'rgba(255,255,255,0.04)'}
+            transition="color 0.14s ease, background-color 0.14s ease"
+            role="button"
+            tabIndex={0}
+            aria-label={t('sidebar.sessionActions')}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              toggleSessionMenu(conv, event.clientX, event.clientY);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              event.stopPropagation();
+              const rect = event.currentTarget.getBoundingClientRect();
+              toggleSessionMenu(conv, rect.right, rect.bottom);
+            }}
+            _hover={{ color: 'white', bg: isSelected ? '#292932' : 'rgba(0,0,0,0.22)' }}
+          >
+            <MoreHorizontal size={15} />
+          </Box>
         )}
       </Button>
     );
@@ -296,8 +399,8 @@ export default function Sidebar({
       style={{
         position: 'absolute',
         left: 0,
-        top: '36px',
-        height: 'calc(100vh - 36px)',
+        top: 0,
+        height: '100vh',
         width: '260px',
         zIndex: 10,
         overflow: 'hidden',
@@ -544,6 +647,76 @@ export default function Sidebar({
         </Box>
 
       </VStack>
+      <Portal>
+        <AnimatePresence>
+          {sessionMenu && (
+            <motion.div
+              initial={{ opacity: 0, y: 4, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 4, scale: 0.98 }}
+              transition={{ duration: 0.12, ease: 'easeOut' }}
+              style={{
+                position: 'fixed',
+                left: `${sessionMenu.x}px`,
+                top: `${sessionMenu.y}px`,
+                zIndex: 3000,
+              }}
+            >
+              <Box
+                ref={menuRef}
+                w="184px"
+                p={1}
+                bg="gray.800"
+                border="1px solid"
+                borderColor="gray.700"
+                borderRadius="lg"
+                shadow="xl"
+              >
+                <Button
+                  variant="ghost"
+                  w="full"
+                  h="34px"
+                  px={2}
+                  justifyContent="flex-start"
+                  leftIcon={<Pencil size={14} />}
+                  color="gray.200"
+                  fontSize="sm"
+                  fontWeight="normal"
+                  borderRadius="md"
+                  _hover={{ bg: 'gray.700', color: 'white' }}
+                  onClick={() => {
+                    const session = sessionMenu.session;
+                    setSessionMenu(null);
+                    onRenameSession(session);
+                  }}
+                >
+                  {t('sidebar.renameChat')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  w="full"
+                  h="34px"
+                  px={2}
+                  justifyContent="flex-start"
+                  leftIcon={<Trash2 size={14} />}
+                  color="red.300"
+                  fontSize="sm"
+                  fontWeight="normal"
+                  borderRadius="md"
+                  _hover={{ bg: 'rgba(248,113,113,0.12)', color: 'red.200' }}
+                  onClick={() => {
+                    const session = sessionMenu.session;
+                    setSessionMenu(null);
+                    onDeleteSession(session);
+                  }}
+                >
+                  {t('sidebar.deleteChat')}
+                </Button>
+              </Box>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </Portal>
     </motion.div>
   );
 }

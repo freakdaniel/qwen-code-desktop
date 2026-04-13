@@ -13,7 +13,7 @@ public sealed class DirectConnectServerOptions
     /// <summary>
     /// Gets or sets whether the local server should start with the desktop host.
     /// </summary>
-    public bool Enabled { get; init; } = true;
+    public bool Enabled { get; init; }
 
     /// <summary>
     /// Gets or sets the loopback host to bind.

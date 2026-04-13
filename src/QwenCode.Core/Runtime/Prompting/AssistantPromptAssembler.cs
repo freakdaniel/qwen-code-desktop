@@ -694,7 +694,7 @@ Default expectation: reply in the user's language when it is clear from the conv
 Mode-specific expectation: {{modeSpecificExpectation}}
 Approval-aware expectation: {{planModeExpectation}}
 Verification expectation: state clearly what was verified, what was inferred, and what remains unverified.
-Math formatting expectation: when including formulas, use KaTeX-safe LaTeX only. Inline math must use `$...$`, display math must use `$$...$$`, percent signs inside math must be escaped as `\%`, never use `%` comments inside math, and prose inside formulas should use `\text{...}`. If you are not confident the formula is valid KaTeX, explain it in plain text instead of emitting broken LaTeX.
+Math formatting expectation: when including formulas, use KaTeX-safe LaTeX only. Inline math must use `$...$`, display math must use `$$...$$`, percent signs inside math must be escaped as `\%`, never use `%` comments inside math, and prose inside formulas should use `\text{...}`. Do not emit formulas as only bold/plain text, Unicode superscripts, or raw TeX without math delimiters. If you are not confident the formula is valid KaTeX, explain it in plain text instead of emitting broken LaTeX.
 """;
     }
 
@@ -1087,8 +1087,19 @@ From {{GetDisplayPath(runtimeProfile.ProjectRoot, runtimeProfile.GlobalQwenDirec
     private static string? TryExtractMessageText(JsonElement root)
     {
         if (!root.TryGetProperty("message", out var message) ||
-            message.ValueKind != JsonValueKind.Object ||
-            !message.TryGetProperty("parts", out var parts) ||
+            message.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (message.TryGetProperty("content", out var content) &&
+            content.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(content.GetString()))
+        {
+            return content.GetString();
+        }
+
+        if (!message.TryGetProperty("parts", out var parts) ||
             parts.ValueKind != JsonValueKind.Array)
         {
             return null;

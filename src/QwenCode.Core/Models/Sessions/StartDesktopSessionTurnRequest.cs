@@ -21,6 +21,11 @@ public sealed class StartDesktopSessionTurnRequest
     public string WorkingDirectory { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the desktop surface context.
+    /// </summary>
+    public string SurfaceContext { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the tool name
     /// </summary>
     public string ToolName { get; init; } = string.Empty;

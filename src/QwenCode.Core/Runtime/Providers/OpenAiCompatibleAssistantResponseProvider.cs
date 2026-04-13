@@ -94,6 +94,7 @@ public sealed class OpenAiCompatibleAssistantResponseProvider(
                 return new AssistantTurnResponse
                 {
                     Summary = providerResponse.Summary,
+                    ThinkingSummary = providerResponse.ThinkingSummary,
                     ProviderName = Name,
                     Model = configuration.Model,
                     ToolCalls = providerResponse.ToolCalls

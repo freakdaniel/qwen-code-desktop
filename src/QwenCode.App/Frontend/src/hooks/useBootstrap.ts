@@ -117,6 +117,8 @@ function useBootstrapState(): BootstrapState {
       status: activeTurn.status,
       contentDelta: '',
       contentSnapshot: activeTurn.contentSnapshot,
+      thinkingDelta: '',
+      thinkingSnapshot: '',
       toolOutput: '',
       approvalState: '',
       changedFiles: [],

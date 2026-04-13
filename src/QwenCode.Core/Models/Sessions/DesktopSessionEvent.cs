@@ -78,6 +78,16 @@ public sealed class DesktopSessionEvent
     public string ContentSnapshot { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the thinking delta
+    /// </summary>
+    public string ThinkingDelta { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the thinking snapshot
+    /// </summary>
+    public string ThinkingSnapshot { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the agent name
     /// </summary>
     public string AgentName { get; init; } = string.Empty;

@@ -210,8 +210,19 @@ public sealed class ChatRecordingService : IChatRecordingService
     private static string? TryExtractPrompt(JsonElement root)
     {
         if (!root.TryGetProperty("message", out var message) ||
-            message.ValueKind != JsonValueKind.Object ||
-            !message.TryGetProperty("parts", out var parts) ||
+            message.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (message.TryGetProperty("content", out var content) &&
+            content.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(content.GetString()))
+        {
+            return content.GetString();
+        }
+
+        if (!message.TryGetProperty("parts", out var parts) ||
             parts.ValueKind != JsonValueKind.Array)
         {
             return null;

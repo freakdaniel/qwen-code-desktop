@@ -180,6 +180,7 @@ public sealed class AssistantTurnRuntime(
             TranscriptPath = request.TranscriptPath,
             RuntimeProfile = request.RuntimeProfile,
             GitBranch = request.GitBranch,
+            SurfaceContext = request.SurfaceContext,
             CommandInvocation = request.CommandInvocation,
             ResolvedCommand = request.ResolvedCommand,
             ToolExecution = request.ToolExecution,
@@ -263,6 +264,7 @@ public sealed class AssistantTurnRuntime(
                 return new AssistantTurnResponse
                 {
                     Summary = response.Summary,
+                    ThinkingSummary = response.ThinkingSummary,
                     ProviderName = response.ProviderName,
                     Model = response.Model,
                     StopReason = AssistantExecutionDiagnostics.ResolveStopReason(response),
@@ -375,6 +377,7 @@ public sealed class AssistantTurnRuntime(
         return new AssistantTurnResponse
         {
             Summary = response.Summary,
+            ThinkingSummary = response.ThinkingSummary,
             ProviderName = response.ProviderName,
             Model = response.Model,
             StopReason = AssistantExecutionDiagnostics.ResolveStopReason(response),

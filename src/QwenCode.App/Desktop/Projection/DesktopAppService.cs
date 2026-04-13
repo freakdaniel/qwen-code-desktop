@@ -344,6 +344,14 @@ public sealed class DesktopAppService(
         sessionProjectionService.RemoveSessionAsync(request);
 
     /// <summary>
+    /// Renames session async
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to rename desktop session result</returns>
+    public Task<RenameDesktopSessionResult> RenameSessionAsync(RenameDesktopSessionRequest request) =>
+        sessionProjectionService.RenameSessionAsync(request);
+
+    /// <summary>
     /// Gets active turns async
     /// </summary>
     /// <returns>A task that resolves to i read only list active turn state</returns>

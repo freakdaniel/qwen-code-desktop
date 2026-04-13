@@ -55,6 +55,7 @@ Current user task:
 Turn constraints:
 - {{allowedTools}}
 - Approval resolution turn: {{request.IsApprovalResolution}}
+- Desktop surface context: {{ResolveSurfaceContextLabel(request.SurfaceContext)}}
 - Current provider round already has {{toolHistory.Count}} completed tool call result(s).
 
 History highlights:
@@ -69,6 +70,14 @@ Tool loop guidance:
 - If the task is finished, answer directly.
 """;
     }
+
+    private static string ResolveSurfaceContextLabel(string surfaceContext) =>
+        surfaceContext.Trim().ToLowerInvariant() switch
+        {
+            "chats" or "chat" => "Chats",
+            "coder" or "code" or "projects" or "project" => "Coder",
+            _ => "Unknown"
+        };
 
     private static string ComposeDefaultSystemPrompt()
     {

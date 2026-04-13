@@ -115,6 +115,9 @@ public sealed class DirectConnectSessionServiceTests
         public Task<RemoveDesktopSessionResult> RemoveSessionAsync(RemoveDesktopSessionRequest request) =>
             throw new NotSupportedException();
 
+        public Task<RenameDesktopSessionResult> RenameSessionAsync(RenameDesktopSessionRequest request) =>
+            throw new NotSupportedException();
+
         public Task<NativeToolExecutionResult> ExecuteNativeToolAsync(ExecuteNativeToolRequest request) =>
             throw new NotSupportedException();
 

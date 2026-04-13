@@ -118,6 +118,8 @@ public sealed class SessionEventFactory : ISessionEventFactory
             Status = string.IsNullOrWhiteSpace(runtimeEvent.Status) ? runtimeEvent.Stage : runtimeEvent.Status,
             ContentDelta = runtimeEvent.ContentDelta,
             ContentSnapshot = runtimeEvent.ContentSnapshot,
+            ThinkingDelta = runtimeEvent.ThinkingDelta,
+            ThinkingSnapshot = runtimeEvent.ThinkingSnapshot,
             AgentName = runtimeEvent.AgentName,
             ToolOutput = runtimeEvent.ToolOutput,
             ApprovalState = runtimeEvent.ApprovalState,
@@ -302,6 +304,7 @@ public sealed class SessionEventFactory : ISessionEventFactory
         {
             "assembling-context" => DesktopSessionEventKind.AssistantPreparingContext,
             "response-delta" => DesktopSessionEventKind.AssistantStreaming,
+            "thinking-delta" => DesktopSessionEventKind.AssistantStreaming,
             "tool-approval-required" => DesktopSessionEventKind.ToolApprovalRequired,
             "user-input-required" => DesktopSessionEventKind.UserInputRequired,
             "tool-blocked" => DesktopSessionEventKind.ToolBlocked,

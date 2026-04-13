@@ -6,7 +6,6 @@ import { useBootstrap } from '@/hooks/useBootstrap';
 import { useTranslation } from 'react-i18next';
 import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
-import TitleBar from './TitleBar';
 import {
   filterSessionsByNavigationMode,
   getProjectNameFromWorkingDirectory,
@@ -24,7 +23,7 @@ export default function MainLayout() {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const { t } = useTranslation();
-  const { bootstrap, activeTurnSessions } = useBootstrap();
+  const { bootstrap, activeTurnSessions, setBootstrap, setSessionCache } = useBootstrap();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sessions = bootstrap?.recentSessions ?? [];
   const sessionScopeOptions = useMemo(
@@ -120,6 +119,82 @@ export default function MainLayout() {
     setSelectedSessionId('');
   };
 
+  const handleRenameSession = async (sessionId: string) => {
+    const session = sessions.find((item) => item.sessionId === sessionId);
+    if (!session || !window.qwenDesktop?.renameSession) {
+      return;
+    }
+
+    const nextTitle = window.prompt(t('sidebar.renameChatPrompt'), session.title ?? '');
+    if (nextTitle === null) {
+      return;
+    }
+
+    const trimmedTitle = nextTitle.trim();
+    if (!trimmedTitle || trimmedTitle === (session.title ?? '').trim()) {
+      return;
+    }
+
+    const result = await window.qwenDesktop.renameSession({
+      sessionId,
+      title: trimmedTitle,
+    });
+
+    setBootstrap((current) => ({
+      ...current,
+      recentSessions: current.recentSessions.map((item) =>
+        item.sessionId === sessionId ? { ...item, title: result.title || trimmedTitle } : item,
+      ),
+    }));
+    setSessionCache((current) => {
+      const detail = current[sessionId];
+      if (!detail) return current;
+
+      return {
+        ...current,
+        [sessionId]: {
+          ...detail,
+          session: {
+            ...detail.session,
+            title: trimmedTitle,
+          },
+        },
+      };
+    });
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    const session = sessions.find((item) => item.sessionId === sessionId);
+    if (!session || !window.qwenDesktop?.removeSession) {
+      return;
+    }
+
+    if (!window.confirm(t('sidebar.deleteChatConfirm', { title: session.title ?? session.sessionId }))) {
+      return;
+    }
+
+    await window.qwenDesktop.removeSession({ sessionId });
+    setBootstrap((current) => ({
+      ...current,
+      recentSessions: current.recentSessions.filter((item) => item.sessionId !== sessionId),
+    }));
+    setSessionCache((current) => {
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+
+    if (selectedSessionId === sessionId) {
+      setSelectedSessionId('');
+    }
+    if (lastSelectedChatSessionId === sessionId) {
+      setLastSelectedChatSessionId('');
+    }
+    if (lastSelectedProjectSessionId === sessionId) {
+      setLastSelectedProjectSessionId('');
+    }
+  };
+
   const handleToggleMode = () => {
     const nextMode = sidebarMode === 'projects' ? 'chats' : 'projects';
     const nextSelectedSessionId = nextMode === 'chats'
@@ -161,12 +236,6 @@ export default function MainLayout() {
 
   return (
     <Box h="100vh" w="100vw" overflow="hidden" bg="gray.900" position="relative">
-      {/* Title bar - always on top */}
-      <Box position="absolute" top={0} left={0} right={0} zIndex={20}>
-        <TitleBar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
-      </Box>
-
-      {/* Sidebar - under title bar */}
       <Sidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -181,13 +250,13 @@ export default function MainLayout() {
         onToggleMode={handleToggleMode}
         onOpenSearch={openSearch}
         onOpenSkills={() => console.log('Skills & Integrations')}
+        onRenameSession={(session) => void handleRenameSession(session.sessionId)}
+        onDeleteSession={(session) => void handleDeleteSession(session.sessionId)}
       />
 
-      {/* Main content area - under title bar */}
       <Box
         ml={isSidebarOpen ? "260px" : "0"}
-        mt="36px"
-        h="calc(100vh - 36px)"
+        h="100vh"
         transition="margin-left 0.3s ease"
         overflow="hidden"
       >

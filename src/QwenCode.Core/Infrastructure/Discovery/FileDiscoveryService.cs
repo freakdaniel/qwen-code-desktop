@@ -18,8 +18,7 @@ public sealed class FileDiscoveryService(
         ".qwen",
         "node_modules",
         "bin",
-        "obj",
-        ".electron"
+        "obj"
     ];
 
     /// <summary>

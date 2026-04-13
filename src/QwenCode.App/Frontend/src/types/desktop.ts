@@ -61,6 +61,8 @@ export type {
   NativeToolRegistration,
   RemoveDesktopSessionRequest,
   RemoveDesktopSessionResult,
+  RenameDesktopSessionRequest,
+  RenameDesktopSessionResult,
   QwenRuntimeProfile,
   RecoverableTurnState,
   ResolvedCommand,
@@ -117,6 +119,8 @@ export interface DesktopBridge extends Omit<QwenDesktopBridge, 'setLocale'> {
   openExternalUrl?: (url: string) => Promise<boolean>
   minimizeWindow?: () => void
   maximizeWindow?: () => void
+  beginWindowDrag?: () => void
+  beginWindowResize?: (edge: string) => void
   closeWindow?: () => void
 }
 

@@ -112,6 +112,25 @@ public sealed class SessionProjectionService : IDesktopSessionProjectionService,
     }
 
     /// <summary>
+    /// Renames session async
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to rename desktop session result</returns>
+    public Task<RenameDesktopSessionResult> RenameSessionAsync(RenameDesktopSessionRequest request)
+    {
+        var workspace = ResolveWorkspace();
+        var title = request.Title.Trim();
+        var renamed = _sessionService.RenameSession(workspace, request.SessionId, title);
+        return Task.FromResult(new RenameDesktopSessionResult
+        {
+            Renamed = renamed,
+            SessionId = request.SessionId,
+            Title = title,
+            RecentSessions = _transcriptStore.ListSessions(workspace)
+        });
+    }
+
+    /// <summary>
     /// Executes native tool async
     /// </summary>
     /// <param name="request">The request payload</param>
@@ -137,6 +156,7 @@ public sealed class SessionProjectionService : IDesktopSessionProjectionService,
             SessionId = sessionId,
             Prompt = request.Prompt,
             WorkingDirectory = request.WorkingDirectory,
+            SurfaceContext = request.SurfaceContext,
             ToolName = request.ToolName,
             ToolArgumentsJson = request.ToolArgumentsJson,
             ApproveToolExecution = request.ApproveToolExecution

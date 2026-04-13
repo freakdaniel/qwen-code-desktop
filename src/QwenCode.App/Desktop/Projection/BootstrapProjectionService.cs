@@ -154,6 +154,7 @@ public sealed class BootstrapProjectionService(
             string? workingDirectory = null;
             string? gitBranch = null;
             string? firstUserPrompt = null;
+            var messageIds = new HashSet<string>(StringComparer.Ordinal);
 
             string? line;
             var scannedLines = 0;
@@ -170,6 +171,18 @@ public sealed class BootstrapProjectionService(
                 workingDirectory ??= GetProp(root, "cwd");
                 gitBranch ??= GetProp(root, "gitBranch");
 
+                if (GetProp(root, "type") is "user" or "assistant")
+                {
+                    if (GetProp(root, "uuid") is { Length: > 0 } uuid)
+                    {
+                        messageIds.Add(uuid);
+                    }
+                    else
+                    {
+                        messageIds.Add($"{file.FullName}:{scannedLines}");
+                    }
+                }
+
                 if (firstUserPrompt is null &&
                     GetProp(root, "type") == "user" &&
                     ExtractPrompt(root) is { Length: > 0 } prompt)
@@ -177,7 +190,7 @@ public sealed class BootstrapProjectionService(
                     firstUserPrompt = prompt;
                 }
 
-                if (scannedLines >= 200 && firstUserPrompt is not null) break;
+                if (scannedLines >= 2000 || (scannedLines >= 200 && firstUserPrompt is not null && messageIds.Count > 0)) break;
             }
 
             var effectiveSessionId = string.IsNullOrWhiteSpace(sessionId)
@@ -186,6 +199,11 @@ public sealed class BootstrapProjectionService(
 
             var cachedMeta = chatRecordingService.TryReadMetadata(file.FullName);
             string? title = !string.IsNullOrWhiteSpace(cachedMeta?.Title) ? cachedMeta.Title : null;
+            var messageCount = Math.Max(cachedMeta?.MessageCount ?? 0, messageIds.Count);
+            if (messageCount <= 0)
+            {
+                return null;
+            }
 
             if (title is null && !string.IsNullOrWhiteSpace(firstUserPrompt))
             {
@@ -209,7 +227,7 @@ public sealed class BootstrapProjectionService(
                 Status = "resume-ready",
                 WorkingDirectory = workingDirectory ?? globalQwenDirectory,
                 GitBranch = gitBranch ?? string.Empty,
-                MessageCount = 0,
+                MessageCount = messageCount,
                 TranscriptPath = file.FullName,
                 MetadataPath = string.Empty,
             };
@@ -229,10 +247,26 @@ public sealed class BootstrapProjectionService(
 
     private static string? ExtractPrompt(JsonElement root)
     {
-        if (!root.TryGetProperty("message", out var msg) ||
-            !msg.TryGetProperty("parts", out var parts) ||
-            parts.ValueKind != JsonValueKind.Array)
+        if (!root.TryGetProperty("message", out var msg))
+        {
             return null;
+        }
+
+        if (msg.TryGetProperty("content", out var content) &&
+            content.ValueKind == JsonValueKind.String)
+        {
+            var contentText = content.GetString();
+            if (!string.IsNullOrWhiteSpace(contentText))
+            {
+                return contentText.Length > 140 ? $"{contentText[..140]}..." : contentText;
+            }
+        }
+
+        if (!msg.TryGetProperty("parts", out var parts) ||
+            parts.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
 
         foreach (var part in parts.EnumerateArray())
         {

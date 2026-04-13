@@ -31,7 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ElectronNET.Core" Version="0.4.1" />
+    <PackageReference Include="InfiniLore.InfiniFrame" Version="0.6.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.3.0" />
     <PackageReference Include="Serilog" Version="4.3.0" />
     <PackageReference Include="Serilog.Extensions.Logging" Version="9.0.2" />
@@ -65,25 +65,16 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <ElectronPackageId>io.github.freakdaniel.QwenCodeDesktop</ElectronPackageId>
     <Title>Qwen Code Desktop</Title>
     <Version>0.1.0</Version>
     <Description>Native desktop shell for Qwen with a fully local .NET runtime and React-based workspace.</Description>
     <Company>freakdaniel</Company>
-    <ElectronVersion>34.2.0</ElectronVersion>
-    <ElectronSkipMigrationChecks>true</ElectronSkipMigrationChecks>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="electron\preload.js">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Content Include="..\QwenCode.Core\Channels\plugin-host\channel-plugin-host.mjs">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Channels\plugin-host\channel-plugin-host.mjs</Link>
-    </Content>
-    <Content Include=".electron\custom_main.js">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
@@ -97,12 +88,7 @@
     <Exec Command="npm run build" WorkingDirectory="Frontend" />
   </Target>
 
-  <Target Name="RestoreElectronRuntime" AfterTargets="Build" Inputs="$(OutputPath).electron\package.json" Outputs="$(OutputPath).electron\node_modules\.package-lock.json" Condition="Exists('$(OutputPath).electron\package.json')">
-    <Message Importance="high" Text="-&gt; npm install (Electron host)" />
-    <Exec Command="npm install --prefer-offline --no-audit --no-fund" WorkingDirectory="$(OutputPath).electron" />
-  </Target>
-
-  <Target Name="PrepareDesktopRun" BeforeTargets="Run" DependsOnTargets="BuildFrontend;CopyFrontendDist;RestoreElectronRuntime" />
+  <Target Name="PrepareDesktopRun" BeforeTargets="Run" DependsOnTargets="BuildFrontend;CopyFrontendDist" />
 
   <Target Name="CopyFrontendDist" AfterTargets="Build" Condition="Exists('wwwroot/index.html')">
     <ItemGroup>

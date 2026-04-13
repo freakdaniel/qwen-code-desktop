@@ -396,6 +396,8 @@ export interface DesktopSessionEvent {
   status: string;
   contentDelta: string;
   contentSnapshot: string;
+  thinkingDelta: string;
+  thinkingSnapshot: string;
   agentName: string;
   toolOutput: string;
   approvalState: string;
@@ -938,6 +940,18 @@ export interface RemoveDesktopSessionResult {
   recentSessions: SessionPreview[];
 }
 
+export interface RenameDesktopSessionRequest {
+  sessionId: string;
+  title: string;
+}
+
+export interface RenameDesktopSessionResult {
+  renamed: boolean;
+  sessionId: string;
+  title: string;
+  recentSessions: SessionPreview[];
+}
+
 export interface RemoveExtensionRequest {
   name: string;
 }
@@ -1048,6 +1062,7 @@ export interface StartDesktopSessionTurnRequest {
   sessionId: string;
   prompt: string;
   workingDirectory: string;
+  surfaceContext: string;
   toolName: string;
   toolArgumentsJson: string;
   approveToolExecution: boolean;
@@ -1143,6 +1158,7 @@ export interface QwenDesktopBridge {
   getSession(request: GetDesktopSessionRequest): Promise<DesktopSessionDetail>;
   getActiveTurns(): Promise<ActiveTurnState[]>;
   removeSession(request: RemoveDesktopSessionRequest): Promise<RemoveDesktopSessionResult>;
+  renameSession(request: RenameDesktopSessionRequest): Promise<RenameDesktopSessionResult>;
   resumeInterruptedTurn(request: ResumeInterruptedTurnRequest): Promise<DesktopSessionTurnResult>;
   startSessionTurn(request: StartDesktopSessionTurnRequest): Promise<DesktopSessionTurnResult>;
   executeNativeTool(request: ExecuteNativeToolRequest): Promise<NativeToolExecutionResult>;
@@ -1207,6 +1223,7 @@ export const qwenDesktopChannels = {
   getSession: 'qwen-desktop:sessions:get',
   getActiveTurns: 'qwen-desktop:sessions:get-active-turns',
   removeSession: 'qwen-desktop:sessions:remove',
+  renameSession: 'qwen-desktop:sessions:rename',
   resumeInterruptedTurn: 'qwen-desktop:sessions:resume-interrupted',
   startSessionTurn: 'qwen-desktop:sessions:start-turn',
   executeNativeTool: 'qwen-desktop:tools:execute-native',

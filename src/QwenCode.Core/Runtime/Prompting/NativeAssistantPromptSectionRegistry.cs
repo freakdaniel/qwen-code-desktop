@@ -85,6 +85,35 @@ internal static class NativeAssistantPromptSectionRegistry
                 """,
             Order: 310),
         new(
+            "desktop_surface_context",
+            static context =>
+            {
+                var normalized = context.Request.SurfaceContext.Trim().ToLowerInvariant();
+                return normalized switch
+                {
+                    "chats" or "chat" =>
+                        """
+                        # Desktop Surface Context
+                        - You are operating in the Chats surface, which is for conversational help, explanations, research, and lightweight tasks.
+                        - Do not create, edit, or write files just because tools are available. Only persist files when the user explicitly asks for a durable artifact, when a named workspace task truly requires it, or after you explain the need.
+                        - Prefer answering directly, using read/search tools for evidence when helpful, and asking before making persistent workspace changes.
+                        """,
+                    "coder" or "code" or "projects" or "project" =>
+                        """
+                        # Desktop Surface Context
+                        - You are operating in the Coder surface, which is for codebase work and workspace changes.
+                        - It is appropriate to inspect files, edit code, and verify changes when the user asks for implementation or debugging work.
+                        """,
+                    _ =>
+                        """
+                        # Desktop Surface Context
+                        - The desktop surface was not specified. Treat the turn conservatively: do not make persistent file changes unless the user request clearly requires them.
+                        """
+                };
+            },
+            Order: 312,
+            IsDynamic: true),
+        new(
             "system_reminders",
             static context =>
             {

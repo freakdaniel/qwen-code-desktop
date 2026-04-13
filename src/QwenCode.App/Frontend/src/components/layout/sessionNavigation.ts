@@ -65,7 +65,8 @@ export function isProjectlessWorkingDirectory(
     return true;
   }
 
-  return /(?:^|[\\/])tmp[\\/]no-project(?:[\\/]|$)/i.test(workingDirectory);
+  return /(?:^|[\\/])tmp[\\/]no-project(?:[\\/]|$)/i.test(workingDirectory) ||
+    /(?:^|[\\/])(?:aionui-)?qwen-temp-[^\\/]+(?:[\\/]|$)/i.test(workingDirectory);
 }
 
 export function isProjectlessSession(
@@ -81,9 +82,10 @@ export function filterSessionsByNavigationMode(
   options: SessionScopeOptions,
 ): SessionPreview[] {
   return sessions.filter((session) =>
-    mode === 'chats'
+    session.messageCount > 0 &&
+    (mode === 'chats'
       ? isProjectlessSession(session, options)
-      : !isProjectlessSession(session, options),
+      : !isProjectlessSession(session, options)),
   );
 }
 

@@ -133,22 +133,10 @@ internal static class OpenAiCompatibleProtocol
             var summary = string.Empty;
             if (message.TryGetProperty("content", out var content))
             {
-                summary = content.ValueKind switch
-                {
-                    JsonValueKind.String => content.GetString() ?? string.Empty,
-                    JsonValueKind.Array => string.Join(
-                        "\n",
-                        content.EnumerateArray()
-                            .Select(static item =>
-                                item.ValueKind == JsonValueKind.Object &&
-                                item.TryGetProperty("text", out var text) &&
-                                text.ValueKind == JsonValueKind.String
-                                    ? text.GetString()
-                                    : null)
-                            .Where(static item => !string.IsNullOrWhiteSpace(item))),
-                    _ => string.Empty
-                };
+                summary = ReadTextValue(content, "\n");
             }
+
+            var thinkingSummary = ReadMessageThinking(message);
 
             var toolCalls = message.TryGetProperty("tool_calls", out var toolCallsElement) &&
                             toolCallsElement.ValueKind == JsonValueKind.Array
@@ -183,18 +171,107 @@ internal static class OpenAiCompatibleProtocol
                     .ToArray()
                 : [];
 
-            if (toolCalls.Length == 0 && string.IsNullOrWhiteSpace(summary))
+            if (toolCalls.Length == 0 &&
+                string.IsNullOrWhiteSpace(summary) &&
+                string.IsNullOrWhiteSpace(thinkingSummary))
             {
                 return null;
             }
 
-            return new ProviderResponse(summary.Trim(), toolCalls);
+            return new ProviderResponse(summary.Trim(), thinkingSummary.Trim(), toolCalls);
         }
         catch
         {
             return null;
         }
     }
+
+    private static string ReadMessageThinking(JsonElement message)
+    {
+        foreach (var propertyName in new[]
+        {
+            "reasoning_content",
+            "reasoningContent",
+            "reasoning",
+            "thought",
+            "thinking"
+        })
+        {
+            if (!message.TryGetProperty(propertyName, out var value))
+            {
+                continue;
+            }
+
+            var text = ReadTextValue(value, string.Empty);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+
+        if (message.TryGetProperty("content", out var content) &&
+            content.ValueKind == JsonValueKind.Array)
+        {
+            var text = string.Join(
+                string.Empty,
+                content.EnumerateArray()
+                    .Select(static item =>
+                    {
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("text", out var textProperty) ||
+                            textProperty.ValueKind != JsonValueKind.String)
+                        {
+                            return null;
+                        }
+
+                        var isThought = item.TryGetProperty("thought", out var thoughtProperty) &&
+                            thoughtProperty.ValueKind == JsonValueKind.True;
+                        var isThinkingType = item.TryGetProperty("type", out var typeProperty) &&
+                            typeProperty.ValueKind == JsonValueKind.String &&
+                            typeProperty.GetString() is "thinking" or "reasoning";
+                        return isThought || isThinkingType ? textProperty.GetString() : null;
+                    })
+                    .Where(static item => !string.IsNullOrWhiteSpace(item)));
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ReadTextValue(JsonElement value, string separator) =>
+        value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Array => string.Join(
+                separator,
+                value.EnumerateArray()
+                    .Select(static item =>
+                    {
+                        if (item.ValueKind == JsonValueKind.String)
+                        {
+                            return item.GetString();
+                        }
+
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("text", out var text) ||
+                            text.ValueKind != JsonValueKind.String)
+                        {
+                            return null;
+                        }
+
+                        var isThought = item.TryGetProperty("thought", out var thoughtProperty) &&
+                            thoughtProperty.ValueKind == JsonValueKind.True;
+                        var isThinkingType = item.TryGetProperty("type", out var typeProperty) &&
+                            typeProperty.ValueKind == JsonValueKind.String &&
+                            typeProperty.GetString() is "thinking" or "reasoning";
+                        return isThought || isThinkingType ? null : text.GetString();
+                    })
+                    .Where(static item => !string.IsNullOrWhiteSpace(item))),
+            _ => string.Empty
+        };
 
     /// <summary>
     /// Executes ensure chat completions endpoint
@@ -918,5 +995,8 @@ Pending questions:
                 "model")
         };
 
-    internal sealed record ProviderResponse(string Summary, IReadOnlyList<AssistantToolCall> ToolCalls);
+    internal sealed record ProviderResponse(
+        string Summary,
+        string ThinkingSummary,
+        IReadOnlyList<AssistantToolCall> ToolCalls);
 }

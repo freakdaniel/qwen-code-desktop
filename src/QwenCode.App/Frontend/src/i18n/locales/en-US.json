@@ -27,6 +27,11 @@
     "previousWeek": "Previous Week",
     "previousThirtyDays": "Previous 30 Days",
     "startTypingSearch": "Start typing to search...",
+    "sessionActions": "Session actions",
+    "renameChat": "Rename chat",
+    "deleteChat": "Delete chat",
+    "renameChatPrompt": "New chat name",
+    "deleteChatConfirm": "Delete \"{{title}}\"?",
     "now": "now",
     "minutesAgo": "m",
     "hoursAgo": "h",
@@ -43,7 +48,9 @@
     "demoResponse": "Received your request: \"{{prompt}}\". This is a demo response.",
     "disclaimer": "Qwen is AI and may make mistakes. Verify important changes, commands, and answers",
     "contextUsed": "Used {{used}} / {{total}} tokens",
-    "contextCompression": "Qwen will automatically compress context when limit is exceeded"
+    "contextCompression": "Qwen will automatically compress context when limit is exceeded",
+    "noMessages": "No messages yet",
+    "noReadableMessages": "Messages exist, but this transcript could not be read yet"
   },
   "titlebar": {
     "appName": "Qwen Code",

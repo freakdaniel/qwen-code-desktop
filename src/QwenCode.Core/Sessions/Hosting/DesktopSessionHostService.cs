@@ -80,6 +80,7 @@ public sealed class DesktopSessionHostService(
             SessionId = sessionId,
             Prompt = request.Prompt,
             WorkingDirectory = request.WorkingDirectory,
+            SurfaceContext = request.SurfaceContext,
             ToolName = request.ToolName,
             ToolArgumentsJson = request.ToolArgumentsJson,
             ApproveToolExecution = request.ApproveToolExecution
@@ -349,13 +350,14 @@ public sealed class DesktopSessionHostService(
                 parentUuid,
                 sessionId,
                 timestamp = timestampUtc,
-                type = "user",
-                cwd = workingDirectory,
-                version = "0.1.0",
-                gitBranch,
-                mode = DesktopMode.Code.ToString().ToLowerInvariant(),
-                message = new
-                {
+                    type = "user",
+                    cwd = workingDirectory,
+                    version = "0.1.0",
+                    gitBranch,
+                    mode = DesktopMode.Code.ToString().ToLowerInvariant(),
+                    surfaceContext = ResolveSurfaceContext(runtimeProfile, workingDirectory, request.SurfaceContext),
+                    message = new
+                    {
                     role = "user",
                     parts = new[]
                     {
@@ -479,7 +481,8 @@ public sealed class DesktopSessionHostService(
                 commandInvocation,
                 resolvedCommand,
                 toolExecution,
-                isApprovalResolution: false),
+                isApprovalResolution: false,
+                request.SurfaceContext),
             runtimeEvent =>
             {
                 activeTurnRegistry.Update(sessionId, state => ApplyRuntimeEvent(state, runtimeEvent));
@@ -543,16 +546,11 @@ public sealed class DesktopSessionHostService(
                     version = "0.1.0",
                     gitBranch,
                     mode = DesktopMode.Code.ToString().ToLowerInvariant(),
+                    surfaceContext = ResolveSurfaceContext(runtimeProfile, workingDirectory, request.SurfaceContext),
                     message = new
                     {
                         role = "assistant",
-                        parts = new[]
-                        {
-                            new
-                            {
-                                text = assistantSummary
-                            }
-                        },
+                        parts = BuildAssistantMessageParts(assistantResponse.ThinkingSummary, assistantSummary),
                         provider = assistantResponse.ProviderName,
                         model = assistantResponse.Model
                     },
@@ -948,13 +946,7 @@ public sealed class DesktopSessionHostService(
                     message = new
                     {
                         role = "assistant",
-                        parts = new[]
-                        {
-                            new
-                            {
-                                text = assistantSummary
-                            }
-                        },
+                        parts = BuildAssistantMessageParts(assistantResponse.ThinkingSummary, assistantSummary),
                         provider = assistantResponse.ProviderName,
                         model = assistantResponse.Model
                     },
@@ -1262,13 +1254,7 @@ public sealed class DesktopSessionHostService(
                     message = new
                     {
                         role = "assistant",
-                        parts = new[]
-                        {
-                            new
-                            {
-                                text = assistantSummary
-                            }
-                        },
+                        parts = BuildAssistantMessageParts(assistantResponse.ThinkingSummary, assistantSummary),
                         provider = assistantResponse.ProviderName,
                         model = assistantResponse.Model
                     },
@@ -1865,6 +1851,7 @@ public sealed class DesktopSessionHostService(
         ResolvedCommand? resolvedCommand,
         NativeToolExecutionResult toolExecution,
         bool isApprovalResolution,
+        string surfaceContext = "",
         string toolArgumentsJson = "{}") =>
         new()
         {
@@ -1874,6 +1861,7 @@ public sealed class DesktopSessionHostService(
             TranscriptPath = transcriptPath,
             RuntimeProfile = runtimeProfile,
             GitBranch = gitBranch,
+            SurfaceContext = ResolveSurfaceContext(runtimeProfile, workingDirectory, surfaceContext),
             CommandInvocation = commandInvocation,
             ResolvedCommand = resolvedCommand,
             ToolExecution = toolExecution,
@@ -1886,6 +1874,49 @@ public sealed class DesktopSessionHostService(
         string.Equals(runtimeProfile.ApprovalProfile.DefaultMode, "plan", StringComparison.OrdinalIgnoreCase)
             ? AssistantPromptMode.Plan
             : AssistantPromptMode.Primary;
+
+    private static object[] BuildAssistantMessageParts(string thinkingSummary, string assistantSummary)
+    {
+        var parts = new List<object>();
+        if (!string.IsNullOrWhiteSpace(thinkingSummary))
+        {
+            parts.Add(new
+            {
+                text = thinkingSummary,
+                thought = true
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(assistantSummary))
+        {
+            parts.Add(new
+            {
+                text = assistantSummary
+            });
+        }
+
+        return parts.ToArray();
+    }
+
+    private static string ResolveSurfaceContext(
+        QwenRuntimeProfile runtimeProfile,
+        string workingDirectory,
+        string requestedSurfaceContext)
+    {
+        var normalizedRequest = requestedSurfaceContext.Trim().ToLowerInvariant();
+        if (normalizedRequest is "chats" or "chat")
+        {
+            return "chats";
+        }
+
+        if (normalizedRequest is "coder" or "code" or "projects" or "project")
+        {
+            return "coder";
+        }
+
+        var runtimeTempRoot = Path.Combine(runtimeProfile.RuntimeBaseDirectory, "tmp");
+        return IsPathWithinRoot(workingDirectory, runtimeTempRoot) ? "chats" : "coder";
+    }
 
     private static ActiveTurnState CreateActiveTurnState(
         string sessionId,

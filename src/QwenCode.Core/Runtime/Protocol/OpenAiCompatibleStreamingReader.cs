@@ -21,6 +21,7 @@ internal static class OpenAiCompatibleStreamingReader
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
         var summaryBuilder = new StringBuilder();
+        var thinkingBuilder = new StringBuilder();
         var toolCallParser = new StreamingToolCallParser();
         string? finishReason = null;
         string? embeddedError = null;
@@ -36,6 +37,7 @@ internal static class OpenAiCompatibleStreamingReader
             ProcessStreamingChunk(
                 payload,
                 summaryBuilder,
+                thinkingBuilder,
                 toolCallParser,
                 eventSink,
                 ref finishReason,
@@ -57,15 +59,20 @@ internal static class OpenAiCompatibleStreamingReader
                 "Streaming response ended with an incomplete tool call payload and needs one non-stream retry.");
         }
 
+        var thinkingSummary = thinkingBuilder.ToString().Trim();
+
         if (string.Equals(finishReason, "length", StringComparison.OrdinalIgnoreCase) &&
             resolvedToolCalls.Count == 0 &&
-            string.IsNullOrWhiteSpace(summary))
+            string.IsNullOrWhiteSpace(summary) &&
+            string.IsNullOrWhiteSpace(thinkingSummary))
         {
             return StreamingReadResult.Retry(
                 "Streaming response hit the provider output limit before a complete assistant result was assembled.");
         }
 
-        if (resolvedToolCalls.Count == 0 && string.IsNullOrWhiteSpace(summary))
+        if (resolvedToolCalls.Count == 0 &&
+            string.IsNullOrWhiteSpace(summary) &&
+            string.IsNullOrWhiteSpace(thinkingSummary))
         {
             return StreamingReadResult.Empty();
         }
@@ -73,6 +80,7 @@ internal static class OpenAiCompatibleStreamingReader
         return StreamingReadResult.Completed(new AssistantTurnResponse
         {
             Summary = summary,
+            ThinkingSummary = thinkingSummary,
             ProviderName = providerName,
             Model = model,
             ToolCalls = resolvedToolCalls
@@ -82,6 +90,7 @@ internal static class OpenAiCompatibleStreamingReader
     private static void ProcessStreamingChunk(
         string payload,
         StringBuilder summaryBuilder,
+        StringBuilder thinkingBuilder,
         StreamingToolCallParser toolCallParser,
         Action<AssistantRuntimeEvent>? eventSink,
         ref string? finishReason,
@@ -126,6 +135,20 @@ internal static class OpenAiCompatibleStreamingReader
                     Status = "streaming",
                     ContentDelta = contentDelta,
                     ContentSnapshot = summaryBuilder.ToString()
+                });
+            }
+
+            var thinkingDelta = ReadThinkingDelta(delta);
+            if (!string.IsNullOrWhiteSpace(thinkingDelta))
+            {
+                thinkingBuilder.Append(thinkingDelta);
+                eventSink?.Invoke(new AssistantRuntimeEvent
+                {
+                    Stage = "thinking-delta",
+                    Message = thinkingDelta,
+                    Status = "thinking",
+                    ThinkingDelta = thinkingDelta,
+                    ThinkingSnapshot = thinkingBuilder.ToString()
                 });
             }
 
@@ -230,15 +253,96 @@ internal static class OpenAiCompatibleStreamingReader
                 string.Empty,
                 content.EnumerateArray()
                     .Select(static item =>
-                        item.ValueKind == JsonValueKind.Object &&
-                        item.TryGetProperty("text", out var textProperty) &&
-                        textProperty.ValueKind == JsonValueKind.String
-                            ? textProperty.GetString()
-                            : null)
+                    {
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("text", out var textProperty) ||
+                            textProperty.ValueKind != JsonValueKind.String)
+                        {
+                            return null;
+                        }
+
+                        var isThought = item.TryGetProperty("thought", out var thoughtProperty) &&
+                            thoughtProperty.ValueKind == JsonValueKind.True;
+                        return isThought ? null : textProperty.GetString();
+                    })
                     .Where(static item => !string.IsNullOrWhiteSpace(item))),
             _ => string.Empty
         };
     }
+
+    private static string ReadThinkingDelta(JsonElement delta)
+    {
+        foreach (var propertyName in new[]
+        {
+            "reasoning_content",
+            "reasoningContent",
+            "reasoning",
+            "thought",
+            "thinking"
+        })
+        {
+            if (!delta.TryGetProperty(propertyName, out var value))
+            {
+                continue;
+            }
+
+            var text = ReadTextValue(value);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+
+        if (delta.TryGetProperty("content", out var content) &&
+            content.ValueKind == JsonValueKind.Array)
+        {
+            var text = string.Join(
+                string.Empty,
+                content.EnumerateArray()
+                    .Select(static item =>
+                    {
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("text", out var textProperty) ||
+                            textProperty.ValueKind != JsonValueKind.String)
+                        {
+                            return null;
+                        }
+
+                        var isThought = item.TryGetProperty("thought", out var thoughtProperty) &&
+                            thoughtProperty.ValueKind == JsonValueKind.True;
+                        var isThinkingType = item.TryGetProperty("type", out var typeProperty) &&
+                            typeProperty.ValueKind == JsonValueKind.String &&
+                            typeProperty.GetString() is "thinking" or "reasoning";
+                        return isThought || isThinkingType ? textProperty.GetString() : null;
+                    })
+                    .Where(static item => !string.IsNullOrWhiteSpace(item)));
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ReadTextValue(JsonElement value) =>
+        value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Array => string.Join(
+                string.Empty,
+                value.EnumerateArray()
+                    .Select(static item =>
+                        item.ValueKind == JsonValueKind.Object &&
+                        item.TryGetProperty("text", out var textProperty) &&
+                        textProperty.ValueKind == JsonValueKind.String
+                            ? textProperty.GetString()
+                            : item.ValueKind == JsonValueKind.String
+                                ? item.GetString()
+                                : null)
+                    .Where(static item => !string.IsNullOrWhiteSpace(item))),
+            _ => string.Empty
+        };
 
     internal sealed record StreamingReadResult(
         AssistantTurnResponse? Response,

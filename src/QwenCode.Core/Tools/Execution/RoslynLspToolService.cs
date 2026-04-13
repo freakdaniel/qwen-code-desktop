@@ -7,7 +7,7 @@ namespace QwenCode.Core.Tools;
 /// </summary>
 public sealed class RoslynLspToolService : ILspToolService
 {
-    private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", ".electron", "dist"];
+    private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", "dist"];
     private static readonly IReadOnlyList<MetadataReference> MetadataReferences = BuildMetadataReferences();
 
     /// <summary>

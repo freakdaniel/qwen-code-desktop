@@ -38,6 +38,11 @@ public sealed class AssistantTurnRequest
     public string GitBranch { get; init; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the desktop surface context that started this turn.
+    /// </summary>
+    public string SurfaceContext { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the command invocation
     /// </summary>
     public CommandInvocationResult? CommandInvocation { get; init; }

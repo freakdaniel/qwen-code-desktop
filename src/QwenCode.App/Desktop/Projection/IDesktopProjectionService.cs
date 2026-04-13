@@ -67,6 +67,13 @@ public interface IDesktopProjectionService
     Task<RemoveDesktopSessionResult> RemoveSessionAsync(RemoveDesktopSessionRequest request);
 
     /// <summary>
+    /// Renames session async
+    /// </summary>
+    /// <param name="request">The request payload</param>
+    /// <returns>A task that resolves to rename desktop session result</returns>
+    Task<RenameDesktopSessionResult> RenameSessionAsync(RenameDesktopSessionRequest request);
+
+    /// <summary>
     /// Sets locale async
     /// </summary>
     /// <param name="locale">The locale</param>

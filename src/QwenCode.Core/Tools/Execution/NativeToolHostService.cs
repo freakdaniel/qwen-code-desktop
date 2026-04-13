@@ -43,7 +43,7 @@ public sealed class NativeToolHostService(
     ITelemetryService? telemetryService = null,
     IApprovalSessionRuleStore? approvalSessionRuleStore = null) : IToolExecutor
 {
-    private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", ".electron", "dist"];
+    private static readonly string[] IgnoredDirectories = [".git", "node_modules", "bin", "obj", "dist"];
     private readonly ISubagentCoordinator agents = subagentCoordinator ?? CreateFallbackSubagentCoordinator(runtimeProfileService, approvalPolicyService);
     private readonly ICronScheduler cron = cronScheduler ?? new InMemoryCronScheduler();
     private readonly IShellExecutionService shell = shellExecutionService ?? new ShellExecutionService();

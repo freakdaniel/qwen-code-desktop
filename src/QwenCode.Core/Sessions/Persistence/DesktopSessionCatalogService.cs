@@ -283,6 +283,65 @@ public sealed class DesktopSessionCatalogService(
         return true;
     }
 
+    /// <summary>
+    /// Renames session
+    /// </summary>
+    /// <param name="paths">The paths to process</param>
+    /// <param name="sessionId">The session identifier</param>
+    /// <param name="title">The new title</param>
+    /// <returns>A value indicating whether the operation succeeded</returns>
+    public bool RenameSession(WorkspacePaths paths, string sessionId, string title)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        var runtimeProfile = runtimeProfileService.Inspect(paths);
+        var transcriptPath = ResolveTranscriptPath(paths, runtimeProfile, sessionId);
+        if (!File.Exists(transcriptPath))
+        {
+            return false;
+        }
+
+        var file = new FileInfo(transcriptPath);
+        var existingMetadata = chatRecordingService.TryReadMetadata(transcriptPath);
+        var preview = TryReadSession(file, runtimeProfile, chatRecordingService);
+        var metadata = new SessionRecordingMetadata
+        {
+            SessionId = sessionId,
+            TranscriptPath = transcriptPath,
+            MetadataPath = chatRecordingService.GetMetadataPath(transcriptPath),
+            Title = title.Trim(),
+            WorkingDirectory = existingMetadata?.WorkingDirectory
+                ?? preview?.WorkingDirectory
+                ?? runtimeProfile.ProjectRoot,
+            GitBranch = existingMetadata?.GitBranch
+                ?? preview?.GitBranch
+                ?? string.Empty,
+            Status = existingMetadata?.Status
+                ?? preview?.Status
+                ?? "resume-ready",
+            StartedAt = existingMetadata?.StartedAt
+                ?? preview?.StartedAt
+                ?? file.CreationTimeUtc.ToString("O"),
+            LastUpdatedAt = existingMetadata?.LastUpdatedAt
+                ?? preview?.LastUpdatedAt
+                ?? file.LastWriteTimeUtc.ToString("O"),
+            LastCompletedUuid = existingMetadata?.LastCompletedUuid ?? string.Empty,
+            MessageCount = Math.Max(existingMetadata?.MessageCount ?? 0, preview?.MessageCount ?? 0),
+            EntryCount = Math.Max(existingMetadata?.EntryCount ?? 0, preview?.MessageCount ?? 0)
+        };
+
+        Directory.CreateDirectory(Path.GetDirectoryName(metadata.MetadataPath) ?? string.Empty);
+        File.WriteAllText(
+            metadata.MetadataPath,
+            JsonSerializer.Serialize(metadata, new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine);
+
+        File.SetLastWriteTimeUtc(metadata.MetadataPath, DateTime.UtcNow);
+        return true;
+    }
+
     private SessionPreview? FindSessionPreview(WorkspacePaths paths, string sessionId) =>
         ListSessions(paths, int.MaxValue).FirstOrDefault(item =>
             string.Equals(item.SessionId, sessionId, StringComparison.Ordinal));
@@ -295,7 +354,39 @@ public sealed class DesktopSessionCatalogService(
             return preview!.TranscriptPath;
         }
 
+        var globalTranscriptPath = FindGlobalTranscriptPath(runtimeProfile, sessionId);
+        if (!string.IsNullOrWhiteSpace(globalTranscriptPath))
+        {
+            return globalTranscriptPath;
+        }
+
         return Path.Combine(runtimeProfile.ChatsDirectory, $"{sessionId}.jsonl");
+    }
+
+    private static string FindGlobalTranscriptPath(QwenRuntimeProfile runtimeProfile, string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) ||
+            string.IsNullOrWhiteSpace(runtimeProfile.GlobalQwenDirectory))
+        {
+            return string.Empty;
+        }
+
+        var projectsDirectory = Path.Combine(runtimeProfile.GlobalQwenDirectory, "projects");
+        if (!Directory.Exists(projectsDirectory))
+        {
+            return string.Empty;
+        }
+
+        foreach (var projectDirectory in Directory.EnumerateDirectories(projectsDirectory))
+        {
+            var candidate = Path.Combine(projectDirectory, "chats", $"{sessionId}.jsonl");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return string.Empty;
     }
 
     private static SessionPreview? TryReadSession(
@@ -306,7 +397,7 @@ public sealed class DesktopSessionCatalogService(
         try
         {
             var metadata = chatRecordingService.TryReadMetadata(file.FullName);
-            if (metadata is not null)
+            if (metadata is not null && metadata.MessageCount > 0)
             {
                 return new SessionPreview
                 {
@@ -361,10 +452,16 @@ public sealed class DesktopSessionCatalogService(
                     sessionStatus = NormalizeSessionStatus(status);
                 }
 
-                if ((TryGetString(root, "type") is "user" or "assistant") &&
-                    TryGetString(root, "uuid") is { Length: > 0 } uuid)
+                if (TryGetString(root, "type") is "user" or "assistant")
                 {
-                    messageIds.Add(uuid);
+                    if (TryGetString(root, "uuid") is { Length: > 0 } uuid)
+                    {
+                        messageIds.Add(uuid);
+                    }
+                    else
+                    {
+                        messageIds.Add($"{file.FullName}:{scannedLines}");
+                    }
                 }
 
                 if (firstUserPrompt is null &&
@@ -389,15 +486,23 @@ public sealed class DesktopSessionCatalogService(
             return new SessionPreview
             {
                 SessionId = effectiveSessionId,
-                Title = null,
-                LastActivity = file.LastWriteTimeUtc.ToString("O"),
-                StartedAt = file.CreationTimeUtc.ToString("O"),
-                LastUpdatedAt = file.LastWriteTimeUtc.ToString("O"),
+                Title = string.IsNullOrWhiteSpace(metadata?.Title) ? null : metadata.Title,
+                LastActivity = string.IsNullOrWhiteSpace(metadata?.LastUpdatedAt)
+                    ? file.LastWriteTimeUtc.ToString("O")
+                    : metadata.LastUpdatedAt,
+                StartedAt = string.IsNullOrWhiteSpace(metadata?.StartedAt)
+                    ? file.CreationTimeUtc.ToString("O")
+                    : metadata.StartedAt,
+                LastUpdatedAt = string.IsNullOrWhiteSpace(metadata?.LastUpdatedAt)
+                    ? file.LastWriteTimeUtc.ToString("O")
+                    : metadata.LastUpdatedAt,
                 Category = string.IsNullOrWhiteSpace(gitBranch)
                     ? runtimeProfile.ApprovalProfile.DefaultMode
                     : gitBranch,
                 Mode = DesktopMode.Code,
-                Status = sessionStatus,
+                Status = string.IsNullOrWhiteSpace(metadata?.Status)
+                    ? sessionStatus
+                    : NormalizeSessionStatus(metadata.Status),
                 WorkingDirectory = effectiveWorkingDirectory,
                 GitBranch = gitBranch ?? string.Empty,
                 MessageCount = messageIds.Count,
@@ -560,8 +665,20 @@ public sealed class DesktopSessionCatalogService(
     private static string? TryExtractPrompt(JsonElement root)
     {
         if (!TryGetProperty(root, "message", out var message) ||
-            message.ValueKind != JsonValueKind.Object ||
-            !TryGetProperty(message, "parts", out var parts) ||
+            message.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (TryGetProperty(message, "content", out var content) &&
+            content.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(content.GetString()))
+        {
+            var contentText = content.GetString()!;
+            return contentText.Length > 140 ? $"{contentText[..140]}..." : contentText;
+        }
+
+        if (!TryGetProperty(message, "parts", out var parts) ||
             parts.ValueKind != JsonValueKind.Array)
         {
             return null;

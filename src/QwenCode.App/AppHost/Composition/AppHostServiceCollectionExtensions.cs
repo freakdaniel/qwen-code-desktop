@@ -17,6 +17,8 @@ public static class AppHostServiceCollectionExtensions
     public static IServiceCollection AddAppHostServices(this IServiceCollection services)
     {
         services.AddSingleton<DesktopIpcService>();
+        services.AddSingleton<IDesktopWindowBridge, DesktopWindowBridge>();
+        services.AddSingleton<InfiniFrameDesktopBridgeService>();
 
         return services;
     }

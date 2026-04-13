@@ -88,8 +88,8 @@ internal static class DesktopProjectionCatalog
         },
         new()
         {
-            Title = "Keep the Electron bridge narrow and typed",
-            Summary = "Typed preload contracts and strongly shaped payloads make the desktop shell maintainable while the runtime grows underneath."
+            Title = "Keep the desktop bridge narrow and typed",
+            Summary = "Typed host-to-renderer contracts and strongly shaped payloads keep the desktop shell maintainable while the runtime grows underneath."
         }
     ];
 
@@ -177,7 +177,7 @@ internal static class DesktopProjectionCatalog
             Area = "IPC discipline",
             QwenSource = "Core/CLI separation means renderer-specific contracts should stay outside the engine.",
             ClaudeReference = "Typed bridge contracts keep desktop traffic structured and evolvable as the runtime grows.",
-            DesktopDirection = "Keep Electron preload thin and strongly typed so backend evolution does not leak into UI code.",
+            DesktopDirection = "Keep the desktop bridge thin and strongly typed so backend evolution does not leak into UI code.",
             DeliveryState = "Implemented"
         }
     ];

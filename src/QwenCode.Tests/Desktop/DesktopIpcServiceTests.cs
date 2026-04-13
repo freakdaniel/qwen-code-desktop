@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using QwenCode.App.AppHost;
 using QwenCode.App.Desktop;
 using QwenCode.App.Desktop.DirectConnect;
 using QwenCode.App.Ipc;
@@ -58,7 +60,8 @@ public sealed class DesktopIpcServiceTests
             services,
             new StubDesktopProjectionService(),
             directConnect,
-            new StubDirectConnectServerHost());
+            new StubDirectConnectServerHost(),
+            new DesktopWindowBridge(NullLogger<DesktopWindowBridge>.Instance));
     }
 
     private sealed class RecordingDirectConnectSessionService : IDirectConnectSessionService
@@ -203,6 +206,7 @@ public sealed class DesktopIpcServiceTests
         public Task<CancelArenaSessionResult> CancelArenaSessionAsync(CancelArenaSessionRequest request) => throw new NotSupportedException();
         public Task<DesktopSessionDetail?> GetSessionAsync(GetDesktopSessionRequest request) => throw new NotSupportedException();
         public Task<RemoveDesktopSessionResult> RemoveSessionAsync(RemoveDesktopSessionRequest request) => throw new NotSupportedException();
+        public Task<RenameDesktopSessionResult> RenameSessionAsync(RenameDesktopSessionRequest request) => throw new NotSupportedException();
         public Task<DesktopStateChangedEvent> SetLocaleAsync(string locale) => throw new NotSupportedException();
         public Task<AuthStatusSnapshot> GetAuthStatusAsync() => throw new NotSupportedException();
         public Task<AuthStatusSnapshot> ConfigureOpenAiCompatibleAuthAsync(ConfigureOpenAiCompatibleAuthRequest request) => throw new NotSupportedException();

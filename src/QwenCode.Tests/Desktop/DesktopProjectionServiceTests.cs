@@ -35,13 +35,13 @@ public sealed class DesktopProjectionServiceTests
         Directory.CreateDirectory(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "Runtime"));
         Directory.CreateDirectory(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "Sessions"));
         Directory.CreateDirectory(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "Ipc"));
-        Directory.CreateDirectory(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "electron"));
+        Directory.CreateDirectory(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "wwwroot"));
 
         File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.slnx"), "<Solution />");
         File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "QwenCode.App.csproj"), "<Project />");
         File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "Program.cs"), "internal static class Program { }");
-        File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "AppHost", "Bootstrapper.cs"), "internal sealed class Bootstrapper { }");
-        File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "electron", "preload.js"), "module.exports = {};");
+        File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "AppHost", "Bootstrapper.cs"), "internal static class Bootstrapper { }");
+        File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "wwwroot", "index.html"), "<!doctype html><html></html>");
         File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "Runtime", "CommandActionRuntime.cs"), "internal sealed class CommandActionRuntime { }");
         File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "Runtime", "SlashCommandRuntime.cs"), "internal sealed class SlashCommandRuntime { }");
         File.WriteAllText(Path.Combine(expectedWorkspace.WorkspaceRoot, "QwenCode.App", "Sessions", "DesktopSessionHostService.cs"), "internal sealed class DesktopSessionHostService { }");

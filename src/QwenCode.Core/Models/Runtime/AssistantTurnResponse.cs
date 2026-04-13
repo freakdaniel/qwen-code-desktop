@@ -11,6 +11,11 @@ public sealed class AssistantTurnResponse
     public required string Summary { get; init; }
 
     /// <summary>
+    /// Gets or sets the thinking content
+    /// </summary>
+    public string ThinkingSummary { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the provider name
     /// </summary>
     public required string ProviderName { get; init; }
