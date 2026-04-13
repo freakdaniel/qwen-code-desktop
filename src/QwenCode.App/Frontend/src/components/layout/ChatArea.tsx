@@ -12,6 +12,7 @@ import {
   Textarea as ChakraTextarea,
   Spinner,
   Center,
+  Tooltip,
 } from '@chakra-ui/react';
 import {
   ArrowUp,
@@ -39,6 +40,10 @@ import {
   Square,
   Copy,
   FileSpreadsheet,
+  Info,
+  Sparkles,
+  PanelRightClose,
+  ChevronDown,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Highlight, themes, type Language } from 'prism-react-renderer';
@@ -78,8 +83,6 @@ import qwenLogo from '@/assets/qwen-logo.svg';
 import type { SessionNavigationMode } from './sessionNavigation';
 
 interface ChatAreaProps {
-  onToggleSidebar?: () => void;
-  isSidebarOpen: boolean;
   selectedSessionId?: string;
   sidebarMode?: SessionNavigationMode;
   onSelectSession?: (sessionId: string) => void;
@@ -91,10 +94,21 @@ interface ProjectOption {
   lastActivity: string;
 }
 
+type DisplayBlock =
+  | { type: 'user'; entries: DesktopSessionEntry[] }
+  | { type: 'assistant'; entries: DesktopSessionEntry[] }
+  | { type: 'tool-group'; entries: DesktopSessionEntry[] }
+  | { type: 'thought'; entries: DesktopSessionEntry[] };
+
 const ACCENT = '#615CED';
 const ACCENT_HOVER = '#4e49d9';
 const CHAT_MAX_WIDTH = '4xl';
 const LIVE_TOOL_SOURCE = '__live_tool__';
+const APP_BACKGROUND = '#1f1f23';
+const SURFACE_BACKGROUND = '#26262c';
+const SURFACE_ELEVATED = '#2b2b33';
+const SIDEBAR_BORDER = 'rgba(255,255,255,0.06)';
+const USER_MESSAGE_BACKGROUND = '#31313a';
 
 const MODE_ICONS: Record<AgentMode, React.ReactNode> = {
   'default': <ShieldCheck size={14} />,
@@ -119,6 +133,8 @@ function isThinkingEntry(entry: DesktopSessionEntry): boolean {
 function isLiveToolEntry(entry: DesktopSessionEntry): boolean {
   return entry.type === 'tool' && entry.sourcePath === LIVE_TOOL_SOURCE;
 }
+
+void isLiveToolEntry;
 
 // Tool display info: i18n key + icon component
 type ToolIconType = React.ComponentType<{ size?: number; color?: string }>;
@@ -871,6 +887,8 @@ function normalizeMathSegments(markdown: string): string {
   return result;
 }
 
+void parseTaskSummary;
+
 function looksLikeMathExpression(value: string): boolean {
   const text = value.trim();
   if (!text || text.length > 240) {
@@ -1571,7 +1589,20 @@ function StreamingAssistantBody({
   text: string;
   isStreaming: boolean;
 }) {
-  void isStreaming;
+  if (isStreaming) {
+    return (
+      <Box
+        color="gray.100"
+        fontSize="sm"
+        lineHeight="1.85"
+        whiteSpace="pre-wrap"
+        wordBreak="break-word"
+      >
+        {text}
+      </Box>
+    );
+  }
+
   return <AssistantMarkdownBody text={text} />;
 }
 
@@ -2035,6 +2066,7 @@ function PendingApprovalCard({
           h="32px"
           px={3.5}
           fontSize="xs"
+          fontWeight="normal"
         >
           {getApprovalAllowOnceLabel(locale)}
         </Button>
@@ -2048,6 +2080,7 @@ function PendingApprovalCard({
           h="32px"
           px={3.5}
           fontSize="xs"
+          fontWeight="normal"
         >
           {getApprovalAlwaysAllowLabel(locale)}
         </Button>
@@ -2147,6 +2180,12 @@ interface LiveToolCallSnapshot {
   answers: import('@/types/desktop').DesktopQuestionAnswer[];
 }
 
+interface LiveReasoningSegment {
+  type: 'thought' | 'tool';
+  id: string;
+  entry: DesktopSessionEntry;
+}
+
 function normalizeToolLifecycleStatus(kind: string, status: string): string {
   const normalizedStatus = (status || '').trim().toLowerCase();
   if (normalizedStatus) {
@@ -2193,6 +2232,37 @@ function isToolPendingStatus(status: string): boolean {
     normalized === 'approval-required' ||
     normalized === 'input-required'
   );
+}
+
+function createLiveThoughtEntry(
+  id: string,
+  body: string,
+  timestamp: string,
+  workingDirectory: string,
+  gitBranch: string,
+): DesktopSessionEntry {
+  return {
+    id,
+    type: 'thought',
+    timestamp,
+    workingDirectory,
+    gitBranch,
+    title: 'thinking',
+    body,
+    thinkingBody: '',
+    status: 'thinking',
+    toolName: '',
+    approvalState: '',
+    exitCode: null,
+    arguments: '',
+    scope: '',
+    sourcePath: LIVE_TOOL_SOURCE,
+    resolutionStatus: 'live',
+    resolvedAt: '',
+    changedFiles: [],
+    questions: [],
+    answers: [],
+  };
 }
 
 function buildLiveToolEntries(
@@ -2277,6 +2347,157 @@ function buildLiveToolEntries(
     questions: call.questions ?? [],
     answers: call.answers ?? [],
   }));
+}
+
+function buildLiveReasoningArtifacts(
+  events: import('@/types/desktop').DesktopSessionEvent[],
+  workingDirectory: string,
+  gitBranch: string,
+): DisplayBlock[] {
+  const segments: LiveReasoningSegment[] = [];
+  let currentThought: LiveReasoningSegment | null = null;
+  let lastThinkingSnapshot = '';
+
+  const closeThought = () => {
+    currentThought = null;
+  };
+
+  for (const event of events) {
+    const eventWorkingDirectory = event.workingDirectory || workingDirectory;
+    const eventGitBranch = event.gitBranch || gitBranch;
+
+    if (event.contentDelta || event.kind === 'assistantCompleted' || event.kind === 'turnCompleted') {
+      closeThought();
+    }
+
+    const thinkingDelta = event.thinkingDelta ?? '';
+    const thinkingSnapshot = event.thinkingSnapshot ?? '';
+    const currentThoughtBody = currentThought?.entry.body ?? '';
+    const thinkingSnapshotDelta =
+      thinkingSnapshot && thinkingSnapshot !== lastThinkingSnapshot
+        ? thinkingSnapshot.startsWith(lastThinkingSnapshot)
+          ? thinkingSnapshot.slice(lastThinkingSnapshot.length)
+          : thinkingSnapshot
+        : '';
+    const nextThoughtText: string = thinkingDelta
+      ? `${currentThoughtBody}${thinkingDelta}`
+      : thinkingSnapshotDelta
+        ? `${currentThoughtBody}${thinkingSnapshotDelta}`
+        : '';
+
+    if (nextThoughtText.trim()) {
+      if (!currentThought) {
+        currentThought = {
+          type: 'thought',
+          id: `live-thought-${segments.length}-${event.timestampUtc}`,
+          entry: createLiveThoughtEntry(
+            `live-thought-${segments.length}-${event.timestampUtc}`,
+            nextThoughtText,
+            event.timestampUtc,
+            eventWorkingDirectory,
+            eventGitBranch,
+          ),
+        };
+        segments.push(currentThought);
+      } else {
+        currentThought.entry = {
+          ...currentThought.entry,
+          body: nextThoughtText,
+          timestamp: event.timestampUtc,
+          workingDirectory: eventWorkingDirectory,
+          gitBranch: eventGitBranch,
+        };
+      }
+
+      if (thinkingSnapshot) {
+        lastThinkingSnapshot = thinkingSnapshot;
+      }
+
+      continue;
+    }
+
+    if (!thinkingDelta && thinkingSnapshot) {
+      lastThinkingSnapshot = thinkingSnapshot;
+    }
+
+    if (!isToolLifecycleEvent(event)) {
+      continue;
+    }
+
+    closeThought();
+
+    const normalizedStatus = normalizeToolLifecycleStatus(event.kind, event.status);
+    const existingSegment =
+      (event.toolCallId
+        ? segments.find((segment) => segment.type === 'tool' && segment.entry.id === event.toolCallId)
+        : undefined) ??
+      [...segments].reverse().find((segment) =>
+        segment.type === 'tool' &&
+        segment.entry.toolName === event.toolName &&
+        isToolPendingStatus(segment.entry.status),
+      );
+
+    const toolEntry: DesktopSessionEntry = {
+      id: existingSegment?.entry.id || event.toolCallId || `live-tool-${segments.length}-${event.toolName}-${event.timestampUtc}`,
+      type: 'tool',
+      timestamp: event.timestampUtc,
+      workingDirectory: eventWorkingDirectory,
+      gitBranch: eventGitBranch,
+      title: event.toolName,
+      body: event.toolOutput || event.message || existingSegment?.entry.body || '',
+      thinkingBody: '',
+      status: normalizedStatus,
+      toolName: event.toolName,
+      approvalState: event.approvalState || existingSegment?.entry.approvalState || '',
+      exitCode: null,
+      arguments: event.toolArgumentsJson || existingSegment?.entry.arguments || '{}',
+      scope: event.toolCallGroupId || existingSegment?.entry.scope || `live-tool-group-${segments.length}`,
+      sourcePath: LIVE_TOOL_SOURCE,
+      resolutionStatus: 'live',
+      resolvedAt: '',
+      changedFiles: event.changedFiles ?? existingSegment?.entry.changedFiles ?? [],
+      questions: event.questions ?? existingSegment?.entry.questions ?? [],
+      answers: event.answers ?? existingSegment?.entry.answers ?? [],
+    };
+
+    if (existingSegment) {
+      existingSegment.entry = toolEntry;
+    } else {
+      segments.push({
+        type: 'tool',
+        id: toolEntry.id,
+        entry: toolEntry,
+      });
+    }
+  }
+
+  const blocks: DisplayBlock[] = [];
+  let currentBlock: DisplayBlock | null = null;
+
+  for (const segment of segments) {
+    const blockType: DisplayBlock['type'] = segment.type === 'thought' ? 'thought' : 'tool-group';
+    const shouldSplitToolGroup =
+      blockType === 'tool-group' &&
+      currentBlock?.type === 'tool-group' &&
+      ((currentBlock.entries[currentBlock.entries.length - 1]?.scope || '') !== (segment.entry.scope || '')) &&
+      ((currentBlock.entries[currentBlock.entries.length - 1]?.scope || '') || (segment.entry.scope || ''));
+
+    if (!currentBlock || currentBlock.type !== blockType || shouldSplitToolGroup) {
+      if (currentBlock) {
+        blocks.push(currentBlock);
+      }
+
+      currentBlock = { type: blockType, entries: [segment.entry] };
+    } else {
+      currentBlock.entries.push(segment.entry);
+    }
+  }
+
+  if (currentBlock) {
+    blocks.push(currentBlock);
+  }
+
+  return blocks;
 }
 
 function formatThinkingDuration(locale: string, durationMs: number): string {
@@ -2367,6 +2588,8 @@ function getTodoStatusLabel(locale: string, status: string): string {
   return locale.startsWith('ru') ? 'Ожидает' : 'Pending';
 }
 
+void getTodoStatusLabel;
+
 function getTaskStatusLabel(locale: string, status: string): string {
   const normalized = normalizeTaskStatus(status);
   if (normalized === 'completed' || normalized === 'done') {
@@ -2443,6 +2666,8 @@ function renderTaskSummaryContent(taskSummary: TaskSummary, locale: string) {
   );
 }
 
+void renderTaskSummaryContent;
+
 function AnimatedThinkingLabel({
   label,
   color = '#a1a1aa',
@@ -2485,6 +2710,44 @@ function AnimatedThinkingLabel({
       </HStack>
     </HStack>
   );
+}
+
+void AnimatedThinkingLabel;
+
+function ThinkingOrbit() {
+  return (
+    <motion.div
+      animate={{ rotate: 360 }}
+      transition={{ duration: 4.2, repeat: Number.POSITIVE_INFINITY, ease: 'linear' }}
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+    >
+      <motion.div
+        animate={{ scale: [0.92, 1.08, 0.92], opacity: [0.72, 1, 0.72] }}
+        transition={{ duration: 1.6, repeat: Number.POSITIVE_INFINITY, ease: 'easeInOut' }}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Sparkles size={15} color="#c7c5ff" />
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function formatMessageDetails(locale: string, timestamp?: string): string {
+  if (!timestamp) {
+    return locale.startsWith('ru') ? 'Время недоступно' : 'Time unavailable';
+  }
+
+  try {
+    return new Date(timestamp).toLocaleString(locale.startsWith('ru') ? 'ru-RU' : undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return timestamp;
+  }
 }
 
 function getToolStatusColor(status: string): string {
@@ -2547,7 +2810,7 @@ function getToolArgSummary(entry: DesktopSessionEntry): string {
     // shell — handled separately with full mono display
     if (toolKey.includes('todo')) {
       const todoSummary = parseTodoSummary(entry.arguments);
-      return todoSummary ? `${todoSummary.completedCount}/${todoSummary.totalCount}` : '';
+      return todoSummary ? `${todoSummary!.completedCount}/${todoSummary!.totalCount}` : '';
     }
     if (toolKey.includes('task_')) {
       const subject = str('subject');
@@ -2611,10 +2874,11 @@ export default function ChatArea({
   const [selectedProjectPath, setSelectedProjectPath] = useState('');
   const [customProjectPaths, setCustomProjectPaths] = useState<string[]>([]);
   const [loadingPhrase, setLoadingPhrase] = useState('');
-  const [retainedStreamingSnapshot, setRetainedStreamingSnapshot] = useState('');
+  const [retainedStreamingSnapshot, setRetainedStreamingSnapshot] = useState({ sessionId: '', text: '' });
   const [projectPickerPosition, setProjectPickerPosition] = useState({ top: 0, left: 0, width: 320, maxHeight: 320 });
   const [approvalFeedbackById, setApprovalFeedbackById] = useState<Record<string, string>>({});
   const [resolvingApprovalIds, setResolvingApprovalIds] = useState<Record<string, true>>({});
+  const [openReasoningAssistantId, setOpenReasoningAssistantId] = useState<string | null>(null);
 
   // Session data from IPC
   const [sessionDetail, setSessionDetail] = useState<DesktopSessionDetail | null>(null);
@@ -2644,16 +2908,19 @@ export default function ChatArea({
   const currentModeOption = AGENT_MODES.find((m) => m.value === mode) ?? AGENT_MODES[0];
   const hasSession = !!selectedSessionId;
   const streamingSnapshot = selectedSessionId ? streamingSnapshots[selectedSessionId] ?? '' : '';
-  const thinkingStreamingSnapshot = useMemo(() => {
-    if (!selectedSessionId) return '';
-    const events = liveSessionEvents[selectedSessionId] ?? [];
-    return [...events].reverse().find((event) => event.thinkingSnapshot?.trim())?.thinkingSnapshot ?? '';
-  }, [liveSessionEvents, selectedSessionId]);
-  const effectiveStreamingSnapshot = streamingSnapshot.trim() || retainedStreamingSnapshot.trim();
+  const selectedLiveSessionEvents = useMemo(
+    () => (selectedSessionId ? liveSessionEvents[selectedSessionId] ?? [] : []),
+    [liveSessionEvents, selectedSessionId],
+  );
+  const retainedStreamingText = retainedStreamingSnapshot.sessionId === selectedSessionId
+    ? retainedStreamingSnapshot.text.trim()
+    : '';
+  const effectiveStreamingSnapshot = streamingSnapshot.trim() || retainedStreamingText;
   const isSessionStreaming = !!selectedSessionId && !!activeTurnSessions[selectedSessionId];
   const isPendingSelectedSession = !!selectedSessionId && !!pendingTurnSessionIds[selectedSessionId];
   const isComposerBusy = isPendingSelectedSession || isSessionStreaming;
   const canStopActiveTurn = !!selectedSessionId && isComposerBusy;
+  const liveReasoningAssistantId = selectedSessionId ? `streaming-${selectedSessionId}` : '';
   const isAwaitingAssistantText = hasSession && isComposerBusy && !effectiveStreamingSnapshot;
   const defaultThinkingLabel = t('tools.thinking');
   const plainThinkingLabel = getThinkingStatusLabel(locale, 0);
@@ -2666,23 +2933,24 @@ export default function ChatArea({
   );
   const liveToolEntries = useMemo(
     () =>
-      selectedSessionId && isSessionStreaming
+      selectedSessionId
         ? buildLiveToolEntries(
-          liveSessionEvents[selectedSessionId] ?? [],
+          selectedLiveSessionEvents,
           selectedSession?.workingDirectory ?? sessionDetail?.session.workingDirectory ?? '',
           selectedSession?.gitBranch ?? sessionDetail?.session.gitBranch ?? '',
         )
         : [],
     [
-      isSessionStreaming,
-      liveSessionEvents,
       selectedSession?.gitBranch,
       selectedSession?.workingDirectory,
       selectedSessionId,
+      selectedLiveSessionEvents,
       sessionDetail?.session.gitBranch,
       sessionDetail?.session.workingDirectory,
     ],
   );
+  const streamingToolBadgeEntries = useMemo(() => liveToolEntries.slice(-4), [liveToolEntries]);
+  const hiddenStreamingToolCount = Math.max(0, liveToolEntries.length - streamingToolBadgeEntries.length);
 
   const projectOptions = useMemo(() => {
     const projectMap = new Map<string, ProjectOption>();
@@ -2774,12 +3042,13 @@ export default function ChatArea({
 
   useEffect(() => {
     if (!selectedSessionId) {
-      setRetainedStreamingSnapshot('');
+      setRetainedStreamingSnapshot({ sessionId: '', text: '' });
+      setOpenReasoningAssistantId(null);
       return;
     }
 
     if (streamingSnapshot.trim()) {
-      setRetainedStreamingSnapshot(streamingSnapshot);
+      setRetainedStreamingSnapshot({ sessionId: selectedSessionId, text: streamingSnapshot });
       return;
     }
 
@@ -2793,12 +3062,12 @@ export default function ChatArea({
       ?.body
       ?.trim() ?? '';
 
-    if (!retainedStreamingSnapshot.trim()) {
+    if (retainedStreamingSnapshot.sessionId !== selectedSessionId || !retainedStreamingSnapshot.text.trim()) {
       return;
     }
 
-    if (lastAssistantBody === retainedStreamingSnapshot.trim()) {
-      setRetainedStreamingSnapshot('');
+    if (lastAssistantBody === retainedStreamingSnapshot.text.trim()) {
+      setRetainedStreamingSnapshot({ sessionId: '', text: '' });
     }
   }, [isSessionStreaming, retainedStreamingSnapshot, selectedSessionId, sessionDetail, streamingSnapshot]);
 
@@ -2808,15 +3077,23 @@ export default function ChatArea({
     }
 
     const syntheticEntries: DesktopSessionEntry[] = isSessionStreaming ? [...liveToolEntries] : [];
-    const hasStreamingAssistant = effectiveStreamingSnapshot.length > 0 || thinkingStreamingSnapshot.length > 0;
+    let baseEntries = sessionDetail.entries;
+    const hasStreamingAssistant = effectiveStreamingSnapshot.length > 0;
     const lastNonSystemEntry = [...sessionDetail.entries]
       .reverse()
       .find((entry) => entry.type !== 'system' && entry.type !== 'tool_result');
-
-    if (
+    const lastEntryMatchesStreamingSnapshot =
+      lastNonSystemEntry?.type === 'assistant' &&
+      (lastNonSystemEntry.body ?? '').trim() === effectiveStreamingSnapshot;
+    const shouldRenderSyntheticAssistant =
       hasStreamingAssistant &&
-      !(lastNonSystemEntry?.type === 'assistant' && (lastNonSystemEntry.body ?? '') === effectiveStreamingSnapshot)
-    ) {
+      (isComposerBusy || !lastEntryMatchesStreamingSnapshot);
+
+    if (shouldRenderSyntheticAssistant) {
+      if (isComposerBusy && lastEntryMatchesStreamingSnapshot && lastNonSystemEntry?.id) {
+        baseEntries = sessionDetail.entries.filter((entry) => entry.id !== lastNonSystemEntry.id);
+      }
+
       const timestamp = latestSessionEvent?.sessionId === selectedSessionId
         ? latestSessionEvent.timestampUtc
         : new Date().toISOString();
@@ -2826,7 +3103,7 @@ export default function ChatArea({
           selectedSession?.workingDirectory ?? sessionDetail.session.workingDirectory,
           selectedSession?.gitBranch ?? sessionDetail.session.gitBranch,
           effectiveStreamingSnapshot,
-          thinkingStreamingSnapshot,
+          '',
           timestamp,
         ),
       );
@@ -2836,32 +3113,33 @@ export default function ChatArea({
       return sessionDetail;
     }
 
+    const replacedEntryCount = sessionDetail.entries.length - baseEntries.length;
     const syntheticAssistantCount = syntheticEntries.filter((entry) => entry.type === 'assistant').length;
     const syntheticToolCount = syntheticEntries.filter((entry) => entry.type === 'tool').length;
     const lastTimestamp = syntheticEntries[syntheticEntries.length - 1]?.timestamp ?? sessionDetail.summary.lastTimestamp;
 
     return {
       ...sessionDetail,
-      entryCount: sessionDetail.entryCount + syntheticEntries.length,
-      windowSize: sessionDetail.windowSize + syntheticEntries.length,
+      entryCount: sessionDetail.entryCount + syntheticEntries.length - replacedEntryCount,
+      windowSize: sessionDetail.windowSize + syntheticEntries.length - replacedEntryCount,
       summary: {
         ...sessionDetail.summary,
-        assistantCount: sessionDetail.summary.assistantCount + syntheticAssistantCount,
+        assistantCount: sessionDetail.summary.assistantCount + syntheticAssistantCount - replacedEntryCount,
         toolCount: sessionDetail.summary.toolCount + syntheticToolCount,
         lastTimestamp,
       },
-      entries: [...sessionDetail.entries, ...syntheticEntries],
+      entries: [...baseEntries, ...syntheticEntries],
     };
   }, [
     liveToolEntries,
     isSessionStreaming,
+    isComposerBusy,
     latestSessionEvent,
     selectedSession?.gitBranch,
     selectedSession?.workingDirectory,
     selectedSessionId,
     sessionDetail,
     effectiveStreamingSnapshot,
-    thinkingStreamingSnapshot,
   ]);
 
   const sessionProjectRoot = bootstrap?.workspaceRoot ?? displaySessionDetail?.session.workingDirectory ?? '';
@@ -3129,7 +3407,7 @@ export default function ChatArea({
 
     const intervalId = window.setInterval(() => {
       setLoadingPhrase((current) => pickWittyLoadingPhrase(wittyLoadingPhrases, defaultThinkingLabel, current));
-    }, 2600);
+    }, 7000);
 
     return () => window.clearInterval(intervalId);
   }, [defaultThinkingLabel, isAwaitingAssistantText, wittyLoadingPhrases]);
@@ -3441,14 +3719,8 @@ export default function ChatArea({
   const groupedEntries = useMemo(() => {
     if (!displaySessionDetail?.entries) return [];
 
-    type Block =
-      | { type: 'user'; entries: DesktopSessionEntry[] }
-      | { type: 'assistant'; entries: DesktopSessionEntry[] }
-      | { type: 'tool-group'; entries: DesktopSessionEntry[] }
-      | { type: 'thought'; entries: DesktopSessionEntry[] };
-
-    const blocks: Block[] = [];
-    let currentBlock: Block | null = null;
+    const blocks: DisplayBlock[] = [];
+    let currentBlock: DisplayBlock | null = null;
 
     for (const entry of displaySessionDetail.entries) {
       if (entry.type === 'system' || entry.type === 'tool_result') continue;
@@ -3464,7 +3736,7 @@ export default function ChatArea({
       const isTool = entry.type === 'tool' || !!entry.toolName;
       const isThought = isThinkingEntry(entry);
 
-      const blockType: Block['type'] =
+      const blockType: DisplayBlock['type'] =
         isThought ? 'thought' : isTool ? 'tool-group' : isUser ? 'user' : 'assistant';
 
       const shouldSplitToolGroup =
@@ -3503,31 +3775,184 @@ export default function ChatArea({
     return set;
   }, [groupedEntries]);
 
-  // Collapsible state for tool groups and thoughts
-  // undefined = collapsed (default), false = expanded, true = explicitly collapsed
-  const [collapsedBlocks, setCollapsedBlocks] = useState<Record<string, boolean>>({});
+  const reasoningArtifactsByAssistantId = useMemo(() => {
+    const mapping: Record<string, DisplayBlock[]> = {};
+    let pendingArtifacts: DisplayBlock[] = [];
 
-  const toggleBlock = useCallback((key: string) => {
-    setCollapsedBlocks(prev => {
-      const isCurrentlyCollapsed = prev[key] !== false; // undefined or true → collapsed
-      return { ...prev, [key]: !isCurrentlyCollapsed }; // toggle: true→false, false→true
+    groupedEntries.forEach((block, blockIdx) => {
+      if (block.type === 'user') {
+        pendingArtifacts = [];
+        return;
+      }
+
+      if (block.type === 'tool-group' || block.type === 'thought') {
+        pendingArtifacts = [...pendingArtifacts, block];
+        return;
+      }
+
+      if (block.type === 'assistant' && finalAssistantBlockIndices.has(blockIdx) && pendingArtifacts.length > 0) {
+        const finalEntry = block.entries[block.entries.length - 1];
+        if (finalEntry) {
+          mapping[finalEntry.id] = pendingArtifacts;
+        }
+        pendingArtifacts = [];
+      }
     });
-  }, []);
+
+    return mapping;
+  }, [finalAssistantBlockIndices, groupedEntries]);
+
+  const assistantEntryById = useMemo(() => {
+    const mapping: Record<string, DesktopSessionEntry> = {};
+    groupedEntries.forEach((block) => {
+      if (block.type !== 'assistant') {
+        return;
+      }
+
+      block.entries.forEach((entry) => {
+        mapping[entry.id] = entry;
+      });
+    });
+    return mapping;
+  }, [groupedEntries]);
+  const latestFinalAssistantEntryId = useMemo(() => {
+    for (let index = groupedEntries.length - 1; index >= 0; index -= 1) {
+      const block = groupedEntries[index];
+      if (block.type !== 'assistant' || !finalAssistantBlockIndices.has(index)) {
+        continue;
+      }
+
+      return block.entries[block.entries.length - 1]?.id ?? '';
+    }
+
+    return '';
+  }, [finalAssistantBlockIndices, groupedEntries]);
+  const liveReasoningArtifacts = useMemo<DisplayBlock[]>(
+    () =>
+      buildLiveReasoningArtifacts(
+        selectedLiveSessionEvents,
+        selectedSession?.workingDirectory ?? sessionDetail?.session.workingDirectory ?? '',
+        selectedSession?.gitBranch ?? sessionDetail?.session.gitBranch ?? '',
+      ),
+    [
+      selectedLiveSessionEvents,
+      selectedSession?.gitBranch,
+      selectedSession?.workingDirectory,
+      sessionDetail?.session.gitBranch,
+      sessionDetail?.session.workingDirectory,
+    ],
+  );
+  const liveReasoningAssistantEntry = useMemo<DesktopSessionEntry | null>(() => {
+    if (!selectedSessionId || !liveReasoningAssistantId) {
+      return null;
+    }
+
+    return createStreamingAssistantEntry(
+      selectedSessionId,
+      selectedSession?.workingDirectory ?? sessionDetail?.session.workingDirectory ?? '',
+      selectedSession?.gitBranch ?? sessionDetail?.session.gitBranch ?? '',
+      effectiveStreamingSnapshot,
+      '',
+      latestSessionEvent?.sessionId === selectedSessionId ? latestSessionEvent.timestampUtc : new Date().toISOString(),
+    );
+  }, [
+    effectiveStreamingSnapshot,
+    latestSessionEvent,
+    liveReasoningAssistantId,
+    selectedSession?.gitBranch,
+    selectedSession?.workingDirectory,
+    selectedSessionId,
+    sessionDetail?.session.gitBranch,
+    sessionDetail?.session.workingDirectory,
+  ]);
+  const isLiveReasoningPanel =
+    !!liveReasoningAssistantId &&
+    openReasoningAssistantId === liveReasoningAssistantId &&
+    (isComposerBusy || !!assistantEntryById[liveReasoningAssistantId] || liveReasoningArtifacts.length > 0);
+  const activeReasoningArtifacts = openReasoningAssistantId
+    ? (() => {
+      const mappedArtifacts = reasoningArtifactsByAssistantId[openReasoningAssistantId] ?? [];
+      const canUseLiveArtifacts =
+        liveReasoningArtifacts.length > 0 &&
+        (isLiveReasoningPanel || openReasoningAssistantId === latestFinalAssistantEntryId);
+      return canUseLiveArtifacts ? liveReasoningArtifacts : mappedArtifacts;
+    })()
+    : [];
+  const activeReasoningAssistantEntry = openReasoningAssistantId
+    ? assistantEntryById[openReasoningAssistantId] ?? (isLiveReasoningPanel ? liveReasoningAssistantEntry : null)
+    : null;
+  const activeReasoningEntries = useMemo(
+    () => activeReasoningArtifacts.flatMap((artifact) => artifact.entries),
+    [activeReasoningArtifacts],
+  );
+  const hasActiveReasoningText = !isLiveReasoningPanel && !!activeReasoningAssistantEntry?.thinkingBody?.trim();
+  const isReasoningInProgress = isLiveReasoningPanel && isComposerBusy;
+
+  useEffect(() => {
+    if (!openReasoningAssistantId) {
+      return;
+    }
+
+    if (openReasoningAssistantId === liveReasoningAssistantId && isComposerBusy) {
+      return;
+    }
+
+    if (openReasoningAssistantId === liveReasoningAssistantId) {
+      for (let index = groupedEntries.length - 1; index >= 0; index -= 1) {
+        const block = groupedEntries[index];
+        if (block.type !== 'assistant' || !finalAssistantBlockIndices.has(index)) {
+          continue;
+        }
+
+        const entry = block.entries[block.entries.length - 1];
+        if (entry?.id) {
+          setOpenReasoningAssistantId(entry.id);
+          return;
+        }
+      }
+
+      return;
+    }
+
+    const hasArtifacts = openReasoningAssistantId in reasoningArtifactsByAssistantId;
+    const hasThinking = !!assistantEntryById[openReasoningAssistantId]?.thinkingBody?.trim();
+    if (!hasArtifacts && !hasThinking) {
+      setOpenReasoningAssistantId(null);
+    }
+  }, [
+    assistantEntryById,
+    finalAssistantBlockIndices,
+    groupedEntries,
+    isComposerBusy,
+    liveReasoningAssistantId,
+    openReasoningAssistantId,
+    reasoningArtifactsByAssistantId,
+  ]);
 
   return (
     // FIX 1: h="100%" instead of h="100vh" — fills parent container exactly
-    <VStack h="100%" spacing={0} bg="gray.900" align="stretch" overflow="hidden">
+    <VStack h="100%" spacing={0} bg={APP_BACKGROUND} align="stretch" overflow="hidden">
 
-      {/* FIX 2: Header only shown when session is selected */}
       {selectedSessionId && (
-        <Box px={6} py={3} borderBottom="1px solid" borderColor="gray.700" minH="48px" flexShrink={0}>
-          <Text fontWeight="medium" color="white" fontSize="sm">
+        <HStack
+          px={4}
+          py={3}
+          spacing={3}
+          justify="flex-start"
+          borderBottom="1px solid"
+          borderColor={SIDEBAR_BORDER}
+          minH="60px"
+          flexShrink={0}
+        >
+          <Text fontWeight="semibold" color="white" fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" maxW="560px">
             {selectedSession?.title ?? t('chat.newChat')}
           </Text>
-        </Box>
+        </HStack>
       )}
 
       {/* Main area — messages or welcome */}
+      <HStack flex={1} minH={0} spacing={0} align="stretch">
+      <VStack flex={1} minW={0} h="100%" spacing={0} align="stretch" overflow="hidden">
       <Box
         ref={scrollContainerRef}
         flex={1}
@@ -3553,8 +3978,6 @@ export default function ChatArea({
               <Box mx="auto" maxW={CHAT_MAX_WIDTH}>
                 <VStack spacing={0} align="stretch" py={4}>
                   {groupedEntries.map((block, blockIdx) => {
-                    const blockKey = `block-${blockIdx}-${block.entries[0]?.id ?? blockIdx}`;
-
                     // ── User messages ──
                     if (block.type === 'user') {
                       return block.entries.map((entry) => {
@@ -3562,30 +3985,60 @@ export default function ChatArea({
                         const text = entry.body || entry.title || '';
                         if (!text) return null;
                         return (
-                          <Flex key={entry.id} justify="flex-end" py={2}>
-                            <motion.div
-                              initial={{ opacity: 0, y: 10, scale: 0.985 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              transition={{ duration: 0.18, ease: 'easeOut' }}
-                              style={{ maxWidth: '80%' }}
-                            >
-                              <Box
-                                px={4}
-                                py={2.5}
-                                borderRadius="20px"
-                                borderTopRightRadius="4px"
-                                bg={ACCENT}
+                          <Flex key={entry.id} justify="flex-end" py={2.5}>
+                            <Box position="relative" role="group" maxW="80%">
+                              <motion.div
+                                initial={{ opacity: 0, y: 10, scale: 0.985 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                transition={{ duration: 0.18, ease: 'easeOut' }}
                               >
-                                <Text color="white" fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="relaxed">
-                                  {text}
-                                </Text>
-                                {entry.timestamp && (
-                                  <Text fontSize="10px" color="whiteAlpha.600" mt={1} textAlign="right">
-                                    {formatTimestamp(entry.timestamp)}
+                                <Box
+                                  px={5}
+                                  py={3.5}
+                                  borderRadius="24px"
+                                  bg={USER_MESSAGE_BACKGROUND}
+                                  boxShadow="inset 0 0 0 1px rgba(255,255,255,0.03)"
+                                >
+                                  <Text color="white" fontSize="sm" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="1.85">
+                                    {text}
                                   </Text>
-                                )}
-                              </Box>
-                            </motion.div>
+                                </Box>
+                              </motion.div>
+                              <HStack
+                                position="absolute"
+                                right={2}
+                                bottom="-30px"
+                                spacing={1}
+                                opacity={0}
+                                transform="translateY(-2px)"
+                                transition="opacity 0.16s ease, transform 0.16s ease"
+                                _groupHover={{ opacity: 1, transform: 'translateY(0)' }}
+                              >
+                                <Tooltip label={locale.startsWith('ru') ? 'Скопировать' : 'Copy'} hasArrow>
+                                  <IconButton
+                                    aria-label="Copy message"
+                                    icon={<Copy size={14} />}
+                                    variant="ghost"
+                                    size="xs"
+                                    color="gray.400"
+                                    borderRadius="10px"
+                                    _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+                                    onClick={() => { void copyTextToClipboard(text); }}
+                                  />
+                                </Tooltip>
+                                <Tooltip label={formatMessageDetails(locale, entry.timestamp)} hasArrow>
+                                  <IconButton
+                                    aria-label="Message info"
+                                    icon={<Info size={14} />}
+                                    variant="ghost"
+                                    size="xs"
+                                    color="gray.400"
+                                    borderRadius="10px"
+                                    _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+                                  />
+                                </Tooltip>
+                              </HStack>
+                            </Box>
                           </Flex>
                         );
                       });
@@ -3593,330 +4046,30 @@ export default function ChatArea({
 
                     // ── Tool groups — timeline design ──
                     if (block.type === 'tool-group') {
-                      const count = block.entries.length;
-                      const hasLiveEntries = block.entries.some((entry) => isLiveToolEntry(entry));
+                      const pendingEntries = block.entries.filter((entry) => {
+                        const normalizedStatus = entry.status.trim().toLowerCase();
+                        return normalizedStatus === 'approval-required' || normalizedStatus === 'input-required';
+                      });
 
-                      // ── Single tool: show inline, no expand needed ──
-                      if (count === 1) {
-                        const entry = block.entries[0];
-                        const info = getToolInfo(entry.toolName || entry.title || '');
-                        const ToolIcon = info.Icon;
-                        const label = t(info.labelKey);
-                        const todoSummary = parseTodoSummary(entry.arguments);
-                        const taskSummary = parseTaskSummary(entry);
-                        const summary = getToolArgSummary(entry);
-                        const isCollapsed = collapsedBlocks[blockKey] !== false;
-                        const hasTodoDetail = !!todoSummary;
-                        const hasTaskDetail = !!taskSummary;
-                        const canExpand = hasTodoDetail || hasTaskDetail;
-                        const files = entry.changedFiles ?? [];
-
-                        return (
-                          <Box key={blockKey} py={0.5}>
-                            <HStack
-                              spacing={2}
-                              px={2}
-                              h="26px"
-                              color="gray.500"
-                              cursor={canExpand ? 'pointer' : 'default'}
-                              onClick={canExpand ? () => toggleBlock(blockKey) : undefined}
-                              _hover={canExpand ? { color: 'gray.300' } : undefined}
-                              role={canExpand ? 'button' : undefined}
-                            >
-                              {canExpand && (
-                                <motion.span animate={{ rotate: isCollapsed ? 0 : 90 }} transition={{ duration: 0.18 }} style={{ display: 'flex' }}>
-                                  <ChevronRight size={11} />
-                                </motion.span>
-                              )}
-                              <Box color="gray.500" flexShrink={0}><ToolIcon size={12} /></Box>
-                              <Text fontSize="xs" color="gray.400" fontWeight="medium" flexShrink={0}>{label}</Text>
-                              {summary && (
-                                <HStack spacing={2} flex={1} minW={0}>
-                                  <Box
-                                    boxSize="5px"
-                                    borderRadius="full"
-                                    bg={getToolStatusColor(entry.status)}
-                                    flexShrink={0}
-                                    boxShadow={isToolPendingStatus(entry.status) ? `0 0 10px ${getToolStatusColor(entry.status)}` : 'none'}
-                                  />
-                                  <Text fontSize="xs" color="gray.600" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>
-                                    {summary}
-                                  </Text>
-                                </HStack>
-                              )}
-                              {!summary && (
-                                <Box
-                                  boxSize="5px"
-                                  borderRadius="full"
-                                  bg={getToolStatusColor(entry.status)}
-                                  flexShrink={0}
-                                  boxShadow={isToolPendingStatus(entry.status) ? `0 0 10px ${getToolStatusColor(entry.status)}` : 'none'}
-                                />
-                              )}
-                            </HStack>
-                            <AnimatePresence initial={false}>
-                              {canExpand && !isCollapsed && (
-                                <motion.div key="sh" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} style={{ overflow: 'hidden' }}>
-                                  <Box ml={7} mt={0.5} mb={1} px={2} py={1.5} bg="gray.900" borderRadius="lg">
-                                    {hasTodoDetail && todoSummary && (
-                                      <VStack spacing={1.5} align="stretch">
-                                        <Text fontSize="xs" color="gray.400">
-                                          {locale.startsWith('ru')
-                                            ? `Выполнено ${todoSummary.completedCount} из ${todoSummary.totalCount}`
-                                            : `${todoSummary.completedCount} of ${todoSummary.totalCount} completed`}
-                                        </Text>
-                                        {todoSummary.items.map((item) => {
-                                          const normalizedStatus = item.status.toLowerCase();
-                                          const isCompleted = normalizedStatus === 'completed' || normalizedStatus === 'done';
-                                          return (
-                                            <HStack key={item.id} spacing={2} align="start">
-                                              <Box mt="2px" color={isCompleted ? 'green.400' : 'gray.500'}>
-                                                <CheckSquare size={12} />
-                                              </Box>
-                                              <Box flex={1} minW={0}>
-                                                <Text fontSize="xs" color={isCompleted ? 'gray.200' : 'gray.300'} textDecoration={isCompleted ? 'line-through' : 'none'} whiteSpace="pre-wrap" wordBreak="break-word">
-                                                  {item.content}
-                                                </Text>
-                                                <Text fontSize="10px" color="gray.500">
-                                                  {getTodoStatusLabel(locale, item.status)}
-                                                </Text>
-                                              </Box>
-                                            </HStack>
-                                          );
-                                        })}
-                                      </VStack>
-                                    )}
-                                    {hasTaskDetail && taskSummary && renderTaskSummaryContent(taskSummary, locale)}
-                                  </Box>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                            {/* Changed files */}
-                            {files.length > 0 && (
-                              <Box ml={7}>
-                                {files.map((f) => (
-                                  <HStack key={f} spacing={1} h="18px">
-                                    <FileText size={9} color="#6b7280" />
-                                    <Text fontSize="10px" color="gray.600" fontFamily="mono" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
-                                      {f.split(/[/\\]/).slice(-2).join('/')}
-                                    </Text>
-                                  </HStack>
-                                ))}
-                              </Box>
-                            )}
-                            {renderPendingApprovalInline(entry, 7)}
-                          </Box>
-                        );
+                      if (pendingEntries.length === 0) {
+                        return null;
                       }
 
-                      // ── Multiple tools: collapsible with timeline ──
-                      const containsActivePendingApproval = !!activePendingApprovalPresentation &&
-                        block.entries.some((entry) => entry.id === activePendingApprovalPresentation.pendingEntry.id);
-                      const isCollapsed = containsActivePendingApproval
-                        ? false
-                        : hasLiveEntries
-                        ? collapsedBlocks[blockKey] === true
-                        : collapsedBlocks[blockKey] !== false;
-
                       return (
-                        <Box key={blockKey} py={0.5}>
-                          {/* Header: chevron + tool icons + count */}
-                          <HStack
-                            spacing={1.5}
-                            px={2}
-                            h="26px"
-                            color="gray.500"
-                            cursor="pointer"
-                            onClick={() => toggleBlock(blockKey)}
-                            _hover={{ color: 'gray.300' }}
-                            role="button"
-                          >
-                            <motion.span animate={{ rotate: isCollapsed ? 0 : 90 }} transition={{ duration: 0.18 }} style={{ display: 'flex' }}>
-                              <ChevronRight size={11} />
-                            </motion.span>
-                            {/* Show up to 4 tool icons in collapsed state */}
-                            {isCollapsed && (
-                              <HStack spacing={1.5}>
-                                {block.entries.slice(0, 4).map((e) => {
-                                  const I = getToolInfo(e.toolName || e.title || '').Icon;
-                                  return <Box key={e.id} color="gray.600"><I size={11} /></Box>;
-                                })}
-                                {count > 4 && <Text fontSize="10px" color="gray.600">+{count - 4}</Text>}
-                              </HStack>
-                            )}
-                            <Text fontSize="xs" color="gray.500">{t('tools.toolCalls', { count })}</Text>
-                          </HStack>
-
-                          {/* Expanded: timeline list */}
-                          <AnimatePresence initial={false}>
-                            {!isCollapsed && (
-                              <motion.div key="tg" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2, ease: 'easeOut' }} style={{ overflow: 'hidden' }}>
-                                <Box ml={3} mt={1} mb={1}>
-                                  {block.entries.map((entry, entryInnerIdx) => {
-                                    const isLastEntry = entryInnerIdx === block.entries.length - 1;
-                                    const isLiveEntry = isLiveToolEntry(entry);
-                                    const info = getToolInfo(entry.toolName || entry.title || '');
-                                    const ToolIcon = info.Icon;
-                                    const label = t(info.labelKey);
-                                    const isShell = info.labelKey === 'tools.shell';
-                                    const todoSummary = parseTodoSummary(entry.arguments);
-                                    const taskSummary = parseTaskSummary(entry);
-                                    const summary = getToolArgSummary(entry);
-                                    const files = entry.changedFiles ?? [];
-
-                                    return (
-                                      <motion.div
-                                        key={entry.id}
-                                        initial={isLiveEntry ? { opacity: 0, y: 8 } : false}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ duration: 0.2, ease: 'easeOut' }}
-                                      >
-                                      <Box position="relative" pl="22px" py="1px">
-                                        {/* Vertical line: full height for non-last, half for last (stops at mid-row) */}
-                                        <Box
-                                          position="absolute"
-                                          left="2px"
-                                          top="0"
-                                          bottom={isLastEntry ? '50%' : '0'}
-                                          width="1.5px"
-                                          bg="gray.700"
-                                        />
-                                        {/* Horizontal arm connecting vertical line to content */}
-                                        <Box
-                                          position="absolute"
-                                          left="2px"
-                                          top="50%"
-                                          width="14px"
-                                          height="1.5px"
-                                          bg="gray.700"
-                                          style={{ transform: 'translateY(-50%)' }}
-                                        />
-                                        <HStack spacing={2} minH="22px">
-                                          <Box color={isLiveEntry && isToolPendingStatus(entry.status) ? '#a5b4fc' : 'gray.500'} flexShrink={0}><ToolIcon size={12} /></Box>
-                                          <Text fontSize="xs" color="gray.300" fontWeight="medium" flexShrink={0}>{label}</Text>
-                                          {summary && (
-                                            <HStack spacing={2} flex={1} minW={0}>
-                                              <Box
-                                                boxSize="5px"
-                                                borderRadius="full"
-                                                bg={getToolStatusColor(entry.status)}
-                                                flexShrink={0}
-                                                boxShadow={isToolPendingStatus(entry.status) ? `0 0 10px ${getToolStatusColor(entry.status)}` : 'none'}
-                                              />
-                                              <Text fontSize="xs" color="gray.600" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" minW={0}>
-                                                {summary}
-                                              </Text>
-                                            </HStack>
-                                          )}
-                                        </HStack>
-                                        {!isShell && todoSummary && (
-                                          <Box ml={5} mt={0.5} px={2} py={1.5} bg="gray.900" borderRadius="md">
-                                            <Text fontSize="xs" color="gray.400" mb={1}>
-                                              {locale.startsWith('ru')
-                                                ? `Выполнено ${todoSummary.completedCount} из ${todoSummary.totalCount}`
-                                                : `${todoSummary.completedCount} of ${todoSummary.totalCount} completed`}
-                                            </Text>
-                                            <VStack spacing={1.5} align="stretch">
-                                              {todoSummary.items.map((item) => {
-                                                const normalizedStatus = item.status.toLowerCase();
-                                                const isCompleted = normalizedStatus === 'completed' || normalizedStatus === 'done';
-                                                return (
-                                                  <HStack key={item.id} spacing={2} align="start">
-                                                    <Box mt="2px" color={isCompleted ? 'green.400' : 'gray.500'}>
-                                                      <CheckSquare size={12} />
-                                                    </Box>
-                                                    <Box flex={1} minW={0}>
-                                                      <Text fontSize="xs" color={isCompleted ? 'gray.200' : 'gray.300'} textDecoration={isCompleted ? 'line-through' : 'none'} whiteSpace="pre-wrap" wordBreak="break-word">
-                                                        {item.content}
-                                                      </Text>
-                                                      <Text fontSize="10px" color="gray.500">
-                                                        {getTodoStatusLabel(locale, item.status)}
-                                                      </Text>
-                                                    </Box>
-                                                  </HStack>
-                                                );
-                                              })}
-                                            </VStack>
-                                          </Box>
-                                        )}
-                                        {!isShell && taskSummary && (
-                                          <Box ml={5} mt={0.5} px={2} py={1.5} bg="gray.900" borderRadius="md">
-                                            {renderTaskSummaryContent(taskSummary, locale)}
-                                          </Box>
-                                        )}
-                                        {/* Changed files */}
-                                        {files.length > 0 && (
-                                          <Box ml={5}>
-                                            {files.map((f) => (
-                                              <HStack key={f} spacing={1} h="18px">
-                                                <FileText size={9} color="#6b7280" />
-                                                <Text fontSize="10px" color="gray.600" fontFamily="mono" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
-                                                  {f.split(/[/\\]/).slice(-2).join('/')}
-                                                </Text>
-                                              </HStack>
-                                            ))}
-                                          </Box>
-                                        )}
-                                        {renderPendingApprovalInline(entry, 5)}
-                                      </Box>
-                                      </motion.div>
-                                    );
-                                  })}
-                                </Box>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </Box>
+                        <VStack key={`approvals-${blockIdx}`} spacing={2} align="stretch" py={2}>
+                          {pendingEntries.map((entry) => (
+                            <Box key={entry.id}>
+                              {renderPendingApprovalInline(entry, 0)}
+                            </Box>
+                          ))}
+                        </VStack>
                       );
                     }
 
-                    // ── Legacy thought blocks (type-level, for backward compat) ──
                     if (block.type === 'thought') {
-                      const isCollapsed = collapsedBlocks[blockKey] !== false;
-                      const thinkingDurationMs = block.entries.reduce((total, entry) => total + (entry.thinkingDurationMs ?? 0), 0);
-                      return (
-                        <Box key={blockKey} py={0.5}>
-                          <Button
-                            variant="ghost" size="sm" w="auto" justifyContent="flex-start"
-                            h="24px" px={2} color="gray.600"
-                            _hover={{ bg: 'gray.800', color: 'gray.400' }}
-                            onClick={() => toggleBlock(blockKey)}
-                            leftIcon={
-                              <motion.span animate={{ rotate: isCollapsed ? 0 : 90 }} transition={{ duration: 0.18 }} style={{ display: 'flex' }}>
-                                <ChevronRight size={12} />
-                              </motion.span>
-                            }
-                          >
-                            <HStack spacing={1.5}>
-                              <Brain size={11} />
-                              <Text fontSize="xs" color="gray.500">{getThinkingStatusLabel(locale, thinkingDurationMs)}</Text>
-                            </HStack>
-                          </Button>
-                          <AnimatePresence initial={false}>
-                            {!isCollapsed && (
-                              <motion.div
-                                key="thought-content"
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.2, ease: 'easeOut' }}
-                                style={{ overflow: 'hidden' }}
-                              >
-                                <Box px={2} ml={2} mt={1}>
-                                  {block.entries.map((entry) => (
-                                    <Text key={entry.id} fontSize="xs" color="gray.500" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="1.6">
-                                      {getEntryText(entry)}
-                                    </Text>
-                                  ))}
-                                </Box>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </Box>
-                      );
+                      return null;
                     }
 
-                    // ── Assistant messages ──
                     return block.entries.map((entry, entryIdx) => {
                       // Use body directly — never fall through to title ("Assistant")
                       const text = entry.body ?? '';
@@ -3927,10 +4080,9 @@ export default function ChatArea({
                       if (isApprovalPlaceholderText(text)) return null;
                       // Show timestamp only on the last entry of the final assistant block in each AI turn
                       const isLastEntry = entryIdx === block.entries.length - 1;
-                      const showTime = isLastEntry && finalAssistantBlockIndices.has(blockIdx) && !!entry.timestamp;
-
-                      const thinkKey = `think-${entry.id}`;
-                      const isThinkCollapsed = collapsedBlocks[thinkKey] !== false;
+                      const isFinalAssistantEntry = isLastEntry && finalAssistantBlockIndices.has(blockIdx);
+                      const reasoningArtifacts = reasoningArtifactsByAssistantId[entry.id] ?? [];
+                      const hasReasoningSummary = isFinalAssistantEntry && !!text.trim() && (isStreamingEntry || reasoningArtifacts.length > 0 || !!thinking.trim());
 
                       return (
                         <motion.div
@@ -3939,54 +4091,57 @@ export default function ChatArea({
                           transition={{ duration: 0.16, ease: 'easeOut' }}
                         >
                           <Box py={2}>
-                          {/* Per-entry collapsible thinking */}
-                          {thinking && (
-                            <Box mb={text ? 2 : 0}>
-                              <Button
-                                variant="ghost" size="sm" w="auto" justifyContent="flex-start"
-                                h="24px" px={2} color="gray.600"
-                                _hover={{ bg: 'gray.800', color: 'gray.400' }}
-                                onClick={() => toggleBlock(thinkKey)}
-                                leftIcon={
-                                  <motion.span animate={{ rotate: isThinkCollapsed ? 0 : 90 }} transition={{ duration: 0.18 }} style={{ display: 'flex' }}>
-                                    <ChevronRight size={12} />
-                                  </motion.span>
-                                }
-                              >
-                                <HStack spacing={1.5}>
-                                  <Brain size={11} />
-                                  <Text fontSize="xs" color="gray.500">{getThinkingStatusLabel(locale, entry.thinkingDurationMs ?? 0)}</Text>
-                                </HStack>
-                              </Button>
-                              <AnimatePresence initial={false}>
-                                {!isThinkCollapsed && (
-                                  <motion.div
-                                    key="think-body"
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: 'auto', opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.2, ease: 'easeOut' }}
-                                    style={{ overflow: 'hidden' }}
-                                  >
-                                    <Box px={2} ml={2} mt={1} mb={text ? 1 : 0}>
-                                      <Text fontSize="xs" color="gray.500" whiteSpace="pre-wrap" wordBreak="break-word" lineHeight="1.6">
-                                        {thinking}
-                                      </Text>
-                                    </Box>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </Box>
+                          {hasReasoningSummary && (
+                            <Button
+                              variant="ghost"
+                              h="34px"
+                              px={3}
+                              mb={3}
+                              borderRadius="14px"
+                              fontWeight="normal"
+                              color="gray.300"
+                              bg="rgba(255,255,255,0.03)"
+                              _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+                              leftIcon={<Brain size={14} />}
+                              rightIcon={<ChevronRight size={14} />}
+                              onClick={() => setOpenReasoningAssistantId((current) => current === entry.id ? null : entry.id)}
+                            >
+                              {locale.startsWith('ru') ? 'Завершено размышление' : 'Finished thinking'}
+                            </Button>
                           )}
-
                           {/* Response body with full markdown */}
                           {text && (
                             <StreamingAssistantBody text={text} isStreaming={isStreamingEntry} />
                           )}
 
-                          {showTime && (
-                            <Text fontSize="10px" color="gray.700" mt={1}>{formatTimestamp(entry.timestamp)}</Text>
+                          {isFinalAssistantEntry && !isStreamingEntry && text && (
+                            <HStack spacing={1} mt={2} ml={1}>
+                              <Tooltip label={locale.startsWith('ru') ? 'Скопировать сырой текст' : 'Copy raw text'} hasArrow>
+                                <IconButton
+                                  aria-label="Copy raw message"
+                                  icon={<Copy size={15} />}
+                                  variant="ghost"
+                                  size="sm"
+                                  color="gray.400"
+                                  borderRadius="10px"
+                                  _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+                                  onClick={() => { void copyTextToClipboard(text); }}
+                                />
+                              </Tooltip>
+                              <Tooltip label={formatMessageDetails(locale, entry.timestamp)} hasArrow>
+                                <IconButton
+                                  aria-label="Message info"
+                                  icon={<Info size={15} />}
+                                  variant="ghost"
+                                  size="sm"
+                                  color="gray.400"
+                                  borderRadius="10px"
+                                  _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+                                />
+                              </Tooltip>
+                            </HStack>
                           )}
+
                           </Box>
                         </motion.div>
                       );
@@ -4001,14 +4156,78 @@ export default function ChatArea({
                         exit={{ opacity: 0, y: 2 }}
                         transition={{ duration: 0.18, ease: 'easeOut' }}
                       >
-                        <Flex justify="flex-start" py={2} px={2}>
-                          <AnimatedThinkingLabel
-                            label={plainThinkingLabel}
-                            color="#9ca3af"
-                            dotColor="#9ca3af"
-                            fontSize="12px"
-                          />
-                        </Flex>
+                        <VStack align="start" spacing={2} py={2.5} px={1}>
+                          <Button
+                            variant="ghost"
+                            h="auto"
+                            minH="28px"
+                            px={0}
+                            py={0}
+                            borderRadius="0"
+                            fontWeight="normal"
+                            color="gray.300"
+                            bg="transparent"
+                            _hover={{ bg: 'transparent', color: 'white' }}
+                            _active={{ bg: 'transparent' }}
+                            leftIcon={<ThinkingOrbit />}
+                            onClick={() => setOpenReasoningAssistantId((current) =>
+                              current === liveReasoningAssistantId ? null : liveReasoningAssistantId)}
+                          >
+                            <AnimatePresence mode="wait" initial={false}>
+                              <motion.span
+                                key={loadingPhrase || plainThinkingLabel}
+                                initial={{ opacity: 0, y: 5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -5 }}
+                                transition={{ duration: 0.28, ease: 'easeOut' }}
+                                style={{ display: 'inline-flex', whiteSpace: 'nowrap' }}
+                              >
+                                {loadingPhrase || plainThinkingLabel}
+                              </motion.span>
+                            </AnimatePresence>
+                          </Button>
+                          {streamingToolBadgeEntries.length > 0 && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -4 }}
+                              transition={{ duration: 0.18, ease: 'easeOut' }}
+                            >
+                              <HStack
+                                spacing={2}
+                                px={3}
+                                py={2}
+                                borderRadius="999px"
+                                bg="rgba(255,255,255,0.04)"
+                                border="1px solid rgba(255,255,255,0.05)"
+                                w="fit-content"
+                              >
+                                {streamingToolBadgeEntries.map((toolEntry) => {
+                                  const ToolIcon = getToolInfo(toolEntry.toolName || toolEntry.title || '').Icon;
+                                  return (
+                                    <Box
+                                      key={toolEntry.id}
+                                      boxSize="24px"
+                                      borderRadius="full"
+                                      bg="rgba(255,255,255,0.04)"
+                                      display="flex"
+                                      alignItems="center"
+                                      justifyContent="center"
+                                      color="#c8c6ff"
+                                    >
+                                      <ToolIcon size={13} />
+                                    </Box>
+                                  );
+                                })}
+                                {hiddenStreamingToolCount > 0 && (
+                                  <Text fontSize="xs" color="gray.400" whiteSpace="nowrap">
+                                    +{hiddenStreamingToolCount}
+                                  </Text>
+                                )}
+                              </HStack>
+                            </motion.div>
+                          )}
+                        </VStack>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -4057,8 +4276,9 @@ export default function ChatArea({
                     color="gray.500"
                     _hover={{ color: 'gray.300' }}
                     _active={{ color: 'gray.300' }}
+                    fontWeight="normal"
                   >
-                    <Text fontSize="2xl" lineHeight="1" fontWeight="medium" color="inherit" textAlign="center">
+                    <Text fontSize="2xl" lineHeight="1" fontWeight="normal" color="inherit" textAlign="center">
                       {selectedProjectLabel}
                     </Text>
                     <Box
@@ -4222,7 +4442,7 @@ export default function ChatArea({
       </Box>
 
       {/* Input Area — always visible */}
-      <Box px={4} pb={4} pt={3} position="relative" bg="gray.900" flexShrink={0}>
+      <Box px={4} pb={4} pt={3} position="relative" bg={APP_BACKGROUND} flexShrink={0}>
         {/* Fade gradient mask above input */}
         <Box
           position="absolute"
@@ -4233,44 +4453,18 @@ export default function ChatArea({
           pointerEvents="none"
           zIndex={5}
           sx={{
-            background: 'linear-gradient(to bottom, transparent, #18181b)',
+            background: `linear-gradient(to bottom, transparent, ${APP_BACKGROUND})`,
           }}
         />
 
         <Box mx="auto" w="full" maxW={CHAT_MAX_WIDTH}>
-          <Box minH="24px" px={2} mb={2} display="flex" alignItems="center">
-            <AnimatePresence mode="wait" initial={false}>
-              {isAwaitingAssistantText && (
-                <motion.div
-                  key={loadingPhrase || 'loading-phrase'}
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  transition={{ duration: 0.18, ease: 'easeOut' }}
-                  style={{ width: '100%' }}
-                >
-                  <Text
-                    fontSize="xs"
-                    color="gray.500"
-                    pl={1}
-                    whiteSpace="nowrap"
-                    overflow="hidden"
-                    textOverflow="ellipsis"
-                  >
-                    {loadingPhrase || defaultThinkingLabel}
-                  </Text>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </Box>
-
           <Box
-            borderRadius="28px"
+            borderRadius="30px"
             overflow="visible"
             border="1px solid"
-            borderColor="gray.700"
-            bg="gray.800"
-            boxShadow="0 24px 80px -48px rgba(0,0,0,0.95)"
+            borderColor="rgba(255,255,255,0.06)"
+            bg={SURFACE_BACKGROUND}
+            boxShadow="0 22px 70px -48px rgba(0,0,0,0.95)"
           >
           {/* Textarea */}
           <Box px={5} pt={4}>
@@ -4281,7 +4475,7 @@ export default function ChatArea({
               onKeyDown={handleKeyDown}
               placeholder={sidebarMode === 'chats' ? t('chat.chatModePromptPlaceholder') : t('chat.promptPlaceholder')}
               rows={1}
-              minH="96px"
+              minH="74px"
               resize="none"
               overflow="hidden"
               border="none"
@@ -4290,7 +4484,7 @@ export default function ChatArea({
               fontSize="sm"
               lineHeight="relaxed"
               color="white"
-              _placeholder={{ color: 'gray.500' }}
+              _placeholder={{ color: '#8f8f9b' }}
               _focusVisible={{ boxShadow: 'none' }}
               sx={{ '&::-webkit-scrollbar': { display: 'none' } }}
             />
@@ -4298,41 +4492,49 @@ export default function ChatArea({
 
           {/* Bottom bar */}
           <HStack justify="space-between" px={4} py={3} gap={3}>
-            {/* Left: attach + mode */}
+            {/* Left: attach */}
             <HStack gap={2}>
               <IconButton
                 aria-label="Attach file"
                 icon={<Paperclip size={14} />}
                 variant="ghost"
                 size="sm"
-                color="gray.500"
-                _hover={{ color: 'white' }}
+                w="36px"
+                h="36px"
+                borderRadius="full"
+                color="gray.400"
+                bg="rgba(255,255,255,0.03)"
+                _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
               />
+            </HStack>
 
-              {/* Mode selector */}
+            {/* Right: donut + send */}
+            <HStack gap={2}>
               <Box position="relative">
                 <Button
                   ref={modeBtnRef}
                   variant="ghost"
-                  size="sm"
-                  h="32px"
-                  px={2}
-                  color="gray.500"
-                  _hover={{ color: 'white' }}
+                  h="34px"
+                  px={3}
+                  color="gray.300"
+                  borderRadius="16px"
+                  bg="rgba(255,255,255,0.03)"
+                  _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
                   onClick={() => setModeDropdownOpen(!modeDropdownOpen)}
                   gap={1.5}
+                  fontWeight="normal"
                 >
                   {MODE_ICONS[mode]}
-                  <Text fontSize="xs">{t(currentModeOption.labelKey)}</Text>
+                  <Text fontSize="xs" fontWeight="normal">{t(currentModeOption.labelKey)}</Text>
+                  <ChevronDown size={13} />
                 </Button>
 
-                {/* Mode Dropdown */}
                 <AnimatePresence>
                   {modeDropdownOpen && (
                     <Box
                       position="absolute"
                       bottom="calc(100% + 8px)"
-                      left={0}
+                      right={0}
                       zIndex={9999}
                     >
                       <motion.div
@@ -4345,9 +4547,9 @@ export default function ChatArea({
                           ref={modeMenuRef}
                           minW="300px"
                           border="1px solid"
-                          borderColor="gray.700"
-                          bg="gray.800"
-                          borderRadius="2xl"
+                          borderColor="rgba(255,255,255,0.08)"
+                          bg={SURFACE_ELEVATED}
+                          borderRadius="20px"
                           shadow="lg"
                           p={1.5}
                         >
@@ -4362,12 +4564,13 @@ export default function ChatArea({
                                 alignItems="center"
                                 h="52px"
                                 px={3}
-                                borderRadius="2xl"
+                                borderRadius="16px"
                                 onClick={() => { setMode(m.value); setModeDropdownOpen(false); }}
                                 bg="transparent"
-                                _hover={{ bg: 'gray.900', borderRadius: '2xl' }}
+                                _hover={{ bg: 'rgba(255,255,255,0.05)' }}
                                 color="white"
                                 gap={3}
+                                fontWeight="normal"
                               >
                                 <Box w={5} h={5} display="flex" alignItems="center" justifyContent="center" flexShrink={0}>
                                   {isSelected ? (
@@ -4379,7 +4582,7 @@ export default function ChatArea({
                                   )}
                                 </Box>
                                 <VStack align="start" spacing={0.5} flex={1}>
-                                  <Text fontSize="sm" fontWeight="medium" textAlign="left" whiteSpace="nowrap">{t(m.labelKey)}</Text>
+                                  <Text fontSize="sm" fontWeight="normal" textAlign="left" whiteSpace="nowrap">{t(m.labelKey)}</Text>
                                   <Text fontSize="xs" color="gray.500" whiteSpace="normal" textAlign="left">{t(m.descriptionKey)}</Text>
                                 </VStack>
                               </Button>
@@ -4391,10 +4594,6 @@ export default function ChatArea({
                   )}
                 </AnimatePresence>
               </Box>
-            </HStack>
-
-            {/* Right: donut + send */}
-            <HStack gap={2}>
               {/* Context ring */}
               <Box
                 ref={donutRef}
@@ -4493,6 +4692,145 @@ export default function ChatArea({
           {t('chat.disclaimer')}
         </Text>
       </Box>
+      </VStack>
+
+      <AnimatePresence initial={false}>
+        {openReasoningAssistantId && (
+          <motion.div
+            key="reasoning-panel"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 360, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            style={{ overflow: 'hidden', flexShrink: 0 }}
+          >
+            <VStack
+              h="100%"
+              w="360px"
+              align="stretch"
+              spacing={0}
+              bg="#202024"
+              borderLeft="1px solid"
+              borderColor={SIDEBAR_BORDER}
+            >
+              <HStack justify="space-between" px={4} py={4} borderBottom="1px solid" borderColor={SIDEBAR_BORDER}>
+                <VStack align="start" spacing={0}>
+                  <Text fontSize="sm" fontWeight="semibold" color="white">
+                    {locale.startsWith('ru') ? 'Таймлайн размышления' : 'Thinking timeline'}
+                  </Text>
+                  <Text fontSize="xs" color="gray.500">
+                    {formatMessageDetails(locale, activeReasoningAssistantEntry?.timestamp)}
+                  </Text>
+                </VStack>
+                <IconButton
+                  aria-label="Close reasoning panel"
+                  icon={<PanelRightClose size={16} />}
+                  variant="ghost"
+                  size="sm"
+                  borderRadius="12px"
+                  color="gray.400"
+                  onClick={() => setOpenReasoningAssistantId(null)}
+                  _hover={{ bg: 'rgba(255,255,255,0.06)', color: 'white' }}
+                />
+              </HStack>
+
+              <Box flex={1} overflowY="auto" px={4} py={4}>
+                <VStack align="stretch" spacing={5}>
+                  {hasActiveReasoningText && activeReasoningAssistantEntry && (
+                    <Box position="relative" pl={7}>
+                      <Box position="absolute" left="7px" top="26px" bottom="-10px" w="1px" bg="rgba(255,255,255,0.08)" />
+                      <Box
+                        position="absolute"
+                        left="0"
+                        top="2px"
+                        boxSize="15px"
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="center"
+                        color="#8f8f9b"
+                      >
+                        <Brain size={14} />
+                      </Box>
+                      <Text fontSize="sm" color="gray.200" fontWeight="semibold" mb={1}>
+                        {locale.startsWith('ru') ? 'Размышление' : 'Reasoning'}
+                      </Text>
+                      <Text fontSize="sm" color="gray.400" lineHeight="1.8" whiteSpace="pre-wrap" wordBreak="break-word">
+                        {activeReasoningAssistantEntry.thinkingBody}
+                      </Text>
+                    </Box>
+                  )}
+
+                  {activeReasoningEntries.map((entry) => {
+                    const isThought = isThinkingEntry(entry);
+                    const info = getToolInfo(entry.toolName || entry.title || '');
+                    const ToolIcon = isThought ? Brain : info.Icon;
+                    const label = isThought
+                      ? (locale.startsWith('ru') ? 'Размышление' : 'Reasoning')
+                      : t(info.labelKey);
+                    const summary = isThought ? getEntryText(entry) : getToolArgSummary(entry);
+                    return (
+                      <Box key={entry.id} position="relative" pl={7}>
+                        <Box position="absolute" left="7px" top="27px" bottom="-6px" w="1px" bg="rgba(255,255,255,0.08)" />
+                        <Box
+                          position="absolute"
+                          left="0"
+                          top="1px"
+                          boxSize="15px"
+                          display="flex"
+                          alignItems="center"
+                          justifyContent="center"
+                          color="#8f8f9b"
+                        >
+                          <ToolIcon size={14} />
+                        </Box>
+                        <HStack spacing={2} align="center" mb={1}>
+                          <Text fontSize="sm" color="gray.200" fontWeight="semibold">
+                            {label}
+                          </Text>
+                          {!isThought && (
+                            <Box boxSize="6px" borderRadius="full" bg={getToolStatusColor(entry.status)} />
+                          )}
+                          {entry.timestamp && (
+                            <Text fontSize="10px" color="gray.600">
+                              {formatTimestamp(entry.timestamp)}
+                            </Text>
+                          )}
+                        </HStack>
+                        {summary && (
+                          <Text fontSize="sm" color="gray.400" lineHeight="1.75" whiteSpace="pre-wrap" wordBreak="break-word">
+                            {summary}
+                          </Text>
+                        )}
+                      </Box>
+                    );
+                  })}
+
+                  <Box position="relative" pl={7}>
+                    <Box
+                      position="absolute"
+                      left="0"
+                      top="1px"
+                      boxSize="15px"
+                      display="flex"
+                      alignItems="center"
+                      justifyContent="center"
+                      color="#9ca3af"
+                    >
+                      {isReasoningInProgress ? <Spinner size="xs" color="#8f8f9b" /> : <Check size={14} />}
+                    </Box>
+                    <Text fontSize="sm" color="gray.200" fontWeight="semibold">
+                      {isReasoningInProgress
+                        ? (locale.startsWith('ru') ? 'Работа выполняется' : 'Work in progress')
+                        : (locale.startsWith('ru') ? 'Работа завершена' : 'Work completed')}
+                    </Text>
+                  </Box>
+                </VStack>
+              </Box>
+            </VStack>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      </HStack>
     </VStack>
   );
 }

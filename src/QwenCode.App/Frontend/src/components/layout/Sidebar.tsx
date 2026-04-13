@@ -6,12 +6,14 @@ import {
   HStack,
   Portal,
   Skeleton,
+  IconButton,
 } from '@chakra-ui/react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle, MessageCircle, Code2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Search, Settings, ChevronRight, FolderOpen, Folder, Puzzle, MessageCircle, Code2, MoreHorizontal, Pencil, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SessionPreview } from '@/types/desktop';
+import qwenLogo from '@/assets/qwen-logo.svg';
 import {
   filterSessionsByNavigationMode,
   groupProjectSessions,
@@ -42,6 +44,12 @@ interface ChatSection {
   label: string;
   sessions: SessionPreview[];
 }
+
+const SIDEBAR_EXPANDED_WIDTH = 292;
+const SIDEBAR_COLLAPSED_WIDTH = 54;
+const APP_BACKGROUND = '#1f1f23';
+const SIDEBAR_BACKGROUND = '#17171b';
+const SIDEBAR_HOVER = { bg: 'transparent', color: 'white' };
 
 function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslation>['t']): string {
   const now = Date.now();
@@ -88,6 +96,7 @@ const sessionItemVariants = {
 
 export default function Sidebar({
   isOpen,
+  onClose,
   sessions,
   activeTurnSessions,
   selectedSessionId = '',
@@ -294,8 +303,8 @@ export default function Sidebar({
         position="relative"
         bg={isSelected ? '#3a3a42' : 'transparent'}
         color={isSelected ? 'white' : 'gray.200'}
-        _hover={{ bg: isSelected ? '#404049' : 'rgba(255,255,255,0.06)' }}
-        _active={{ bg: isSelected ? '#404049' : 'rgba(255,255,255,0.08)' }}
+        _hover={{ bg: isSelected ? '#3a3a42' : 'transparent', color: 'white' }}
+        _active={{ bg: isSelected ? '#3a3a42' : 'transparent', color: 'white' }}
         borderRadius="full"
         fontSize="sm"
         fontWeight="normal"
@@ -382,7 +391,7 @@ export default function Sidebar({
               const rect = event.currentTarget.getBoundingClientRect();
               toggleSessionMenu(conv, rect.right, rect.bottom);
             }}
-            _hover={{ color: 'white', bg: isSelected ? '#292932' : 'rgba(0,0,0,0.22)' }}
+            _hover={{ color: 'white', bg: 'transparent' }}
           >
             <MoreHorizontal size={15} />
           </Box>
@@ -391,260 +400,338 @@ export default function Sidebar({
     );
   };
 
+  const railActions = [
+    {
+      key: 'toggle-mode',
+      label: mode === 'projects' ? t('top.chats') : t('top.coder'),
+      icon: mode === 'projects' ? <MessageCircle size={17} /> : <Code2 size={17} />,
+      onClick: onToggleMode,
+    },
+    {
+      key: 'new-chat',
+      label: t('sidebar.newChat'),
+      icon: <Plus size={17} />,
+      onClick: onNewChat,
+    },
+    {
+      key: 'search',
+      label: t('sidebar.search'),
+      icon: <Search size={17} />,
+      onClick: onOpenSearch,
+    },
+    {
+      key: 'skills',
+      label: t('top.skills'),
+      icon: <Puzzle size={17} />,
+      onClick: onOpenSkills,
+    },
+    {
+      key: 'settings',
+      label: t('top.settings'),
+      icon: <Settings size={17} />,
+      onClick: onOpenSettings,
+    },
+  ];
+
   return (
     <motion.div
-      initial={{ x: '-100%' }}
-      animate={{ x: isOpen ? 0 : '-100%' }}
-      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+      initial={false}
+      animate={{
+        width: isOpen ? SIDEBAR_EXPANDED_WIDTH : SIDEBAR_COLLAPSED_WIDTH,
+        backgroundColor: isOpen ? SIDEBAR_BACKGROUND : APP_BACKGROUND,
+      }}
+      transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
       style={{
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        height: '100vh',
-        width: '260px',
-        zIndex: 10,
+        height: '100%',
         overflow: 'hidden',
+        flexShrink: 0,
+        position: 'relative',
       }}
     >
       <VStack
         h="100%"
         spacing={0}
         align="stretch"
-        bg="gray.800"
+        bg="transparent"
         borderRight="1px solid"
-        borderColor="gray.700"
+        borderColor="rgba(255,255,255,0.06)"
       >
-        {/* Top: Settings & Skills */}
-        <Box px={3} pt={3} pb={2}>
-          <VStack spacing={1} align="stretch">
-            <Button
-              leftIcon={mode === 'projects' ? <MessageCircle size={15} /> : <Code2 size={15} />}
-              variant="ghost"
-              colorScheme="gray"
-              size="sm"
-              width="100%"
-              justifyContent="flex-start"
-              fontWeight="regular"
-              borderRadius="md"
-              h="36px"
-              onClick={onToggleMode}
-              color="gray.400"
-              _hover={{ bg: 'transparent', color: 'white' }}
-              _active={{ bg: 'transparent', color: 'white' }}
-              transition="color 0.2s ease"
-            >
-              {mode === 'projects' ? t('top.chats') : t('top.coder')}
-            </Button>
-            <Button
-              leftIcon={<Puzzle size={15} />}
-              variant="ghost"
-              colorScheme="gray"
-              size="sm"
-              width="100%"
-              justifyContent="flex-start"
-              fontWeight="regular"
-              borderRadius="md"
-              h="36px"
-              onClick={onOpenSkills}
-              color="gray.400"
-              _hover={{ bg: 'transparent', color: 'white' }}
-              _active={{ bg: 'transparent', color: 'white' }}
-              transition="color 0.2s ease"
-            >
-              {t('top.skills')}
-            </Button>
-            <Button
-              leftIcon={<Settings size={15} />}
-              variant="ghost"
-              colorScheme="gray"
-              size="sm"
-              width="100%"
-              justifyContent="flex-start"
-              fontWeight="regular"
-              borderRadius="md"
-              h="36px"
-              onClick={onOpenSettings}
-              color="gray.400"
-              _hover={{ bg: 'transparent', color: 'white' }}
-              _active={{ bg: 'transparent', color: 'white' }}
-              transition="color 0.2s ease"
-            >
-              {t('top.settings')}
-            </Button>
-          </VStack>
-        </Box>
-
-        {/* Combined New Chat + Search block */}
-        <Box px={3} py={2}>
-          <Box
-            borderRadius="xl"
-            overflow="hidden"
-            border="1px solid"
-            borderColor="gray.600"
+        <AnimatePresence initial={false} mode="wait">
+        {isOpen ? (
+          <motion.div
+            key="expanded-sidebar"
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -8 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            style={{ width: SIDEBAR_EXPANDED_WIDTH, height: '100%', overflow: 'hidden' }}
           >
-            <Button
-              leftIcon={<Plus size={15} />}
-              bg="brand.500"
-              color="white"
-              variant="solid"
-              size="sm"
-              width="100%"
-              h="36px"
-              borderRadius="0"
-              onClick={onNewChat}
-              transition="background-color 0.2s ease"
-              _hover={{ bg: 'brand.600' }}
-              _active={{ bg: 'brand.800' }}
-            >
-              {t('sidebar.newChat')}
-            </Button>
-
-            <Box h="1px" bg="gray.600" />
-
-            {/* Search — opens modal */}
-            <Box
-              role="button"
-              tabIndex={0}
-              h="36px"
-              px={3}
-              display="flex"
-              alignItems="center"
-              justifyContent="center"
-              bg="gray.700"
-              cursor="pointer"
-              transition="background-color 0.2s ease"
-              _hover={{ bg: '#3a3a42' }}
-              onClick={onOpenSearch}
-              onKeyDown={(e) => { if (e.key === 'Enter') onOpenSearch(); }}
-            >
-              <HStack spacing={2}>
-                <Search size={14} color="#9494a2" />
-                <Text fontSize="sm" color="gray.400">{t('sidebar.search')}</Text>
+          <VStack h="100%" spacing={0} align="stretch">
+            <Box px={4} pt={3} pb={3}>
+              <HStack justify="space-between" align="center">
+                <img src={qwenLogo} alt="Qwen" style={{ width: '26px', height: '26px' }} draggable={false} />
+                <IconButton
+                  aria-label="Collapse sidebar"
+                  icon={<PanelLeftClose size={16} />}
+                  variant="ghost"
+                  size="sm"
+                  color="gray.400"
+                  borderRadius="10px"
+                  onClick={onClose}
+                  _hover={SIDEBAR_HOVER}
+                />
               </HStack>
             </Box>
-          </Box>
-        </Box>
-
-        {/* Grouped conversations */}
-        <Box
-          flex={1}
-          overflowY="auto"
-          overflowX="hidden"
-          py={1}
-          px={3}
-          sx={{
-            scrollbarGutter: 'stable',
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
-            '&::-webkit-scrollbar': {
-              width: '0px',
-              height: '0px',
-              display: 'none',
-            },
-          }}
-        >
-          <VStack spacing={1} align="stretch">
-            {mode === 'projects' ? groupedConversations.map((group) => {
-              const isGroupOpen = openGroups[group.name] !== false;
-              return (
-                <Box key={group.name}>
-                  <Button
-                    variant="ghost"
-                    w="full"
-                    h="28px"
-                    px={1}
-                    justifyContent="flex-start"
-                    color="gray.500"
-                    fontSize="xs"
-                    fontWeight="medium"
-                    _hover={{ bg: 'transparent', color: 'gray.300' }}
-                    _active={{ bg: 'transparent', color: 'gray.300' }}
-                    transition="color 0.2s ease"
-                    onClick={() => toggleGroup(group.name)}
-                    leftIcon={
-                      <ChevronRight
-                        size={12}
-                        style={{
-                          transition: 'transform 0.2s ease',
-                          transform: isGroupOpen ? 'rotate(90deg)' : 'none',
-                        }}
-                      />
-                    }
-                  >
-                    {isGroupOpen ? (
-                      <FolderOpen size={12} style={{ marginRight: '4px' }} />
-                    ) : (
-                      <Folder size={12} style={{ marginRight: '4px' }} />
-                    )}
-                    {group.name}
-                  </Button>
-
-                  <AnimatePresence initial={false}>
-                    {isGroupOpen && (
-                      <motion.div
-                        variants={sessionsListVariants}
-                        initial="hidden"
-                        animate="visible"
-                        exit="hidden"
-                        style={{ overflow: 'hidden', width: '100%' }}
-                      >
-                        <VStack spacing={1} align="stretch">
-                          {group.sessions.map((conv, idx) => (
-                            <motion.div
-                              key={conv.sessionId}
-                              variants={sessionItemVariants}
-                              initial="hidden"
-                              animate="visible"
-                              exit="exit"
-                              custom={idx}
-                              style={{ width: '100%' }}
-                            >
-                              {renderSessionButton(conv)}
-                            </motion.div>
-                          ))}
-                        </VStack>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </Box>
-              );
-            }) : chatSections.map((section) => (
-              <Box key={section.key}>
-                <Text
-                  px={2}
-                  pt={1}
-                  pb={2}
-                  fontSize="xs"
+            <Box px={3} pb={3}>
+              <VStack spacing={1.5} align="stretch">
+                <Button
+                  leftIcon={<Plus size={15} />}
+                  variant="ghost"
+                  size="sm"
+                  width="100%"
+                  h="38px"
+                  borderRadius="14px"
+                  justifyContent="flex-start"
+                  fontWeight="normal"
                   color="gray.400"
-                  fontWeight="medium"
-                  textTransform="none"
+                  onClick={onNewChat}
+                  _hover={SIDEBAR_HOVER}
+                  _active={{ bg: 'transparent', color: 'white' }}
                 >
-                  {section.label}
-                </Text>
-                <VStack spacing={1} align="stretch">
-                  {section.sessions.map((conv, idx) => (
-                    <motion.div
-                      key={conv.sessionId}
-                      variants={sessionItemVariants}
-                      initial="hidden"
-                      animate="visible"
-                      exit="exit"
-                      custom={idx}
-                      style={{ width: '100%' }}
+                  {t('sidebar.newChat')}
+                </Button>
+                <Button
+                  leftIcon={<Search size={15} />}
+                  variant="ghost"
+                  size="sm"
+                  width="100%"
+                  h="38px"
+                  borderRadius="14px"
+                  justifyContent="flex-start"
+                  fontWeight="normal"
+                  color="gray.400"
+                  onClick={onOpenSearch}
+                  _hover={SIDEBAR_HOVER}
+                  _active={{ bg: 'transparent', color: 'white' }}
+                >
+                  {t('sidebar.search')}
+                </Button>
+                <Button
+                  leftIcon={mode === 'projects' ? <MessageCircle size={15} /> : <Code2 size={15} />}
+                  variant="ghost"
+                  size="sm"
+                  width="100%"
+                  h="38px"
+                  borderRadius="14px"
+                  justifyContent="flex-start"
+                  fontWeight="normal"
+                  color="gray.400"
+                  onClick={onToggleMode}
+                  _hover={SIDEBAR_HOVER}
+                  _active={{ bg: 'transparent', color: 'white' }}
+                >
+                  {mode === 'projects' ? t('top.chats') : t('top.coder')}
+                </Button>
+                <Button
+                  leftIcon={<Puzzle size={15} />}
+                  variant="ghost"
+                  size="sm"
+                  width="100%"
+                  h="38px"
+                  borderRadius="14px"
+                  justifyContent="flex-start"
+                  fontWeight="normal"
+                  color="gray.400"
+                  onClick={onOpenSkills}
+                  _hover={SIDEBAR_HOVER}
+                  _active={{ bg: 'transparent', color: 'white' }}
+                >
+                  {t('top.skills')}
+                </Button>
+                <Button
+                  leftIcon={<Settings size={15} />}
+                  variant="ghost"
+                  size="sm"
+                  width="100%"
+                  h="38px"
+                  borderRadius="14px"
+                  justifyContent="flex-start"
+                  fontWeight="normal"
+                  color="gray.400"
+                  onClick={onOpenSettings}
+                  _hover={SIDEBAR_HOVER}
+                  _active={{ bg: 'transparent', color: 'white' }}
+                >
+                  {t('top.settings')}
+                </Button>
+              </VStack>
+            </Box>
+
+            <Box
+              flex={1}
+              overflowY="auto"
+              overflowX="hidden"
+              py={1}
+              px={3}
+              sx={{
+                scrollbarGutter: 'stable',
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+                '&::-webkit-scrollbar': {
+                  width: '0px',
+                  height: '0px',
+                  display: 'none',
+                },
+              }}
+            >
+              <VStack spacing={1.5} align="stretch">
+                {mode === 'projects' ? groupedConversations.map((group) => {
+                  const isGroupOpen = openGroups[group.name] !== false;
+                  return (
+                    <Box key={group.name}>
+                      <Button
+                        variant="ghost"
+                        w="full"
+                        h="28px"
+                        px={2}
+                        justifyContent="flex-start"
+                        color="gray.500"
+                        fontSize="xs"
+                        fontWeight="normal"
+                        borderRadius="12px"
+                        _hover={{ bg: 'transparent', color: 'gray.200' }}
+                        _active={{ bg: 'transparent', color: 'gray.100' }}
+                        transition="color 0.2s ease"
+                        onClick={() => toggleGroup(group.name)}
+                        leftIcon={
+                          <ChevronRight
+                            size={12}
+                            style={{
+                              transition: 'transform 0.2s ease',
+                              transform: isGroupOpen ? 'rotate(90deg)' : 'none',
+                            }}
+                          />
+                        }
+                      >
+                        {isGroupOpen ? (
+                          <FolderOpen size={12} style={{ marginRight: '4px' }} />
+                        ) : (
+                          <Folder size={12} style={{ marginRight: '4px' }} />
+                        )}
+                        {group.name}
+                      </Button>
+
+                      <AnimatePresence initial={false}>
+                        {isGroupOpen && (
+                          <motion.div
+                            variants={sessionsListVariants}
+                            initial="hidden"
+                            animate="visible"
+                            exit="hidden"
+                            style={{ overflow: 'hidden', width: '100%' }}
+                          >
+                            <VStack spacing={1} align="stretch">
+                              {group.sessions.map((conv, idx) => (
+                                <motion.div
+                                  key={conv.sessionId}
+                                  variants={sessionItemVariants}
+                                  initial="hidden"
+                                  animate="visible"
+                                  exit="exit"
+                                  custom={idx}
+                                  style={{ width: '100%' }}
+                                >
+                                  {renderSessionButton(conv)}
+                                </motion.div>
+                              ))}
+                            </VStack>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </Box>
+                  );
+                }) : chatSections.map((section) => (
+                  <Box key={section.key}>
+                    <Text
+                      px={2}
+                      pt={1}
+                      pb={2}
+                      fontSize="xs"
+                      color="gray.500"
+                      fontWeight="normal"
+                      textTransform="none"
                     >
-                      {renderSessionButton(conv)}
-                    </motion.div>
-                  ))}
-                </VStack>
-              </Box>
-            ))}
-            {visibleSessions.length === 0 && (
-              <Text px={2} py={3} fontSize="sm" color="gray.500">
-                {t('sidebar.noSessionsFound')}
-              </Text>
-            )}
+                      {section.label}
+                    </Text>
+                    <VStack spacing={1} align="stretch">
+                      {section.sessions.map((conv, idx) => (
+                        <motion.div
+                          key={conv.sessionId}
+                          variants={sessionItemVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit="exit"
+                          custom={idx}
+                          style={{ width: '100%' }}
+                        >
+                          {renderSessionButton(conv)}
+                        </motion.div>
+                      ))}
+                    </VStack>
+                  </Box>
+                ))}
+                {visibleSessions.length === 0 && (
+                  <Text px={2} py={3} fontSize="sm" color="gray.500">
+                    {t('sidebar.noSessionsFound')}
+                  </Text>
+                )}
+              </VStack>
+            </Box>
           </VStack>
-        </Box>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="collapsed-sidebar"
+            initial={{ opacity: 0, x: -4 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -4 }}
+            transition={{ duration: 0.16, ease: 'easeOut' }}
+            style={{ width: SIDEBAR_COLLAPSED_WIDTH, height: '100%', overflow: 'hidden' }}
+          >
+          <VStack h="100%" spacing={2} align="center" px={1} pt={3} pb={3}>
+            <IconButton
+              aria-label="Expand sidebar"
+              icon={<PanelLeftOpen size={16} />}
+              variant="ghost"
+              size="md"
+              w="40px"
+              h="40px"
+              borderRadius="14px"
+              color="gray.400"
+              onClick={onClose}
+              _hover={SIDEBAR_HOVER}
+              _active={{ bg: 'transparent', color: 'white' }}
+            />
+            {railActions.map((action) => (
+              <IconButton
+                key={action.key}
+                aria-label={action.label}
+                icon={action.icon}
+                variant="ghost"
+                size="md"
+                w="40px"
+                h="40px"
+                borderRadius="14px"
+                color="gray.400"
+                onClick={action.onClick}
+                _hover={SIDEBAR_HOVER}
+                _active={{ bg: 'transparent', color: 'white' }}
+              />
+            ))}
+          </VStack>
+          </motion.div>
+        )}
+        </AnimatePresence>
 
       </VStack>
       <Portal>

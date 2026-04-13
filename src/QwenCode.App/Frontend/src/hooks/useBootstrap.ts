@@ -267,16 +267,6 @@ function useBootstrapState(): BootstrapState {
               return { ...current, [event.sessionId]: [event] }
             }
 
-            if (event.kind === 'turnCompleted' || event.kind === 'turnCancelled') {
-              if (!(event.sessionId in current)) {
-                return current
-              }
-
-              const next = { ...current }
-              delete next[event.sessionId]
-              return next
-            }
-
             const history = current[event.sessionId] ?? []
             return {
               ...current,
@@ -316,11 +306,17 @@ function useBootstrapState(): BootstrapState {
           })
 
           setStreamingSnapshots((current) => {
-            if (
-              (event.kind === 'turnReattached' || event.kind === 'assistantStreaming') &&
-              event.contentSnapshot
-            ) {
+            if (event.kind === 'turnReattached' && event.contentSnapshot) {
               return { ...current, [event.sessionId]: event.contentSnapshot }
+            }
+            if (event.kind === 'assistantStreaming') {
+              if (event.contentSnapshot) {
+                return { ...current, [event.sessionId]: event.contentSnapshot }
+              }
+
+              if (event.contentDelta) {
+                return { ...current, [event.sessionId]: `${current[event.sessionId] ?? ''}${event.contentDelta}` }
+              }
             }
             if (
               event.kind === 'turnCompleted' ||

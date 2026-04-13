@@ -235,39 +235,34 @@ export default function MainLayout() {
   }, [lastSelectedChatSessionId, lastSelectedProjectSessionId, sessions]);
 
   return (
-    <Box h="100vh" w="100vw" overflow="hidden" bg="gray.900" position="relative">
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        sessions={sessions}
-        activeTurnSessions={activeTurnSessions}
-        selectedSessionId={selectedSessionId}
-        mode={sidebarMode}
-        runtimeBaseDirectory={sessionScopeOptions.runtimeBaseDirectory}
-        workspaceRoot={sessionScopeOptions.workspaceRoot}
-        onSelectSession={handleSelectSession}
-        onNewChat={handleNewChat}
-        onToggleMode={handleToggleMode}
-        onOpenSearch={openSearch}
-        onOpenSkills={() => console.log('Skills & Integrations')}
-        onRenameSession={(session) => void handleRenameSession(session.sessionId)}
-        onDeleteSession={(session) => void handleDeleteSession(session.sessionId)}
-      />
-
-      <Box
-        ml={isSidebarOpen ? "260px" : "0"}
-        h="100vh"
-        transition="margin-left 0.3s ease"
-        overflow="hidden"
-      >
-        <ChatArea
-          isSidebarOpen={isSidebarOpen}
-          onToggleSidebar={() => setIsSidebarOpen(true)}
+    <Box h="100vh" w="100vw" overflow="hidden" bg="#1f1f23" position="relative">
+      <HStack h="100%" w="100%" spacing={0} align="stretch">
+        <Sidebar
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen((current) => !current)}
+          sessions={sessions}
+          activeTurnSessions={activeTurnSessions}
           selectedSessionId={selectedSessionId}
-          sidebarMode={sidebarMode}
+          mode={sidebarMode}
+          runtimeBaseDirectory={sessionScopeOptions.runtimeBaseDirectory}
+          workspaceRoot={sessionScopeOptions.workspaceRoot}
           onSelectSession={handleSelectSession}
+          onNewChat={handleNewChat}
+          onToggleMode={handleToggleMode}
+          onOpenSearch={openSearch}
+          onOpenSkills={() => console.log('Skills & Integrations')}
+          onRenameSession={(session) => void handleRenameSession(session.sessionId)}
+          onDeleteSession={(session) => void handleDeleteSession(session.sessionId)}
         />
-      </Box>
+
+        <Box flex={1} minW={0} h="100%" overflow="hidden">
+          <ChatArea
+            selectedSessionId={selectedSessionId}
+            sidebarMode={sidebarMode}
+            onSelectSession={handleSelectSession}
+          />
+        </Box>
+      </HStack>
 
       {/* Search Modal - centered on the whole app screen */}
       <AnimatePresence>
