@@ -4534,10 +4534,16 @@ export default function ChatArea({
                   px={0}
                   color="gray.400"
                   minW={0}
-                  _hover={{ color: 'gray.400' }}
-                  _active={{ color: 'gray.400' }}
+                  transition="color 0.2s ease"
+                  _hover={{ color: 'white' }}
+                  _active={{ color: 'white' }}
                   onClick={() => setModeDropdownOpen(!modeDropdownOpen)}
                   fontWeight="normal"
+                  sx={{
+                    '& *': {
+                      transition: 'color 0.2s ease',
+                    },
+                  }}
                 >
                   <Box h="34px" display="flex" alignItems="center" overflow="hidden">
                     <AnimatePresence mode="wait" initial={false}>

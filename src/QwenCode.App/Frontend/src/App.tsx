@@ -56,15 +56,15 @@ function App() {
             key="app-splash"
             initial={{ opacity: 1 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 1.015, filter: 'blur(10px)' }}
+            exit={{ opacity: 0, scale: 1.015 }}
             transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
             style={{ position: 'absolute', inset: 0 }}
           >
             <Center h="100%">
               <VStack spacing={6}>
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.78, y: 18, rotate: -8, filter: 'blur(8px)' }}
-                  animate={{ opacity: 1, scale: 1, y: 0, rotate: 0, filter: 'blur(0px)' }}
+                  initial={{ opacity: 0, scale: 0.78, y: 18, rotate: -8 }}
+                  animate={{ opacity: 1, scale: 1, y: 0, rotate: 0 }}
                   transition={{ duration: 0.62, ease: [0.22, 1, 0.36, 1] }}
                 >
                   <Box
@@ -82,8 +82,8 @@ function App() {
                   />
                 </motion.div>
                 <motion.div
-                  initial={{ opacity: 0, y: 10, filter: 'blur(6px)' }}
-                  animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.42, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
                 >
                   <VStack spacing={1}>
@@ -97,8 +97,8 @@ function App() {
         ) : (
           <motion.div
             key="app-content"
-            initial={{ opacity: 0, y: 22, scale: 0.99, filter: 'blur(12px)' }}
-            animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+            initial={{ opacity: 0, y: 22, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
             style={{ position: 'absolute', inset: 0 }}
           >
